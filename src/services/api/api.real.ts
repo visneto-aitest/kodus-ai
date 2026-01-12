@@ -10,7 +10,46 @@ import type {
 import { ApiError } from '../../types/index.js';
 import type { IKodusApi, IAuthApi, IReviewApi, IConfigApi, ITrialApi, GitMetrics } from './api.interface.js';
 
-const API_BASE_URL = process.env.KODUS_API_URL || 'https://api.kodus.io';
+/**
+ * Validates and returns the API base URL
+ * Prevents URL injection attacks by validating custom API URLs
+ */
+function getApiBaseUrl(): string {
+  const customUrl = process.env.KODUS_API_URL;
+  const defaultUrl = 'https://api.kodus.io';
+
+  if (!customUrl) {
+    return defaultUrl;
+  }
+
+  try {
+    const url = new URL(customUrl);
+
+    // Only allow HTTPS (except localhost for development)
+    const isLocalhost = url.hostname === 'localhost' || url.hostname === '127.0.0.1';
+    if (url.protocol !== 'https:' && !isLocalhost) {
+      console.error('Security Error: KODUS_API_URL must use HTTPS protocol');
+      console.error(`Falling back to default: ${defaultUrl}`);
+      return defaultUrl;
+    }
+
+    // Warn about non-standard API URLs
+    const standardDomains = ['api.kodus.io', 'localhost', '127.0.0.1'];
+    const isStandard = standardDomains.some(domain => url.hostname === domain || url.hostname.endsWith(`.${domain}`));
+
+    if (!isStandard && process.env.KODUS_VERBOSE) {
+      console.warn(`Warning: Using non-standard API URL: ${url.hostname}`);
+    }
+
+    return customUrl;
+  } catch (error) {
+    console.error('Invalid KODUS_API_URL format:', customUrl);
+    console.error(`Falling back to default: ${defaultUrl}`);
+    return defaultUrl;
+  }
+}
+
+const API_BASE_URL = getApiBaseUrl();
 
 async function request<T>(
   endpoint: string,

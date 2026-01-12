@@ -347,15 +347,39 @@ export DO_NOT_TRACK=1
 
 ## Environment Variables
 
-| Variable | Description |
-|----------|-------------|
-| `KODUS_API_URL` | API endpoint (default: https://api.kodus.io) |
-| `KODUS_MOCK` | Set to `true` to use mock API |
-| `KODUS_TOKEN` | CI/CD token for non-interactive environments |
-| `KODUS_TELEMETRY` | Set to `false` to disable telemetry |
-| `DO_NOT_TRACK` | Set to `1` to disable telemetry |
-| `POSTHOG_API_KEY` | Custom PostHog API key |
-| `POSTHOG_HOST` | Custom PostHog host |
+| Variable | Description | Security Notes |
+|----------|-------------|----------------|
+| `KODUS_API_URL` | API endpoint (default: https://api.kodus.io) | ⚠️ Only HTTPS URLs accepted (except localhost). Custom URLs validated for security. |
+| `KODUS_VERBOSE` | Set to `true` to enable verbose logging | ⚠️ **DO NOT use in production/CI** - may expose sensitive data in logs |
+| `KODUS_MOCK` | Set to `true` to use mock API | Development only |
+| `KODUS_TOKEN` | CI/CD token for non-interactive environments | - |
+| `KODUS_TELEMETRY` | Set to `false` to disable telemetry | - |
+| `DO_NOT_TRACK` | Set to `1` to disable telemetry | Standard privacy flag |
+| `POSTHOG_API_KEY` | Custom PostHog API key | Development only |
+| `POSTHOG_HOST` | Custom PostHog host | Development only |
+
+### Verbose Mode
+
+Enable detailed logging for debugging purposes:
+
+```bash
+# Enable verbose logging
+export KODUS_VERBOSE=true
+kodus review
+```
+
+**⚠️ Security Warning:** Verbose mode may log sensitive information including:
+- API responses and errors
+- Authentication token details
+- Full request/response payloads
+
+**Never use verbose mode in:**
+- Production environments
+- CI/CD pipelines
+- Shared or public logs
+- Automated workflows
+
+Verbose mode is intended **only for local development and debugging**.
 
 ## License
 

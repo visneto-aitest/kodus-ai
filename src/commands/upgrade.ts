@@ -10,10 +10,11 @@ export const upgradeCommand = new Command('upgrade')
     console.log(chalk.dim(`URL: ${UPGRADE_URL}\n`));
 
     const open = await getOpenCommand();
-    
+
     if (open) {
-      const { exec } = await import('child_process');
-      exec(`${open} ${UPGRADE_URL}`, (error) => {
+      const { execFile } = await import('child_process');
+      // Use execFile instead of exec to prevent command injection
+      execFile(open, [UPGRADE_URL], (error) => {
         if (error) {
           console.log(chalk.yellow(`Could not open browser. Please visit: ${UPGRADE_URL}`));
         }
