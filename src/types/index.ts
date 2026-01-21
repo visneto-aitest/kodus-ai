@@ -74,10 +74,45 @@ export interface ReviewResult {
   duration: number;
 }
 
+export interface ApiFileSuggestion {
+  id: string;
+  relevantFile: string;
+  filePath?: string;
+  language?: string;
+  suggestionContent: string;
+  existingCode?: string;
+  improvedCode?: string;
+  oneSentenceSummary?: string;
+  relevantLinesStart?: number;
+  relevantLinesEnd?: number;
+  label?: string;
+  severity?: Severity | 'high' | 'medium' | 'low';
+  deliveryStatus?: string;
+  implementationStatus?: string;
+}
+
+export interface ApiPrLevelSuggestion {
+  id: string;
+  suggestionContent: string;
+  oneSentenceSummary?: string;
+  label?: string;
+  severity?: Severity | 'high' | 'medium' | 'low';
+  deliveryStatus?: string;
+  files?: {
+    violatedFileSha?: string[];
+    relatedFileSha?: string[];
+  };
+}
+
+export interface ApiSuggestionsObject {
+  files?: ApiFileSuggestion[];
+  prLevel?: ApiPrLevelSuggestion[];
+}
+
 export interface PullRequestSuggestionsResponse {
   summary?: string;
   issues?: ReviewIssue[];
-  suggestions?: ReviewIssue[];
+  suggestions?: ReviewIssue[] | ApiSuggestionsObject;
   filesAnalyzed?: number;
   duration?: number;
   markdown?: string;

@@ -4,7 +4,7 @@ import { gitService } from './git.service.js';
 import { getTrialIdentifier } from '../utils/rate-limit.js';
 import { loadConfig } from '../utils/config.js';
 import { CLI_VERSION } from '../constants.js';
-import type { ReviewConfig, ReviewResult, TrialReviewResult, PullRequestSuggestionsResponse } from '../types/index.js';
+import type { ReviewConfig, ReviewResult, TrialReviewResult, PullRequestSuggestionsResponse, ReviewIssue, ApiFileSuggestion, ApiPrLevelSuggestion, ApiSuggestionsObject, Severity } from '../types/index.js';
 
 class ReviewService {
   async analyze(
@@ -77,13 +77,58 @@ class ReviewService {
   }
 
   private normalizeSuggestionsResponse(response: PullRequestSuggestionsResponse): ReviewResult {
-    const issues = response.issues ?? response.suggestions ?? [];
+    let issues: ReviewIssue[] = [];
+
+    if (Array.isArray(response.issues)) {
+      issues = response.issues;
+    } else if (Array.isArray(response.suggestions)) {
+      issues = response.suggestions;
+    } else if (response.suggestions && typeof response.suggestions === 'object') {
+      const suggestionsObj = response.suggestions as ApiSuggestionsObject;
+      issues = [
+        ...this.mapFileSuggestions(suggestionsObj.files ?? []),
+        ...this.mapPrLevelSuggestions(suggestionsObj.prLevel ?? []),
+      ];
+    }
+
     return {
       summary: response.summary ?? 'Pull request suggestions',
       issues,
-      filesAnalyzed: response.filesAnalyzed ?? issues.length,
+      filesAnalyzed: response.filesAnalyzed ?? new Set(issues.map(i => i.file)).size,
       duration: response.duration ?? 0,
     };
+  }
+
+  private mapFileSuggestions(files: ApiFileSuggestion[]): ReviewIssue[] {
+    return files.map((s) => ({
+      file: s.filePath ?? s.relevantFile,
+      line: s.relevantLinesStart ?? 1,
+      endLine: s.relevantLinesEnd,
+      severity: this.normalizeSeverity(s.severity),
+      message: s.suggestionContent,
+      suggestion: s.oneSentenceSummary,
+      ruleId: s.label,
+    }));
+  }
+
+  private mapPrLevelSuggestions(prLevel: ApiPrLevelSuggestion[]): ReviewIssue[] {
+    return prLevel.map((s) => ({
+      file: 'PR',
+      line: 0,
+      severity: this.normalizeSeverity(s.severity),
+      message: s.suggestionContent,
+      suggestion: s.oneSentenceSummary,
+      ruleId: s.label,
+    }));
+  }
+
+  private normalizeSeverity(severity?: string): Severity {
+    if (!severity) return 'info';
+    const s = severity.toLowerCase();
+    if (s === 'critical') return 'critical';
+    if (s === 'high' || s === 'error') return 'error';
+    if (s === 'medium' || s === 'warning') return 'warning';
+    return 'info';
   }
 }
 

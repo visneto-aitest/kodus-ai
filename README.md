@@ -345,7 +345,6 @@ export DO_NOT_TRACK=1
 |----------|-------------|----------------|
 | `KODUS_API_URL` | API endpoint (default: https://api.kodus.io) | ⚠️ Only HTTPS URLs accepted (except localhost). Custom URLs validated for security. |
 | `KODUS_VERBOSE` | Set to `true` to enable verbose logging | ⚠️ **DO NOT use in production/CI** - may expose sensitive data in logs |
-| `KODUS_MOCK` | Set to `true` to use mock API | Development only |
 | `KODUS_TOKEN` | CI/CD token for non-interactive environments | - |
 | `KODUS_TEAM_KEY` | Team authentication key for AI coding agents (Codex, Claude Code, Cursor) | - |
 | `KODUS_TELEMETRY` | Set to `false` to disable telemetry | - |
