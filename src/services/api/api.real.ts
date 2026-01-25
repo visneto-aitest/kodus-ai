@@ -95,6 +95,27 @@ async function request<T>(
 
   const json = await response.json() as any;
 
+  if (process.env.KODUS_VERBOSE) {
+    console.log('[API] Raw response structure:', Object.keys(json));
+    if (json && typeof json === 'object') {
+      // Log key fields without logging full content (could be huge)
+      const preview: Record<string, unknown> = {};
+      for (const key of Object.keys(json)) {
+        const val = json[key];
+        if (typeof val === 'string' && val.length > 100) {
+          preview[key] = `[string: ${val.length} chars]`;
+        } else if (Array.isArray(val)) {
+          preview[key] = `[array: ${val.length} items]`;
+        } else if (typeof val === 'object' && val !== null) {
+          preview[key] = `[object: ${Object.keys(val).join(', ')}]`;
+        } else {
+          preview[key] = val;
+        }
+      }
+      console.log('[API] Response preview:', JSON.stringify(preview, null, 2));
+    }
+  }
+
   // API retorna { data: {...}, statusCode, type }
   // Extrair apenas o .data se existir
   if (json && typeof json === 'object' && 'data' in json) {
@@ -204,6 +225,13 @@ class RealReviewApi implements IReviewApi {
   async analyze(diff: string, accessToken: string, config?: ReviewConfig): Promise<ReviewResult> {
     const isTeamKey = accessToken.startsWith('kodus_');
 
+    if (process.env.KODUS_VERBOSE) {
+      console.log('[API] analyze() called');
+      console.log(`[API]   - diff length: ${diff.length} chars`);
+      console.log(`[API]   - isTeamKey: ${isTeamKey}`);
+      console.log(`[API]   - config files: ${config?.files?.length ?? 0}`);
+    }
+
     if (isTeamKey) {
       return request<ReviewResult>('/cli/review', {
         method: 'POST',
@@ -299,6 +327,12 @@ class RealReviewApi implements IReviewApi {
   }
 
   async trialAnalyze(diff: string, fingerprint: string): Promise<TrialReviewResult> {
+    if (process.env.KODUS_VERBOSE) {
+      console.log('[API] trialAnalyze() called');
+      console.log(`[API]   - diff length: ${diff.length} chars`);
+      console.log(`[API]   - fingerprint: ${fingerprint.substring(0, 8)}...`);
+    }
+
     return request<TrialReviewResult>('/cli/trial/review', {
       method: 'POST',
       body: JSON.stringify({ diff, fingerprint }),

@@ -49,10 +49,18 @@ export const reviewCommand = new Command('review')
           spinner.text = chalk.cyan('Getting file changes...');
         }
 
-        let diff = await getDiff(files, options);
+        let diff = await getDiff(files, options, globalOpts.verbose);
 
         if (!diff) {
           spinner.fail(chalk.yellow('No changes to review'));
+          if (globalOpts.verbose) {
+            console.log(chalk.dim('[verbose] Checked scopes:'));
+            console.log(chalk.dim(`  - Specific files: ${files && files.length > 0 ? files.join(', ') : 'none'}`));
+            console.log(chalk.dim(`  - Branch comparison: ${options.branch || 'none'}`));
+            console.log(chalk.dim(`  - Commit: ${options.commit || 'none'}`));
+            console.log(chalk.dim(`  - Staged only: ${options.staged ? 'yes' : 'no'}`));
+            console.log(chalk.dim(`  - Default: ${!files?.length && !options.branch && !options.commit && !options.staged ? 'working tree (staged + unstaged)' : 'no'}`));
+          }
           return;
         }
 
@@ -61,10 +69,18 @@ export const reviewCommand = new Command('review')
           spinner.text = chalk.cyan('Reading project context...');
         }
 
-        diff = await contextService.enrichDiffWithContext(diff, options.context);
+        if (globalOpts.verbose) {
+          console.log(chalk.dim('[verbose] Reading project context files...'));
+        }
+
+        diff = await contextService.enrichDiffWithContext(diff, options.context, globalOpts.verbose);
 
         if (!globalOpts.quiet) {
           spinner.text = chalk.cyan('Analyzing code...');
+        }
+
+        if (globalOpts.verbose) {
+          reviewService.setVerbose(true);
         }
 
         result = await reviewService.analyze(diff, options.rulesOnly, options.fast, {
@@ -92,10 +108,18 @@ export const reviewCommand = new Command('review')
           spinner.text = chalk.cyan('Getting file changes...');
         }
 
-        let diff = await getDiff(files, options);
+        let diff = await getDiff(files, options, globalOpts.verbose);
 
         if (!diff) {
           spinner.fail(chalk.yellow('No changes to review'));
+          if (globalOpts.verbose) {
+            console.log(chalk.dim('[verbose] Checked scopes:'));
+            console.log(chalk.dim(`  - Specific files: ${files && files.length > 0 ? files.join(', ') : 'none'}`));
+            console.log(chalk.dim(`  - Branch comparison: ${options.branch || 'none'}`));
+            console.log(chalk.dim(`  - Commit: ${options.commit || 'none'}`));
+            console.log(chalk.dim(`  - Staged only: ${options.staged ? 'yes' : 'no'}`));
+            console.log(chalk.dim(`  - Default: ${!files?.length && !options.branch && !options.commit && !options.staged ? 'working tree (staged + unstaged)' : 'no'}`));
+          }
           return;
         }
 
@@ -104,10 +128,18 @@ export const reviewCommand = new Command('review')
           spinner.text = chalk.cyan('Reading project context...');
         }
 
-        diff = await contextService.enrichDiffWithContext(diff, options.context);
+        if (globalOpts.verbose) {
+          console.log(chalk.dim('[verbose] Reading project context files...'));
+        }
+
+        diff = await contextService.enrichDiffWithContext(diff, options.context, globalOpts.verbose);
 
         if (!globalOpts.quiet) {
           spinner.text = chalk.cyan('Analyzing code (trial mode)...');
+        }
+
+        if (globalOpts.verbose) {
+          reviewService.setVerbose(true);
         }
 
         result = await reviewService.trialAnalyze(diff);
@@ -158,24 +190,50 @@ export const reviewCommand = new Command('review')
     }
   });
 
-async function getDiff(files: string[], options: { staged?: boolean; commit?: string; branch?: string }): Promise<string> {
+async function getDiff(files: string[], options: { staged?: boolean; commit?: string; branch?: string }, verbose?: boolean): Promise<string> {
+  let diff: string;
+
+  gitService.setVerbose(!!verbose);
+
   if (files && files.length > 0) {
-    return gitService.getDiffForFiles(files);
+    if (verbose) {
+      console.log(chalk.dim(`[verbose] Getting diff for specific files: ${files.join(', ')}`));
+    }
+    diff = await gitService.getDiffForFiles(files);
+  } else if (options.branch) {
+    if (verbose) {
+      console.log(chalk.dim(`[verbose] Getting diff for branch: ${options.branch}`));
+    }
+    diff = await gitService.getDiffForBranch(options.branch);
+  } else if (options.commit) {
+    if (verbose) {
+      console.log(chalk.dim(`[verbose] Getting diff for commit: ${options.commit}`));
+    }
+    diff = await gitService.getDiffForCommit(options.commit);
+  } else if (options.staged) {
+    if (verbose) {
+      console.log(chalk.dim('[verbose] Getting staged diff only'));
+    }
+    diff = await gitService.getStagedDiff();
+  } else {
+    if (verbose) {
+      console.log(chalk.dim('[verbose] Getting working tree diff (staged + unstaged)'));
+    }
+    diff = await gitService.getWorkingTreeDiff();
   }
 
-  if (options.branch) {
-    return gitService.getDiffForBranch(options.branch);
+  if (verbose) {
+    console.log(chalk.dim(`[verbose] Diff result: ${diff ? `${diff.length} characters` : 'empty'}`));
+    if (!diff) {
+      console.log(chalk.dim('[verbose] No changes detected in the requested scope'));
+    } else {
+      // Show first 500 chars of diff for debugging
+      const preview = diff.substring(0, 500);
+      console.log(chalk.dim(`[verbose] Diff preview:\n${preview}${diff.length > 500 ? '\n... (truncated)' : ''}`));
+    }
   }
 
-  if (options.commit) {
-    return gitService.getDiffForCommit(options.commit);
-  }
-
-  if (options.staged) {
-    return gitService.getStagedDiff();
-  }
-
-  return gitService.getWorkingTreeDiff();
+  return diff;
 }
 
 function formatOutput(result: ReviewResult, format: OutputFormat): string {

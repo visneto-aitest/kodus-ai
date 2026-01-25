@@ -1,13 +1,19 @@
 import { simpleGit, SimpleGit } from 'simple-git';
 import fs from 'fs/promises';
 import path from 'path';
+import chalk from 'chalk';
 import type { FileDiff, FileContent, GitInfo, PlatformType } from '../types/index.js';
 
 class GitService {
   private git: SimpleGit;
+  private verbose: boolean = false;
 
   constructor() {
     this.git = simpleGit();
+  }
+
+  setVerbose(verbose: boolean): void {
+    this.verbose = verbose;
   }
 
   private async ensureRepo(): Promise<void> {
@@ -63,41 +69,90 @@ class GitService {
 
   async getWorkingTreeDiff(): Promise<string> {
     await this.ensureRepo();
+
+    if (this.verbose) {
+      // Show git status first for context
+      const status = await this.git.status();
+      console.log(chalk.dim('[verbose] Git status before diff:'));
+      console.log(chalk.dim(`[verbose]   - staged: ${status.staged.length} file(s) - ${status.staged.join(', ') || 'none'}`));
+      console.log(chalk.dim(`[verbose]   - modified: ${status.modified.length} file(s) - ${status.modified.join(', ') || 'none'}`));
+      console.log(chalk.dim(`[verbose]   - not_added: ${status.not_added.length} file(s) - ${status.not_added.join(', ') || 'none'}`));
+      console.log(chalk.dim(`[verbose]   - deleted: ${status.deleted.length} file(s) - ${status.deleted.join(', ') || 'none'}`));
+    }
+
     const staged = await this.git.diff(['--cached']);
     const unstaged = await this.git.diff();
-    return `${staged}\n${unstaged}`.trim();
+    const result = `${staged}\n${unstaged}`.trim();
+
+    if (this.verbose) {
+      console.log(chalk.dim(`[verbose] Staged diff: ${staged ? `${staged.length} chars` : 'empty'}`));
+      console.log(chalk.dim(`[verbose] Unstaged diff: ${unstaged ? `${unstaged.length} chars` : 'empty'}`));
+      console.log(chalk.dim(`[verbose] Combined diff: ${result ? `${result.length} chars` : 'empty'}`));
+    }
+
+    return result;
   }
 
   async getStagedDiff(): Promise<string> {
     await this.ensureRepo();
-    return this.git.diff(['--cached']);
+    const diff = await this.git.diff(['--cached']);
+    
+    if (this.verbose) {
+      console.log(chalk.dim(`[verbose] Staged diff: ${diff ? `${diff.length} chars` : 'empty'}`));
+    }
+    
+    return diff;
   }
 
   async getDiffForCommit(commitSha: string): Promise<string> {
     await this.ensureRepo();
-    return this.git.diff([`${commitSha}^`, commitSha]);
+    const diff = await this.git.diff([`${commitSha}^`, commitSha]);
+    
+    if (this.verbose) {
+      console.log(chalk.dim(`[verbose] Commit ${commitSha} diff: ${diff ? `${diff.length} chars` : 'empty'}`));
+    }
+    
+    return diff;
   }
 
   async getDiffForBranch(branchName: string): Promise<string> {
     await this.ensureRepo();
-    // Compara branch atual contra branch especificado (ex: main)
-    // Usa three-dot notation pra pegar diff desde o merge base
-    return this.git.diff([`${branchName}...HEAD`]);
+    const diff = await this.git.diff([`${branchName}...HEAD`]);
+    
+    if (this.verbose) {
+      console.log(chalk.dim(`[verbose] Branch ${branchName}...HEAD diff: ${diff ? `${diff.length} chars` : 'empty'}`));
+    }
+    
+    return diff;
   }
 
   async getDiffForFiles(files: string[]): Promise<string> {
     await this.ensureRepo();
     const diffs: string[] = [];
     
+    if (this.verbose) {
+      console.log(chalk.dim(`[verbose] Getting diff for ${files.length} file(s): ${files.join(', ')}`));
+    }
+    
     for (const file of files) {
       const stagedDiff = await this.git.diff(['--cached', '--', file]);
       const unstagedDiff = await this.git.diff(['--', file]);
+      
+      if (this.verbose) {
+        console.log(chalk.dim(`[verbose]   ${file}: staged=${stagedDiff ? `${stagedDiff.length} chars` : 'empty'}, unstaged=${unstagedDiff ? `${unstagedDiff.length} chars` : 'empty'}`));
+      }
       
       if (stagedDiff) diffs.push(stagedDiff);
       if (unstagedDiff) diffs.push(unstagedDiff);
     }
 
-    return diffs.join('\n').trim();
+    const result = diffs.join('\n').trim();
+    
+    if (this.verbose) {
+      console.log(chalk.dim(`[verbose] Combined file diff: ${result ? `${result.length} chars` : 'empty'}`));
+    }
+
+    return result;
   }
 
   async getModifiedFiles(): Promise<FileDiff[]> {
@@ -152,16 +207,47 @@ class GitService {
     // 1. Identificar arquivos a processar
     let filesToRead: string[];
 
-    // Fetch modified files once upfront to avoid N+1 performance issue
-    const allModifiedFiles = await this.getModifiedFiles();
-    const modifiedFilesMap = new Map(allModifiedFiles.map(f => [f.file, f]));
+    // Map to track file statuses (A=added, M=modified, D=deleted, R=renamed)
+    const fileStatusMap = new Map<string, FileDiff['status']>();
 
     if (explicitFiles && explicitFiles.length > 0) {
       // Arquivos explícitos fornecidos
       filesToRead = explicitFiles;
+    } else if (options?.branch) {
+      // Branch comparison: get files changed between branch and HEAD with status
+      const nameStatus = await this.git.diff(['--name-status', `${options.branch}...HEAD`]);
+      filesToRead = [];
+      for (const line of nameStatus.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        const [statusChar, ...fileParts] = trimmed.split('\t');
+        const fileName = fileParts.join('\t'); // Handle filenames with tabs
+        if (fileName) {
+          filesToRead.push(fileName);
+          fileStatusMap.set(fileName, this.parseGitStatus(statusChar));
+        }
+      }
+    } else if (options?.commit) {
+      // Commit diff: get files changed in that commit with status
+      const nameStatus = await this.git.diff(['--name-status', `${options.commit}^`, options.commit]);
+      filesToRead = [];
+      for (const line of nameStatus.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        const [statusChar, ...fileParts] = trimmed.split('\t');
+        const fileName = fileParts.join('\t');
+        if (fileName) {
+          filesToRead.push(fileName);
+          fileStatusMap.set(fileName, this.parseGitStatus(statusChar));
+        }
+      }
     } else {
-      // Detectar automaticamente via getModifiedFiles()
+      // Working tree: use getModifiedFiles()
+      const allModifiedFiles = await this.getModifiedFiles();
       filesToRead = allModifiedFiles.map(f => f.file);
+      for (const f of allModifiedFiles) {
+        fileStatusMap.set(f.file, f.status);
+      }
     }
 
     // 2. Para cada arquivo, ler conteúdo E diff
@@ -170,8 +256,7 @@ class GitService {
     for (const filePath of filesToRead) {
       try {
         // Determinar status do arquivo
-        const fileInfo = modifiedFilesMap.get(filePath);
-        const status = fileInfo?.status || 'modified';
+        const status = fileStatusMap.get(filePath) || 'modified';
 
         // Pular arquivos deletados (não tem conteúdo)
         if (status === 'deleted') continue;
@@ -220,6 +305,16 @@ class GitService {
     }
 
     return fileContents;
+  }
+
+  private parseGitStatus(statusChar: string): FileDiff['status'] {
+    const char = statusChar.charAt(0).toUpperCase();
+    switch (char) {
+      case 'A': return 'added';
+      case 'D': return 'deleted';
+      case 'R': return 'renamed';
+      default: return 'modified';
+    }
   }
 
   async getCurrentBranch(): Promise<string> {

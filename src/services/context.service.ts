@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { simpleGit } from 'simple-git';
+import chalk from 'chalk';
 import type { ProjectContext } from '../types/index.js';
 
 /**
@@ -105,9 +106,24 @@ class ContextService {
   /**
    * Enriches diff with project context
    */
-  async enrichDiffWithContext(diff: string, customContextPath?: string): Promise<string> {
+  async enrichDiffWithContext(diff: string, customContextPath?: string, verbose?: boolean): Promise<string> {
     const context = await this.readProjectContext(customContextPath);
     const formattedContext = this.formatContextForReview(context);
+
+    if (verbose) {
+      const contextFiles: string[] = [];
+      if (context.cursorRules) contextFiles.push('.cursorrules');
+      if (context.claudeRules) contextFiles.push('claude.md');
+      if (context.kodusRules) contextFiles.push('.kodus.md');
+      if (context.customContext) contextFiles.push('custom context file');
+      
+      if (contextFiles.length > 0) {
+        console.log(chalk.dim(`[verbose] Found context files: ${contextFiles.join(', ')}`));
+        console.log(chalk.dim(`[verbose] Total context size: ${formattedContext.length} characters`));
+      } else {
+        console.log(chalk.dim('[verbose] No context files found'));
+      }
+    }
 
     if (!formattedContext) {
       return diff;

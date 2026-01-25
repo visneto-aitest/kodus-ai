@@ -4,9 +4,16 @@ import { gitService } from './git.service.js';
 import { getTrialIdentifier } from '../utils/rate-limit.js';
 import { loadConfig } from '../utils/config.js';
 import { CLI_VERSION } from '../constants.js';
+import chalk from 'chalk';
 import type { ReviewConfig, ReviewResult, TrialReviewResult, PullRequestSuggestionsResponse, ReviewIssue, ApiFileSuggestion, ApiPrLevelSuggestion, ApiSuggestionsObject, Severity } from '../types/index.js';
 
 class ReviewService {
+  private verbose: boolean = false;
+
+  setVerbose(verbose: boolean): void {
+    this.verbose = verbose;
+  }
+
   async analyze(
     diff: string,
     rulesOnly?: boolean,
@@ -14,6 +21,11 @@ class ReviewService {
     options?: { files?: string[]; staged?: boolean; commit?: string; branch?: string }
   ): Promise<ReviewResult> {
     const token = await authService.getValidToken();
+
+    if (this.verbose) {
+      console.log(chalk.dim(`[verbose] Review config: rulesOnly=${!!rulesOnly}, fast=${!!fast}`));
+      console.log(chalk.dim(`[verbose] Diff size: ${diff.length} characters`));
+    }
 
     const reviewConfig: ReviewConfig = {
       rulesOnly,
@@ -29,6 +41,15 @@ class ReviewService {
           branch: options?.branch,
         }
       );
+      
+      if (this.verbose) {
+        console.log(chalk.dim(`[verbose] Full file contents: ${reviewConfig.files?.length || 0} file(s)`));
+        if (reviewConfig.files && reviewConfig.files.length > 0) {
+          reviewConfig.files.forEach(f => {
+            console.log(chalk.dim(`[verbose]   - ${f.path}: ${f.content.length} chars, status=${f.status}`));
+          });
+        }
+      }
     }
 
     const teamConfig = await loadConfig();
@@ -40,7 +61,15 @@ class ReviewService {
         ? gitService.inferPlatform(gitInfo.remote)
         : undefined;
 
-      return api.review.analyzeWithMetrics(
+      if (this.verbose) {
+        console.log(chalk.dim('[verbose] Using team key with metrics'));
+        console.log(chalk.dim(`[verbose] Git info: branch=${gitInfo.branch}, remote=${gitInfo.remote}`));
+        console.log(chalk.dim('[verbose] Sending to API:'));
+        console.log(chalk.dim(`[verbose]   - diff length: ${diff.length} chars`));
+        console.log(chalk.dim(`[verbose]   - config: ${JSON.stringify(reviewConfig)}`));
+      }
+
+      const result = await api.review.analyzeWithMetrics(
         diff,
         token,
         reviewConfig,
@@ -53,9 +82,37 @@ class ReviewService {
           cliVersion: CLI_VERSION,
         }
       );
+
+      if (this.verbose) {
+        console.log(chalk.dim('[verbose] API response:'));
+        console.log(chalk.dim(`[verbose]   - summary: ${result.summary}`));
+        console.log(chalk.dim(`[verbose]   - issues: ${result.issues?.length ?? 0}`));
+        console.log(chalk.dim(`[verbose]   - filesAnalyzed: ${result.filesAnalyzed}`));
+      }
+
+      return result;
     }
 
-    return api.review.analyze(diff, token, reviewConfig);
+    if (this.verbose) {
+      console.log(chalk.dim('[verbose] Using personal token (no metrics)'));
+    }
+
+    if (this.verbose) {
+      console.log(chalk.dim('[verbose] Sending to API:'));
+      console.log(chalk.dim(`[verbose]   - diff length: ${diff.length} chars`));
+      console.log(chalk.dim(`[verbose]   - config: ${JSON.stringify(reviewConfig)}`));
+    }
+
+    const result = await api.review.analyze(diff, token, reviewConfig);
+
+    if (this.verbose) {
+      console.log(chalk.dim('[verbose] API response:'));
+      console.log(chalk.dim(`[verbose]   - summary: ${result.summary}`));
+      console.log(chalk.dim(`[verbose]   - issues: ${result.issues?.length ?? 0}`));
+      console.log(chalk.dim(`[verbose]   - filesAnalyzed: ${result.filesAnalyzed}`));
+    }
+
+    return result;
   }
 
   async getPullRequestSuggestions(params: { prUrl?: string; prNumber?: number; repositoryId?: string; format?: 'markdown'; severity?: string; category?: string }): Promise<{ result: ReviewResult; markdown?: string }> {
@@ -73,7 +130,25 @@ class ReviewService {
 
   async trialAnalyze(diff: string): Promise<TrialReviewResult> {
     const fingerprint = await getTrialIdentifier();
-    return api.review.trialAnalyze(diff, fingerprint);
+
+    if (this.verbose) {
+      console.log(chalk.dim('[verbose] Running trial analyze'));
+      console.log(chalk.dim(`[verbose] Diff size: ${diff.length} characters`));
+      // Show diff preview
+      const preview = diff.substring(0, 300);
+      console.log(chalk.dim(`[verbose] Diff preview:\n${preview}${diff.length > 300 ? '\n... (truncated)' : ''}`));
+    }
+
+    const result = await api.review.trialAnalyze(diff, fingerprint);
+
+    if (this.verbose) {
+      console.log(chalk.dim('[verbose] Trial API response:'));
+      console.log(chalk.dim(`[verbose]   - summary: ${result.summary}`));
+      console.log(chalk.dim(`[verbose]   - issues: ${result.issues?.length ?? 0}`));
+      console.log(chalk.dim(`[verbose]   - filesAnalyzed: ${result.filesAnalyzed}`));
+    }
+
+    return result;
   }
 
   private normalizeSuggestionsResponse(response: PullRequestSuggestionsResponse): ReviewResult {
