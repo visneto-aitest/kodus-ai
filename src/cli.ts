@@ -4,6 +4,7 @@ import { reviewCommand } from './commands/review.js';
 import { authCommand } from './commands/auth/index.js';
 import { upgradeCommand } from './commands/upgrade.js';
 import { prCommand } from './commands/pr.js';
+import { checkForUpdates } from './utils/update-check.js';
 
 const require = createRequire(import.meta.url);
 const pkg = require('../package.json') as { version: string };
@@ -24,5 +25,9 @@ program.addCommand(reviewCommand);
 program.addCommand(authCommand);
 program.addCommand(upgradeCommand);
 program.addCommand(prCommand);
+
+program.hook('postAction', async () => {
+  await checkForUpdates(pkg.version);
+});
 
 export { program };
