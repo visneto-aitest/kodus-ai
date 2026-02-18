@@ -143,7 +143,12 @@ class ReviewService {
         throw error;
       }
 
-      response = await api.review.getPullRequestSuggestions(config.teamKey, params);
+      try {
+        response = await api.review.getPullRequestSuggestions(config.teamKey, params);
+      } catch {
+        // Preserve the primary auth failure from the original token attempt.
+        throw error;
+      }
     }
 
     return {

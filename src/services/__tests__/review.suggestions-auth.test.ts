@@ -89,4 +89,24 @@ describe('ReviewService getPullRequestSuggestions auth fallback', () => {
       reviewService.getPullRequestSuggestions({ prUrl: 'https://github.com/kodustech/cli/pull/6' }),
     ).rejects.toThrow(ApiError);
   });
+
+  it('rethrows original bearer error when fallback with team key also fails', async () => {
+    const originalError = new ApiError(401, 'Bearer unauthorized');
+    const fallbackError = new ApiError(401, 'Team key unauthorized');
+
+    mockAuthService.getValidToken.mockResolvedValue('eyJ.user.token');
+    mockLoadConfig.mockResolvedValue({
+      teamKey: 'kodus_team_key',
+      teamName: 'Team',
+      organizationName: 'Org',
+    } as any);
+    mockApi.review.getPullRequestSuggestions = vi
+      .fn()
+      .mockRejectedValueOnce(originalError)
+      .mockRejectedValueOnce(fallbackError);
+
+    await expect(
+      reviewService.getPullRequestSuggestions({ prUrl: 'https://github.com/kodustech/cli/pull/6' }),
+    ).rejects.toBe(originalError);
+  });
 });
