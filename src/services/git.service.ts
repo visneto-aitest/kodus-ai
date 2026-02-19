@@ -285,9 +285,11 @@ class GitService {
         if (options?.commit) {
           // Ler do commit específico
           content = await this.git.show([`${options.commit}:${filePath}`]);
+        } else if (options?.branch) {
+          // Em branch comparison, usar HEAD para manter consistência com o diff target
+          content = await this.git.show([`HEAD:${filePath}`]);
         } else {
           // Ler do working tree (fs.readFile)
-          // Para branch comparison, lê a versão atual (HEAD)
           const fullPath = path.resolve(filePath);
           content = await fs.readFile(fullPath, 'utf-8');
         }
@@ -386,4 +388,3 @@ class GitService {
 }
 
 export const gitService = new GitService();
-

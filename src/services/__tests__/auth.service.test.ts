@@ -22,11 +22,12 @@ vi.mock('../../utils/credentials.js', () => ({
 
 vi.mock('../../utils/config.js', () => ({
   loadConfig: vi.fn(),
+  clearConfig: vi.fn(),
 }));
 
 import { api } from '../api/index.js';
 import { loadCredentials, saveCredentials, clearCredentials } from '../../utils/credentials.js';
-import { loadConfig } from '../../utils/config.js';
+import { clearConfig, loadConfig } from '../../utils/config.js';
 import { AuthService } from '../auth.service.js';
 
 const mockApi = vi.mocked(api);
@@ -34,6 +35,7 @@ const mockLoadCredentials = vi.mocked(loadCredentials);
 const mockSaveCredentials = vi.mocked(saveCredentials);
 const mockClearCredentials = vi.mocked(clearCredentials);
 const mockLoadConfig = vi.mocked(loadConfig);
+const mockClearConfig = vi.mocked(clearConfig);
 
 function makeCredentials(overrides: Partial<StoredCredentials> = {}): StoredCredentials {
   return {
@@ -90,6 +92,7 @@ describe('AuthService', () => {
 
       expect(mockApi.auth.logout).toHaveBeenCalledWith('access-token');
       expect(mockClearCredentials).toHaveBeenCalled();
+      expect(mockClearConfig).toHaveBeenCalled();
     });
 
     it('ignores API errors during logout silently', async () => {
@@ -100,6 +103,7 @@ describe('AuthService', () => {
       await authService.logout();
 
       expect(mockClearCredentials).toHaveBeenCalled();
+      expect(mockClearConfig).toHaveBeenCalled();
     });
   });
 
@@ -132,12 +136,23 @@ describe('AuthService', () => {
   });
 
   describe('getValidToken', () => {
-    it('returns teamKey when it exists', async () => {
+    it('returns teamKey when no personal credentials exist', async () => {
+      mockLoadCredentials.mockResolvedValue(null);
       mockLoadConfig.mockResolvedValue({ teamKey: 'kodus_team_key' } as any);
 
       const token = await authService.getValidToken();
 
       expect(token).toBe('kodus_team_key');
+    });
+
+    it('prefers personal access token when both credentials and teamKey exist', async () => {
+      mockLoadConfig.mockResolvedValue({ teamKey: 'kodus_team_key' } as any);
+      const creds = makeCredentials({ accessToken: 'personal-token', expiresAt: Date.now() + 60 * 60 * 1000 });
+      mockLoadCredentials.mockResolvedValue(creds);
+
+      const token = await authService.getValidToken();
+
+      expect(token).toBe('personal-token');
     });
 
     it('returns accessToken when not expired', async () => {
@@ -176,6 +191,18 @@ describe('AuthService', () => {
 
       await expect(authService.getValidToken()).rejects.toThrow(AuthError);
       expect(mockClearCredentials).toHaveBeenCalled();
+    });
+
+    it('falls back to teamKey when refresh fails and teamKey exists', async () => {
+      mockLoadConfig.mockResolvedValue({ teamKey: 'kodus_team_key' } as any);
+      const expiredCreds = makeCredentials({ expiresAt: Date.now() - 1000 });
+      mockLoadCredentials.mockResolvedValue(expiredCreds);
+      mockApi.auth.refresh = vi.fn().mockRejectedValue(new Error('refresh failed'));
+
+      const token = await authService.getValidToken();
+
+      expect(mockClearCredentials).toHaveBeenCalled();
+      expect(token).toBe('kodus_team_key');
     });
 
     it('throws AuthError when no credentials exist', async () => {

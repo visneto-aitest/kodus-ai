@@ -4,7 +4,7 @@ import {
   saveCredentials,
   clearCredentials,
 } from '../utils/credentials.js';
-import { loadConfig } from '../utils/config.js';
+import { clearConfig, loadConfig } from '../utils/config.js';
 import type { StoredCredentials, AuthResponse } from '../types/index.js';
 import { AuthError } from '../types/index.js';
 
@@ -30,6 +30,7 @@ class AuthService {
     }
 
     await clearCredentials();
+    await clearConfig();
     this.cachedCredentials = null;
   }
 
@@ -51,14 +52,13 @@ class AuthService {
   }
 
   async getValidToken(): Promise<string> {
-    const config = await loadConfig();
-    if (config?.teamKey) {
-      return config.teamKey;
-    }
-
     const credentials = await this.getCredentials();
 
     if (!credentials) {
+      const config = await loadConfig();
+      if (config?.teamKey) {
+        return config.teamKey;
+      }
       throw new AuthError('Not authenticated. Run: kodus auth login or kodus auth team-key --key <your-key>');
     }
 
@@ -72,6 +72,10 @@ class AuthService {
       } catch (error) {
         await clearCredentials();
         this.cachedCredentials = null;
+        const config = await loadConfig();
+        if (config?.teamKey) {
+          return config.teamKey;
+        }
         throw new AuthError('Session expired. Run: kodus auth login');
       }
     }
@@ -109,4 +113,3 @@ class AuthService {
 
 export { AuthService };
 export const authService = new AuthService();
-

@@ -8,6 +8,7 @@ import type {
 } from '../../types/index.js';
 import { ApiError } from '../../types/index.js';
 import type { IKodusApi, IAuthApi, IReviewApi, ITrialApi, GitMetrics } from './api.interface.js';
+import { getDeviceIdentity, updateDeviceToken } from '../../utils/device.js';
 
 /**
  * Validates and returns the API base URL
@@ -51,14 +52,45 @@ function getApiBaseUrl(): string {
 const API_BASE_URL = getApiBaseUrl();
 const REQUEST_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes
 
+interface ApiErrorPayload {
+  message?: string;
+  code?: string;
+  details?: {
+    limit?: number;
+    activeDevices?: number;
+  };
+}
+
+function getApiErrorMessage(statusCode: number, errorData: ApiErrorPayload): string {
+  if (errorData.code === 'DEVICE_LIMIT_REACHED') {
+    const limit = errorData.details?.limit;
+    const activeDevices = errorData.details?.activeDevices;
+    if (typeof limit === 'number' && typeof activeDevices === 'number') {
+      return `Device limit reached (${activeDevices}/${limit}). Remove an old device or contact your admin.`;
+    }
+    return 'Device limit reached for this organization. Remove an old device or contact your admin.';
+  }
+
+  return errorData.message || `Request failed with status ${statusCode}`;
+}
+
 async function request<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
+  let deviceIdentity: { deviceId: string; deviceToken?: string } | undefined;
 
   if (process.env.KODUS_VERBOSE) {
     console.log(`[API] ${options.method || 'GET'} ${url}`);
+  }
+
+  try {
+    deviceIdentity = await getDeviceIdentity();
+  } catch (error) {
+    if (process.env.KODUS_VERBOSE) {
+      console.warn('[API] Unable to resolve device id:', error);
+    }
   }
 
   const controller = new AbortController();
@@ -71,6 +103,8 @@ async function request<T>(
       signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
+        ...(deviceIdentity?.deviceId ? { 'X-Kodus-Device-Id': deviceIdentity.deviceId } : {}),
+        ...(deviceIdentity?.deviceToken ? { 'X-Kodus-Device-Token': deviceIdentity.deviceToken } : {}),
         ...options.headers,
       },
     });
@@ -84,14 +118,19 @@ async function request<T>(
 
   clearTimeout(timeout);
 
+  const responseDeviceToken = response.headers.get('x-kodus-device-token');
+  if (responseDeviceToken) {
+    await updateDeviceToken(responseDeviceToken).catch(() => {});
+  }
+
   const contentType = response.headers.get('content-type') || '';
   const isJson = contentType.includes('application/json');
 
   if (!response.ok) {
     const errorData = isJson
-      ? await response.json().catch(() => ({ message: 'Request failed' })) as { message?: string }
+      ? await response.json().catch(() => ({ message: 'Request failed' })) as ApiErrorPayload
       : { message: `Request failed with status ${response.status}` };
-    const errorMessage = errorData.message || `Request failed with status ${response.status}`;
+    const errorMessage = getApiErrorMessage(response.status, errorData);
 
     if (process.env.KODUS_VERBOSE) {
       console.error('[API] Error:', { status: response.status, url, contentType, errorData });
@@ -365,10 +404,13 @@ class RealReviewApi implements IReviewApi {
 
     const queryString = query.toString();
     const endpoint = `/pull-requests/suggestions${queryString ? `?${queryString}` : ''}`;
+    const isTeamKey = accessToken.startsWith('kodus_');
 
     return requestWithRetry<PullRequestSuggestionsResponse>(endpoint, {
       headers: {
-        Authorization: `Bearer ${accessToken}`,
+        ...(isTeamKey
+          ? { 'X-Team-Key': accessToken }
+          : { Authorization: `Bearer ${accessToken}` }),
       },
     });
   }
