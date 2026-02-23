@@ -16,7 +16,7 @@ vi.mock('../../utils/module-matcher.js', () => ({
 
 import { gitService } from '../../services/git.service.js';
 import { enableAction } from '../memory/enable.js';
-import { MERGE_HOOK_MARKER, CODEX_NOTIFY_LINE } from '../memory/hooks.js';
+import { MERGE_HOOK_MARKER, CODEX_NOTIFY_LINE, CODEX_NOTIFY_LINE_LEGACY } from '../memory/hooks.js';
 
 let tmpDir: string;
 
@@ -70,6 +70,18 @@ describe('enableAction', () => {
 
     const calls = vi.mocked(console.log).mock.calls.flat().join('\n');
     expect(calls).toContain('already configured');
+  });
+
+  it('migrates legacy codex notify line to stop event', async () => {
+    const codexConfig = path.join(tmpDir, '.codex', 'config.toml');
+    await fs.mkdir(path.dirname(codexConfig), { recursive: true });
+    await fs.writeFile(codexConfig, `${CODEX_NOTIFY_LINE_LEGACY}\n`, 'utf-8');
+
+    await enableAction({ codexConfig });
+
+    const content = await fs.readFile(codexConfig, 'utf-8');
+    expect(content).toContain(CODEX_NOTIFY_LINE);
+    expect(content).not.toContain(CODEX_NOTIFY_LINE_LEGACY);
   });
 
   it('--agents claude skips codex', async () => {

@@ -342,7 +342,7 @@ describe('decisions integration', () => {
 
     const codexConfigPath = path.join(tmpHome, '.codex', 'config.toml');
     const codexConfig = await fs.readFile(codexConfigPath, 'utf-8');
-    expect(codexConfig).toContain('notify = ["kodus", "decisions", "capture", "--agent", "codex", "--event", "agent-turn-complete"]');
+    expect(codexConfig).toContain('notify = ["kodus", "decisions", "capture", "--agent", "codex", "--event", "stop"]');
 
     const hookPath = path.join(gitRepoDir, '.git', 'hooks', 'post-merge');
     const hookContent = await fs.readFile(hookPath, 'utf-8');

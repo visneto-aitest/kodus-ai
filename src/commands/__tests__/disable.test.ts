@@ -12,7 +12,7 @@ vi.mock('../../services/git.service.js', () => ({
 
 import { gitService } from '../../services/git.service.js';
 import { disableAction } from '../memory/disable.js';
-import { MERGE_HOOK_MARKER, CODEX_NOTIFY_LINE } from '../memory/hooks.js';
+import { MERGE_HOOK_MARKER, CODEX_NOTIFY_LINE, CODEX_NOTIFY_LINE_LEGACY } from '../memory/hooks.js';
 
 let tmpDir: string;
 let originalHome: string;
@@ -67,6 +67,18 @@ describe('disableAction', () => {
 
     const content = await fs.readFile(codexPath, 'utf-8');
     expect(content).not.toContain(CODEX_NOTIFY_LINE);
+    expect(content).toContain('model = "gpt-4"');
+  });
+
+  it('removes legacy Codex notify line', async () => {
+    const codexPath = path.join(tmpDir, '.codex', 'config.toml');
+    await fs.mkdir(path.dirname(codexPath), { recursive: true });
+    await fs.writeFile(codexPath, `model = "gpt-4"\n${CODEX_NOTIFY_LINE_LEGACY}\n`);
+
+    await disableAction();
+
+    const content = await fs.readFile(codexPath, 'utf-8');
+    expect(content).not.toContain(CODEX_NOTIFY_LINE_LEGACY);
     expect(content).toContain('model = "gpt-4"');
   });
 

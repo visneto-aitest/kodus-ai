@@ -18,6 +18,8 @@ export const CLAUDE_CAPTURE_COMMANDS = {
 };
 
 export const CODEX_NOTIFY_LINE =
+  'notify = ["kodus", "decisions", "capture", "--agent", "codex", "--event", "stop"]';
+export const CODEX_NOTIFY_LINE_LEGACY =
   'notify = ["kodus", "decisions", "capture", "--agent", "codex", "--event", "agent-turn-complete"]';
 
 export const MERGE_HOOK_MARKER = '# kodus-memory-post-merge';
@@ -221,6 +223,12 @@ export async function installCodexNotify(configPath: string): Promise<{
     return { configPath, changed: false, skipped: false, reason: '' };
   }
 
+  if (content.includes(CODEX_NOTIFY_LINE_LEGACY)) {
+    const nextContent = content.replace(CODEX_NOTIFY_LINE_LEGACY, CODEX_NOTIFY_LINE);
+    await fs.writeFile(configPath, nextContent, 'utf-8');
+    return { configPath, changed: true, skipped: false, reason: '' };
+  }
+
   if (notifyLinePattern.test(content)) {
     return {
       configPath,
@@ -365,13 +373,13 @@ export async function removeCodexNotify(configPath: string): Promise<{ configPat
     return { configPath, removed: false };
   }
 
-  if (!content.includes(CODEX_NOTIFY_LINE)) {
+  if (!content.includes(CODEX_NOTIFY_LINE) && !content.includes(CODEX_NOTIFY_LINE_LEGACY)) {
     return { configPath, removed: false };
   }
 
   const nextContent = content
     .split('\n')
-    .filter((line) => line.trim() !== CODEX_NOTIFY_LINE)
+    .filter((line) => line.trim() !== CODEX_NOTIFY_LINE && line.trim() !== CODEX_NOTIFY_LINE_LEGACY)
     .join('\n')
     .replace(/\n{3,}/g, '\n\n')
     .replace(/^\n+/, '')
