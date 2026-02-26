@@ -26,10 +26,17 @@ import { usePermission } from "@services/permissions/hooks";
 import { Action, ResourceType } from "@services/permissions/types";
 import { pluralize } from "src/core/utils/string";
 
+const entityDescription = {
+    rules: "Kody analyzed your past reviews and generated these rules:",
+    memories: "Kody generated these memories based on your past interactions:",
+};
+
 export const PendingKodyRulesModal = ({
     pendingRules,
+    entityLabel = "rules",
 }: {
     pendingRules: KodyRule[];
+    entityLabel?: "rules" | "memories";
 }) => {
     const [selectedRuleIds, setSelectedRuleIds] = useState<string[]>([]);
     const canEdit = usePermission(
@@ -49,11 +56,13 @@ export const PendingKodyRulesModal = ({
         <Dialog open onOpenChange={() => magicModal.hide()}>
             <DialogContent className="max-h-[80vh] max-w-(--breakpoint-md)">
                 <DialogHeader>
-                    <DialogTitle>New Rules Ready</DialogTitle>
+                    <DialogTitle>
+                        New {entityLabel === "memories" ? "Memories" : "Rules"}{" "}
+                        Ready
+                    </DialogTitle>
 
                     <DialogDescription>
-                        Kody analyzed your past reviews and generated these
-                        rules:
+                        {entityDescription[entityLabel]}
                     </DialogDescription>
                 </DialogHeader>
 
@@ -141,8 +150,11 @@ export const PendingKodyRulesModal = ({
                                     {selectedRuleIds.length}
                                 </strong>{" "}
                                 {pluralize(selectedRuleIds.length, {
-                                    plural: "rules",
-                                    singular: "rule",
+                                    plural: entityLabel,
+                                    singular:
+                                        entityLabel === "memories"
+                                            ? "memory"
+                                            : "rule",
                                 })}{" "}
                                 selected
                             </span>
@@ -163,7 +175,7 @@ export const PendingKodyRulesModal = ({
                         onClick={() =>
                             changeStatusRules(KodyRulesStatus.ACTIVE)
                         }>
-                        Import rules
+                        Import {entityLabel}
                     </Button>
                 </DialogFooter>
             </DialogContent>

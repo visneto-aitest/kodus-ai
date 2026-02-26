@@ -251,6 +251,14 @@ const KodyRulesPageContent = () => {
         [pendingRules],
     );
 
+    const pendingMemories = useMemo(
+        () =>
+            pendingRules.filter(
+                (rule) => getRuleType(rule) === KodyRulesType.MEMORY,
+            ),
+        [pendingRules],
+    );
+
     const currentRulesState =
         activeTab === "memories" ? memoriesState : reviewRulesState;
 
@@ -310,9 +318,15 @@ const KodyRulesPageContent = () => {
         if (response) await refreshRulesList();
     };
 
-    const showPendingRules = async () => {
+    const showPendingRules = async (
+        rules: KodyRule[],
+        entityLabel: "rules" | "memories",
+    ) => {
         const response = await magicModal.show(() => (
-            <PendingKodyRulesModal pendingRules={pendingReviewRules} />
+            <PendingKodyRulesModal
+                pendingRules={rules}
+                entityLabel={entityLabel}
+            />
         ));
         if (response) refreshRulesList();
     };
@@ -333,6 +347,12 @@ const KodyRulesPageContent = () => {
     const showHeaderActions = activeTab !== "configuration";
 
     const canShowDiscovery = activeTab === "review-rules";
+
+    const pendingItemsForActiveTab =
+        activeTab === "memories" ? pendingMemories : pendingReviewRules;
+
+    const pendingEntityLabel: "rules" | "memories" =
+        activeTab === "memories" ? "memories" : "rules";
 
     if (
         platformConfig.kodyLearningStatus ===
@@ -394,19 +414,23 @@ const KodyRulesPageContent = () => {
                                 </KodyRulesLimitPopover>
                             )}
                         </Page.HeaderActions>
-                        {activeTab === "review-rules" &&
-                            pendingReviewRules.length > 0 && (
-                                <div className="flex justify-end">
-                                    <Button
-                                        size="md"
-                                        variant="helper"
-                                        className="border-e-primary-light rounded-e-none border-e-4"
-                                        leftIcon={<BellRing />}
-                                        onClick={showPendingRules}>
-                                        Check out new rules!
-                                    </Button>
-                                </div>
-                            )}
+                        {pendingItemsForActiveTab.length > 0 && (
+                            <div className="flex justify-end">
+                                <Button
+                                    size="md"
+                                    variant="helper"
+                                    className="border-e-primary-light rounded-e-none border-e-4"
+                                    leftIcon={<BellRing />}
+                                    onClick={() =>
+                                        showPendingRules(
+                                            pendingItemsForActiveTab,
+                                            pendingEntityLabel,
+                                        )
+                                    }>
+                                    Check out new {pendingEntityLabel}!
+                                </Button>
+                            </div>
+                        )}
                     </div>
                 )}
             </Page.Header>
