@@ -8,9 +8,9 @@ import chalk from 'chalk';
 import { ApiError } from '../types/index.js';
 import type { ReviewConfig, ReviewResult, TrialReviewResult, PullRequestSuggestionsResponse, ReviewIssue, ApiFileSuggestion, ApiPrLevelSuggestion, ApiSuggestionsObject, Severity, FileContent } from '../types/index.js';
 
-const MAX_FILES = 100;
-const MAX_DIFF_SIZE = 500 * 1024;       // 500KB
-const MAX_CONTENT_SIZE = 2 * 1024 * 1024; // 2MB
+const MAX_FILES = 500;
+const MAX_DIFF_SIZE = 1024 * 1024;       // 1MB
+const MAX_CONTENT_SIZE = 5 * 1024 * 1024; // 5MB
 
 class ReviewService {
   private verbose: boolean = false;
