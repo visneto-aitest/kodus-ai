@@ -918,6 +918,15 @@ ${mediumText}
 **LOW** - Minimal impact
 ${lowText}
 
+## Memory Rules Precedence
+
+When the external context contains a **Memories** section:
+1. Treat every memory rule as high-priority review guidance.
+2. Run an explicit memory compliance pass on changed lines before finalizing output.
+3. If a memory rule applies, prioritize surfacing that issue with concrete evidence from the diff.
+4. Do not ignore applicable memory rules just because the issue is subtle.
+5. If a memory rule conflicts with explicit visible code behavior, prioritize visible code evidence.
+
 ## Analysis Rules
 
 ### MUST DO:
@@ -1289,6 +1298,10 @@ DO NOT speculate about:
 
 ## Analysis Process
 Follow this step-by-step thinking:
+
+0. **Memory Compliance Pre-check**:
+    - If a **Memories** section is present in external context, evaluate each memory rule against the changed '+' lines before other checks.
+    - Prioritize reporting issues that are direct violations of applicable memory rules.
 
 1. **Identify Potential Issues by Category**:
    - Consider how the code behaves with common inputs (empty, null, invalid)

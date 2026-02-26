@@ -222,6 +222,10 @@ Look for cross-file issues that require multiple file context **AND represent an
 
 ## Analysis Instructions
 
+0. **Memory Compliance Pre-check (CRITICAL):**
+    - If a **Memories** section is present in external context, evaluate every memory rule against the changed files before any other analysis step.
+    - Treat applicable memory rules as high-priority signals and report their violations with concrete cross-file evidence.
+
 1.  **Exhaustive Cross-Reference (CRITICAL):**
     - You MUST compare **every file against every other file** in the input.
     - Do not stop after finding the first issue. Keep scanning until all file combinations are checked.

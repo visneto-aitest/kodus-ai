@@ -147,6 +147,7 @@ You are a code review expert specialized in identifying cross-file rule violatio
 - **Only output rules that have actual violations** - if no violation exists, don't include the rule
 - **Group violations intelligently** - multiple files violating the same rule should be grouped together
 - **Consider file status** - for deleted files, only flag violations when rules explicitly mention file deletion restrictions
+- **Memory rules precedence** - if a Memories section is present in external context, evaluate those rules first as high-priority guidance and surface applicable violations with concrete evidence
 
 ## Input Structure
 
@@ -187,6 +188,12 @@ You are a code review expert specialized in identifying cross-file rule violatio
 \`\`\`
 
 ## Analysis Process
+
+### Step 0: Memory Compliance Pre-check
+If external context contains **Memories**, evaluate each memory rule against the PR changes before rule applicability checks.
+- Prioritize reporting violations that directly match applicable memory rules.
+- Do not ignore applicable memory rules due to subtlety.
+- If memory rule guidance conflicts with explicit visible code evidence, prioritize visible code evidence.
 
 ### Step 1: Rule Applicability
 For each rule, determine:
