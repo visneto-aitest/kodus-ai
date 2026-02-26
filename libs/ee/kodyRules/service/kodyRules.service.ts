@@ -15,6 +15,7 @@ import {
     PromptRole,
     PromptRunnerService,
 } from '@kodus/kodus-common/llm';
+import { isFileMatchingGlob } from '@libs/common/utils/glob-utils';
 import { kodyRulesRecommendationSchema } from '@libs/common/utils/langchainCommon/prompts/kodyRulesRecommendation';
 import { ProgrammingLanguage } from '@libs/core/domain/enums';
 import {
@@ -49,6 +50,8 @@ import {
 } from '@libs/kodyRules/domain/contracts/ruleLike.service.contract';
 import { KodyRulesEntity } from '@libs/kodyRules/domain/entities/kodyRules.entity';
 import {
+    FindMemoriesFilters,
+    FindMemoriesResult,
     IKodyRule,
     IKodyRuleMemory,
     IKodyRules,
@@ -1234,6 +1237,131 @@ Analyze the suggestions and recommend the most relevant rules.`;
                     userInfo,
                 },
             });
+            throw error;
+        }
+    }
+
+    async findMemories(
+        organizationAndTeamData: OrganizationAndTeamData,
+        filters?: FindMemoriesFilters,
+    ): Promise<FindMemoriesResult[]> {
+        try {
+            const entity = await this.findByOrganizationId(
+                organizationAndTeamData.organizationId,
+            );
+
+            if (!entity?.rules?.length) {
+                return [];
+            }
+
+            const safeLimit = Math.min(Math.max(filters?.limit ?? 20, 1), 20);
+            const normalizedKeywords = (filters?.keywords || [])
+                .map((keyword) => keyword?.trim())
+                .filter((keyword): keyword is string => Boolean(keyword));
+            const normalizedPathFilter = filters?.path?.trim();
+
+            const filteredMemories = entity.rules
+                .filter((rule): rule is IKodyRule => {
+                    if (rule.type !== KodyRulesType.MEMORY) {
+                        return false;
+                    }
+
+                    if (rule.status !== KodyRulesStatus.ACTIVE) {
+                        return false;
+                    }
+
+                    if (
+                        filters?.repositoryId &&
+                        rule.repositoryId !== filters.repositoryId
+                    ) {
+                        return false;
+                    }
+
+                    if (
+                        filters?.directoryId &&
+                        rule.directoryId !== filters.directoryId
+                    ) {
+                        return false;
+                    }
+
+                    if (normalizedPathFilter) {
+                        const memoryPath = rule.path?.trim();
+                        if (!memoryPath) {
+                            return false;
+                        }
+
+                        const matchesByFilterPattern = isFileMatchingGlob(
+                            memoryPath,
+                            [normalizedPathFilter],
+                        );
+                        const matchesByMemoryPattern = isFileMatchingGlob(
+                            normalizedPathFilter,
+                            [memoryPath],
+                        );
+
+                        if (
+                            !matchesByFilterPattern &&
+                            !matchesByMemoryPattern
+                        ) {
+                            return false;
+                        }
+                    }
+
+                    if (normalizedKeywords.length > 0) {
+                        const haystack =
+                            `${rule.title || ''} ${rule.rule || ''}`
+                                .trim()
+                                .toLowerCase();
+
+                        if (!haystack) {
+                            return false;
+                        }
+
+                        const hasKeywordMatch = normalizedKeywords.some(
+                            (keyword) =>
+                                haystack.includes(keyword.toLowerCase()),
+                        );
+
+                        if (!hasKeywordMatch) {
+                            return false;
+                        }
+                    }
+
+                    return true;
+                })
+                .sort((a, b) => {
+                    const aTime = a.createdAt
+                        ? new Date(a.createdAt).getTime()
+                        : 0;
+                    const bTime = b.createdAt
+                        ? new Date(b.createdAt).getTime()
+                        : 0;
+
+                    return bTime - aTime;
+                })
+                .slice(0, safeLimit)
+                .map((memory) => ({
+                    uuid: memory.uuid,
+                    title: memory.title,
+                    rule: memory.rule,
+                    repositoryId: memory.repositoryId,
+                    directoryId: memory.directoryId || undefined,
+                    path: memory.path || undefined,
+                    createdAt: memory.createdAt.toISOString(),
+                }));
+
+            return filteredMemories;
+        } catch (error) {
+            this.logger.error({
+                message: 'Error in findMemories',
+                error,
+                context: KodyRulesService.name,
+                metadata: {
+                    organizationAndTeamData,
+                    filters,
+                },
+            });
+
             throw error;
         }
     }

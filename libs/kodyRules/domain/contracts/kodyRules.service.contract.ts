@@ -8,6 +8,8 @@ import { OrganizationAndTeamData } from '@libs/core/infrastructure/config/types/
 import { CreateKodyRuleDto } from '@libs/ee/kodyRules/dtos/create-kody-rule.dto';
 import { KodyRulesEntity } from '../entities/kodyRules.entity';
 import {
+    FindMemoriesFilters,
+    FindMemoriesResult,
     IKodyRule,
     IKodyRuleMemory,
     KodyRulesStatus,
@@ -88,4 +90,9 @@ export interface IKodyRulesService extends IKodyRulesRepository {
         memory: IKodyRuleMemory,
         userInfo?: UserInfo,
     ): Promise<Partial<IKodyRule> | IKodyRule | null>;
+
+    findMemories(
+        organizationAndTeamData: OrganizationAndTeamData,
+        filters?: FindMemoriesFilters,
+    ): Promise<FindMemoriesResult[]>;
 }

@@ -13,6 +13,7 @@ import {
     KODY_RULES_SERVICE_TOKEN,
 } from '@libs/kodyRules/domain/contracts/kodyRules.service.contract';
 import {
+    FindMemoriesResult,
     IKodyRule,
     IKodyRuleMemory,
     IKodyRulesExample,
@@ -74,6 +75,10 @@ interface KodyRulesResponse extends BaseResponse {
 
 interface CreateKodyRuleResponse extends BaseResponse {
     data: Partial<IKodyRule>;
+}
+
+interface FindMemoriesResponse extends BaseResponse {
+    data: FindMemoriesResult[];
 }
 
 @Injectable()
@@ -745,6 +750,95 @@ export class KodyRulesTools {
         };
     }
 
+    findMemoriesRule(): McpToolDefinition {
+        const inputSchema = z.object({
+            organizationId: z
+                .string()
+                .describe(
+                    'Organization UUID - unique identifier for the organization where memories are stored',
+                ),
+            repositoryId: z
+                .string()
+                .optional()
+                .describe(
+                    'Repository unique identifier - filter memories for a specific repository',
+                ),
+            directoryId: z
+                .string()
+                .optional()
+                .describe(
+                    'Directory unique identifier - filter memories for a specific directory',
+                ),
+            path: z
+                .string()
+                .optional()
+                .describe(
+                    'Glob path pattern used to find memories by scoped path (examples: "src/**", "**/*.ts")',
+                ),
+            keywords: z
+                .array(z.string())
+                .optional()
+                .describe(
+                    'Keywords to search in memory title or memory content (case-insensitive)',
+                ),
+            limit: z
+                .number()
+                .int()
+                .min(1)
+                .max(20)
+                .optional()
+                .describe(
+                    'Maximum number of memories returned (default: 20, hard cap: 20)',
+                ),
+        });
+
+        type InputType = z.infer<typeof inputSchema>;
+
+        return {
+            name: 'KODUS_FIND_MEMORIES',
+            description:
+                'Search and retrieve saved memories for the organization. Supports filtering by repository, directory, path glob, and keywords in title/content. Returns newest matches first.',
+            inputSchema,
+            outputSchema: z.object({
+                success: z.boolean(),
+                count: z.number(),
+                data: z.array(
+                    z.object({
+                        uuid: z.string().optional(),
+                        title: z.string(),
+                        rule: z.string(),
+                        repositoryId: z.string(),
+                        directoryId: z.string().optional(),
+                        path: z.string().optional(),
+                        createdAt: z.string().optional(),
+                    }),
+                ),
+            }),
+            execute: wrapToolHandler(
+                async (args: InputType): Promise<FindMemoriesResponse> => {
+                    const memories = await this.kodyRulesService.findMemories(
+                        {
+                            organizationId: args.organizationId,
+                        },
+                        {
+                            repositoryId: args.repositoryId,
+                            directoryId: args.directoryId,
+                            path: args.path,
+                            keywords: args.keywords,
+                            limit: args.limit,
+                        },
+                    );
+
+                    return {
+                        success: true,
+                        count: memories.length,
+                        data: memories,
+                    };
+                },
+            ),
+        };
+    }
+
     getAllTools(): McpToolDefinition[] {
         return [
             this.getKodyRules(),
@@ -753,6 +847,7 @@ export class KodyRulesTools {
             this.updateKodyRule(),
             this.deleteKodyRule(),
             this.createMemoryRule(),
+            this.findMemoriesRule(),
         ];
     }
 }

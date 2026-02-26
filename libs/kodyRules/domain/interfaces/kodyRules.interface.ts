@@ -1,5 +1,23 @@
 import z from 'zod';
 
+export interface FindMemoriesFilters {
+    repositoryId?: string;
+    directoryId?: string;
+    path?: string;
+    keywords?: string[];
+    limit?: number;
+}
+
+export interface FindMemoriesResult {
+    uuid?: string;
+    title: string;
+    rule: string;
+    repositoryId: string;
+    directoryId?: string;
+    path?: string;
+    createdAt?: string;
+}
+
 export enum KodyRuleProcessingStatus {
     PENDING = 'pending',
     PROCESSING = 'processing',
