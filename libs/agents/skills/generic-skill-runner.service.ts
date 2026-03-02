@@ -3,6 +3,7 @@ import {
     createOrchestration,
     LLMAdapter,
     MCPAdapter,
+    MCPServerConfig,
     PlannerType,
     Thread,
 } from '@kodus/flow';
@@ -29,6 +30,7 @@ import {
     SkillRequiredMcp,
 } from './skill-loader.service';
 import {
+    AgentCallOptions,
     SkillCapabilityRuntimeConfig,
     SkillFetcherRuntime,
     ToolExecutionResponse,
@@ -62,6 +64,18 @@ type ResolvedExecutionPolicy = Required<
 >;
 
 export type SkillResolvedExecutionPolicy = ResolvedExecutionPolicy;
+
+interface McpConnectionMetadata {
+    connection?: {
+        id?: string;
+        serverName?: string;
+        appName?: string;
+    };
+}
+
+type McpConnection = MCPServerConfig & {
+    metadata?: McpConnectionMetadata;
+};
 
 /**
  * Shared infrastructure for the fetcher+analyzer pattern used by all PR-level skills.
@@ -123,10 +137,15 @@ export class GenericSkillRunnerService {
                 this.resolveAllProviderTypes(mcpManagerServers);
             const providerType =
                 allProviderTypes.length > 0 ? allProviderTypes[0] : 'external';
+            const requiredProviderHints = this.resolveRequiredProviderHints(
+                meta.requiredMcps,
+            );
 
             this.preflightRequiredMcps(
                 skillName,
                 meta.requiredMcps,
+                requiredProviderHints,
+                availableProviders,
                 mcpManagerServers,
             );
 
@@ -134,7 +153,7 @@ export class GenericSkillRunnerService {
                 skillName,
                 requiredTools,
                 fetcherPolicy,
-                meta.requiredMcps,
+                requiredProviderHints,
                 mcpManagerServers,
             );
             this.metricsCollector?.recordGauge(
@@ -245,7 +264,7 @@ export class GenericSkillRunnerService {
                         await orchestration.callAgent(
                             agentName,
                             prompt,
-                            options as any,
+                            options as AgentCallOptions,
                         ),
                     );
                 },
@@ -458,14 +477,13 @@ export class GenericSkillRunnerService {
     private preflightRequiredMcps(
         skillName: string,
         requiredMcps: SkillRequiredMcp[] | undefined,
-        mcpManagerServers: any[] | undefined,
+        requiredProviderHints: string[],
+        availableProviders: string[],
+        mcpManagerServers: McpConnection[] | undefined,
     ): void {
         if (!requiredMcps?.length) {
             return;
         }
-
-        const availableProviders =
-            this.getAvailableProviders(mcpManagerServers);
 
         const externalConnections = (mcpManagerServers ?? []).filter(
             (server) =>
@@ -488,15 +506,12 @@ export class GenericSkillRunnerService {
                 availableProviders,
             );
         }
-
-        const requiredProviderHints =
-            this.resolveRequiredProviderHints(requiredMcps);
         if (!requiredProviderHints.length) {
             return;
         }
 
         const matchingExternalConnections = externalConnections.filter((server) =>
-            this.providerMatchesRequiredHints(server?.provider, requiredProviderHints),
+            this.serverMatchesRequiredHints(server, requiredProviderHints),
         );
 
         if (!matchingExternalConnections.length) {
@@ -521,8 +536,8 @@ export class GenericSkillRunnerService {
         skillName: string,
         requiredTools: string[] | undefined,
         fetcherPolicy: Required<SkillFetcherPolicy>,
-        requiredMcps: SkillRequiredMcp[] | undefined,
-        mcpManagerServers: any[] | undefined,
+        requiredProviderHints: string[],
+        mcpManagerServers: McpConnection[] | undefined,
     ): MCPAdapter | null {
         if (!mcpManagerServers?.length) {
             this.logger.warn(
@@ -534,8 +549,6 @@ export class GenericSkillRunnerService {
         const resolvedRequiredTools = requiredTools?.length
             ? requiredTools
             : [];
-        const requiredProviderHints =
-            this.resolveRequiredProviderHints(requiredMcps);
         const hasRequiredTools = this.hasRequiredKodusTools(
             mcpManagerServers,
             resolvedRequiredTools,
@@ -548,8 +561,8 @@ export class GenericSkillRunnerService {
                     if (!requiredProviderHints.length) {
                         return true;
                     }
-                    return this.providerMatchesRequiredHints(
-                        server.provider,
+                    return this.serverMatchesRequiredHints(
+                        server,
                         requiredProviderHints,
                     );
                 }
@@ -647,6 +660,32 @@ export class GenericSkillRunnerService {
         );
     }
 
+    private serverMatchesRequiredHints(
+        server: McpConnection,
+        requiredHints: string[],
+    ): boolean {
+        if (!requiredHints.length) {
+            return true;
+        }
+
+        return this.getServerProviderAliases(server).some((alias) =>
+            this.providerMatchesRequiredHints(alias, requiredHints),
+        );
+    }
+
+    private getServerProviderAliases(server: McpConnection): string[] {
+        const metadataConnection = server?.metadata?.connection;
+        const aliases = [
+            server?.provider,
+            server?.name,
+            metadataConnection?.id,
+            metadataConnection?.serverName,
+            metadataConnection?.appName,
+        ];
+
+        return [...new Set(aliases.filter((alias) => typeof alias === 'string'))];
+    }
+
     private normalizeProviderToken(value: unknown): string {
         if (typeof value !== 'string') {
             return '';
@@ -658,7 +697,7 @@ export class GenericSkillRunnerService {
     }
 
     private getAvailableProviders(
-        mcpManagerServers: any[] | undefined,
+        mcpManagerServers: McpConnection[] | undefined,
     ): string[] {
         return (mcpManagerServers ?? []).map((server) =>
             typeof server?.provider === 'string'
@@ -668,27 +707,38 @@ export class GenericSkillRunnerService {
     }
 
     private resolveAllProviderTypes(
-        mcpManagerServers: any[] | undefined,
+        mcpManagerServers: McpConnection[] | undefined,
     ): string[] {
         const seen = new Set<string>();
         const result: string[] = [];
 
         for (const server of mcpManagerServers ?? []) {
-            const raw =
-                typeof server?.provider === 'string'
-                    ? server.provider.trim().toLowerCase()
-                    : '';
-            if (!raw || raw === 'kodusmcp') {
-                continue;
-            }
-
-            if (!seen.has(raw)) {
-                seen.add(raw);
-                result.push(raw);
+            for (const providerType of this.resolveServerProviderTypes(server)) {
+                if (!seen.has(providerType)) {
+                    seen.add(providerType);
+                    result.push(providerType);
+                }
             }
         }
 
         return result;
+    }
+
+    private resolveServerProviderTypes(server: McpConnection): string[] {
+        const aliases = this.getServerProviderAliases(server)
+            .map((alias) => this.normalizeProviderToken(alias))
+            .filter((alias) => alias.length > 0 && alias !== 'kodusmcp');
+
+        if (!aliases.length) {
+            return [];
+        }
+
+        const genericProviders = new Set(['custom', 'external']);
+        const specificAliases = aliases.filter(
+            (alias) => !genericProviders.has(alias),
+        );
+
+        return [...new Set(specificAliases.length ? specificAliases : aliases)];
     }
 
     private resolveFetcherPolicy(
@@ -772,7 +822,7 @@ export class GenericSkillRunnerService {
     }
 
     private hasRequiredKodusTools(
-        servers: any[] | undefined,
+        servers: McpConnection[] | undefined,
         requiredTools: string[],
         fetcherPolicy: Required<SkillFetcherPolicy>,
     ): boolean {

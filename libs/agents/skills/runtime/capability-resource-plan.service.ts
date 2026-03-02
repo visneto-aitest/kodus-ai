@@ -15,6 +15,8 @@ interface CapabilityResourcePlan {
 }
 
 const RESOURCE_PLAN_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const LEGACY_SEED_DIR = 'resources';
+const PRIMARY_SEED_DIR = 'capability-seeds';
 
 @Injectable()
 export class CapabilityResourcePlanService {
@@ -132,16 +134,30 @@ export class CapabilityResourcePlanService {
                 'libs',
                 'agents',
                 'skills',
-                'resources',
+                'runtime',
+                PRIMARY_SEED_DIR,
                 providerType,
             ),
-            path.join(__dirname, '..', 'resources', providerType),
+            path.join(
+                __dirname,
+                '..',
+                PRIMARY_SEED_DIR,
+                providerType,
+            ),
+            path.join(
+                process.cwd(),
+                'libs',
+                'agents',
+                'skills',
+                LEGACY_SEED_DIR,
+                providerType,
+            ),
             path.join(
                 __dirname,
                 '..',
                 '..',
                 'skills',
-                'resources',
+                LEGACY_SEED_DIR,
                 providerType,
             ),
         ];

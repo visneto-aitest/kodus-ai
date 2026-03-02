@@ -1,4 +1,10 @@
-import { AgentInputEnum, Thread, createLogger } from '@kodus/flow';
+import {
+    AgentInputEnum,
+    LLMAdapter,
+    LLMRequest,
+    Thread,
+    createLogger,
+} from '@kodus/flow';
 import { LLMModelProvider, PromptRunnerService } from '@kodus/kodus-common/llm';
 import { Injectable, Inject, Optional } from '@nestjs/common';
 
@@ -32,7 +38,11 @@ import {
     buildMcpConnectionFailureFeedback,
     buildRequiredMcpFeedback,
 } from './required-mcp-feedback';
-import { BusinessRulesContext, ValidationResult } from './types';
+import {
+    BusinessRulesContext,
+    BusinessRulesPrepareContext,
+    ValidationResult,
+} from './types';
 import { MetricsCollectorService } from '@libs/core/infrastructure/metrics/metrics-collector.service';
 import {
     AbstractSkillProvider,
@@ -43,12 +53,21 @@ import { buildBusinessRulesContractViolationFeedback } from './contract-feedback
 import { parseBusinessRulesValidationResult } from './validation-result.parser';
 
 const SKILL_NAME = 'business-rules-validation';
+const DEFAULT_LANGUAGE = 'en-US';
+const DEFAULT_NEEDS_MORE_INFO_MESSAGE =
+    '## 🤔 Need Task Information\n\nPlease provide task context.';
+const PARSER_FALLBACK_FRAGMENT = 'error parsing validation result';
+
+type AnalyzerAdapter = Pick<LLMAdapter, 'call'>;
 
 /** Re-exported for backward compatibility with callers that imported from here */
 export type { ValidationResult };
 
 @Injectable()
-export class BusinessRulesValidationAgentProvider extends AbstractSkillProvider<BusinessRulesContext> {
+export class BusinessRulesValidationAgentProvider extends AbstractSkillProvider<
+    BusinessRulesContext,
+    BusinessRulesPrepareContext
+> {
     private readonly logger = createLogger(
         BusinessRulesValidationAgentProvider.name,
     );
@@ -72,7 +91,8 @@ export class BusinessRulesValidationAgentProvider extends AbstractSkillProvider<
         genericSkillRunner: GenericSkillRunnerService,
         @Optional() metricsCollector?: MetricsCollectorService,
         @Optional() capabilityStrategyService?: CapabilityStrategyService,
-        @Optional() capabilityResourcePlanService?: CapabilityResourcePlanService,
+        @Optional()
+        capabilityResourcePlanService?: CapabilityResourcePlanService,
     ) {
         super(
             promptRunnerService,
@@ -102,7 +122,7 @@ export class BusinessRulesValidationAgentProvider extends AbstractSkillProvider<
 
     protected createInitialContext(params: {
         organizationAndTeamData: OrganizationAndTeamData;
-        prepareContext?: any;
+        prepareContext?: BusinessRulesPrepareContext;
         thread?: Thread;
         userLanguage: string;
     }): BusinessRulesContext {
@@ -127,7 +147,7 @@ export class BusinessRulesValidationAgentProvider extends AbstractSkillProvider<
     }
 
     protected onFetcherInitializationError(
-        params: SkillErrorContext,
+        params: SkillErrorContext<BusinessRulesPrepareContext>,
     ): string | undefined {
         const { error, userLanguage, context } = params;
 
@@ -144,7 +164,8 @@ export class BusinessRulesValidationAgentProvider extends AbstractSkillProvider<
                 context: BusinessRulesValidationAgentProvider.name,
                 serviceName: BusinessRulesValidationAgentProvider.name,
                 metadata: {
-                    organizationId: context.organizationAndTeamData?.organizationId,
+                    organizationId:
+                        context.organizationAndTeamData?.organizationId,
                     teamId: context.organizationAndTeamData?.teamId,
                     requiredMcps: error.requiredMcps,
                 },
@@ -165,7 +186,8 @@ export class BusinessRulesValidationAgentProvider extends AbstractSkillProvider<
                 context: BusinessRulesValidationAgentProvider.name,
                 serviceName: BusinessRulesValidationAgentProvider.name,
                 metadata: {
-                    organizationId: context.organizationAndTeamData?.organizationId,
+                    organizationId:
+                        context.organizationAndTeamData?.organizationId,
                     teamId: context.organizationAndTeamData?.teamId,
                     errorMessage:
                         error instanceof Error ? error.message : String(error),
@@ -179,7 +201,7 @@ export class BusinessRulesValidationAgentProvider extends AbstractSkillProvider<
     }
 
     protected onBlueprintExecutionError(
-        params: SkillErrorContext,
+        params: SkillErrorContext<BusinessRulesPrepareContext>,
     ): string | undefined {
         const { error, userLanguage, context } = params;
 
@@ -201,7 +223,8 @@ export class BusinessRulesValidationAgentProvider extends AbstractSkillProvider<
                 context: BusinessRulesValidationAgentProvider.name,
                 serviceName: BusinessRulesValidationAgentProvider.name,
                 metadata: {
-                    organizationId: context.organizationAndTeamData?.organizationId,
+                    organizationId:
+                        context.organizationAndTeamData?.organizationId,
                     teamId: context.organizationAndTeamData?.teamId,
                     errorMessage:
                         error instanceof Error ? error.message : String(error),
@@ -228,106 +251,28 @@ export class BusinessRulesValidationAgentProvider extends AbstractSkillProvider<
     ): Promise<BusinessRulesContext> {
         const executionPolicy =
             this.genericSkillRunner.getExecutionPolicy(SKILL_NAME);
-        const analyzerInstructions = this.genericSkillRunner.getAnalyzerInstructions(
-            SKILL_NAME,
-            {
-                organizationId: ctx.organizationAndTeamData?.organizationId,
-                teamId: ctx.organizationAndTeamData?.teamId,
-                customInstructions: this.resolveAnalyzerCustomInstructions(ctx),
-            },
-        );
+        const analyzerContext = this.buildAnalyzerInstructionContext(ctx);
+        const analyzerInstructions =
+            this.genericSkillRunner.getAnalyzerInstructions(
+                SKILL_NAME,
+                analyzerContext,
+            );
         const analyzerAdapter = super.createLLMAdapter(
             'BusinessRulesValidation',
             'businessRulesAnalyzer',
         );
         const prompt = buildBusinessRulesAnalysisPrompt(ctx);
         const maxAttempts = Math.max(1, executionPolicy.analyzerMaxIterations);
-        let validationResult: ValidationResult | undefined;
-        let lastError: unknown;
-
-        for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-            try {
-                const analysisResult = await this.withTimeout(
-                    analyzerAdapter.call({
-                        messages: [
-                            {
-                                role: AgentInputEnum.SYSTEM,
-                                content: analyzerInstructions,
-                            },
-                            {
-                                role: AgentInputEnum.USER,
-                                content: prompt,
-                            },
-                        ],
-                        temperature: this.defaultLLMConfig.temperature,
-                        maxTokens: this.defaultLLMConfig.maxTokens,
-                        maxReasoningTokens:
-                            this.defaultLLMConfig.maxReasoningTokens,
-                        stop: this.defaultLLMConfig.stop,
-                    }),
-                    executionPolicy.analyzerTimeoutMs,
-                    `business-rules-analyzer-attempt-${attempt}`,
-                );
-
-                const usage = asRecord(
-                    (analysisResult as { usage?: unknown }).usage,
-                );
-                const tokensIn =
-                    typeof usage.promptTokens === 'number'
-                        ? usage.promptTokens
-                        : 0;
-                const tokensOut =
-                    typeof usage.completionTokens === 'number'
-                        ? usage.completionTokens
-                        : 0;
-                const totalTokens =
-                    typeof usage.totalTokens === 'number'
-                        ? usage.totalTokens
-                        : tokensIn + tokensOut;
-                this.logger.log({
-                    message: 'Business rules analyzer token usage',
-                    context: BusinessRulesValidationAgentProvider.name,
-                    serviceName: BusinessRulesValidationAgentProvider.name,
-                    metadata: {
-                        attempt,
-                        tokensIn,
-                        tokensOut,
-                        totalTokens,
-                        organizationId:
-                            ctx.organizationAndTeamData?.organizationId,
-                        teamId: ctx.organizationAndTeamData?.teamId,
-                    },
-                });
-
-                const parsed = this.parseValidationResult(analysisResult.content);
-                validationResult = parsed;
-                if (!this.isParserFallback(parsed) || attempt === maxAttempts) {
-                    break;
-                }
-            } catch (error) {
-                lastError = error;
-                if (attempt === maxAttempts) {
-                    break;
-                }
-            }
-        }
-
-        if (!validationResult) {
-            validationResult = {
-                needsMoreInfo: true,
-                missingInfo:
-                    lastError instanceof Error
-                        ? `Analyzer execution failed: ${lastError.message}`
-                        : 'Analyzer execution failed.',
-                summary:
-                    '❌ **Error processing validation**\n\nAn error occurred while processing the system response. Please try again.',
-            };
-        }
-
-        const formattedResponse = validationResult.needsMoreInfo
-            ? (validationResult.missingInfo ??
-              '## 🤔 Need Task Information\n\nPlease provide task context.')
-            : (validationResult.summary ?? '');
+        const validationResult = await this.executeAnalyzerWithRetries({
+            ctx,
+            analyzerAdapter,
+            analyzerInstructions,
+            prompt,
+            maxAttempts,
+            timeoutMs: executionPolicy.analyzerTimeoutMs,
+        });
+        const formattedResponse =
+            this.formatValidationResponse(validationResult);
 
         return { ...ctx, validationResult, formattedResponse };
     }
@@ -338,7 +283,7 @@ export class BusinessRulesValidationAgentProvider extends AbstractSkillProvider<
         }
 
         const message = (result.missingInfo ?? '').toLowerCase();
-        return message.includes('error parsing validation result');
+        return message.includes(PARSER_FALLBACK_FRAGMENT);
     }
 
     private async withTimeout<T>(
@@ -379,20 +324,167 @@ export class BusinessRulesValidationAgentProvider extends AbstractSkillProvider<
         return parseBusinessRulesValidationResult(result);
     }
 
+    private buildAnalyzerInstructionContext(ctx: BusinessRulesContext): {
+        organizationId?: string;
+        teamId?: string;
+        customInstructions?: string;
+    } {
+        return {
+            organizationId: ctx.organizationAndTeamData?.organizationId,
+            teamId: ctx.organizationAndTeamData?.teamId,
+            customInstructions: this.resolveAnalyzerCustomInstructions(ctx),
+        };
+    }
+
+    private async executeAnalyzerWithRetries(params: {
+        ctx: BusinessRulesContext;
+        analyzerAdapter: AnalyzerAdapter;
+        analyzerInstructions: string;
+        prompt: string;
+        maxAttempts: number;
+        timeoutMs: number;
+    }): Promise<ValidationResult> {
+        let lastError: unknown;
+
+        for (let attempt = 1; attempt <= params.maxAttempts; attempt += 1) {
+            try {
+                const validationResult = await this.executeAnalyzerAttempt({
+                    ctx: params.ctx,
+                    analyzerAdapter: params.analyzerAdapter,
+                    analyzerInstructions: params.analyzerInstructions,
+                    prompt: params.prompt,
+                    attempt,
+                    timeoutMs: params.timeoutMs,
+                });
+
+                if (
+                    !this.isParserFallback(validationResult) ||
+                    attempt === params.maxAttempts
+                ) {
+                    return validationResult;
+                }
+            } catch (error) {
+                lastError = error;
+                if (attempt === params.maxAttempts) {
+                    break;
+                }
+            }
+        }
+
+        return this.buildAnalyzerFailureResult(lastError);
+    }
+
+    private async executeAnalyzerAttempt(params: {
+        ctx: BusinessRulesContext;
+        analyzerAdapter: AnalyzerAdapter;
+        analyzerInstructions: string;
+        prompt: string;
+        attempt: number;
+        timeoutMs: number;
+    }): Promise<ValidationResult> {
+        const analysisResult = await this.withTimeout(
+            params.analyzerAdapter.call({
+                messages: this.buildAnalyzerMessages(
+                    params.analyzerInstructions,
+                    params.prompt,
+                ),
+                temperature: this.defaultLLMConfig.temperature,
+                maxTokens: this.defaultLLMConfig.maxTokens,
+                maxReasoningTokens: this.defaultLLMConfig.maxReasoningTokens,
+                stop: this.defaultLLMConfig.stop,
+            }),
+            params.timeoutMs,
+            `business-rules-analyzer-attempt-${params.attempt}`,
+        );
+
+        this.logAnalyzerUsage(params.ctx, params.attempt, analysisResult);
+
+        return this.parseValidationResult(analysisResult.content);
+    }
+
+    private buildAnalyzerMessages(
+        analyzerInstructions: string,
+        prompt: string,
+    ): LLMRequest['messages'] {
+        return [
+            {
+                role: AgentInputEnum.SYSTEM,
+                content: analyzerInstructions,
+            },
+            {
+                role: AgentInputEnum.USER,
+                content: prompt,
+            },
+        ];
+    }
+
+    private logAnalyzerUsage(
+        ctx: BusinessRulesContext,
+        attempt: number,
+        analysisResult: { usage?: unknown },
+    ): void {
+        const usage = asRecord(analysisResult.usage);
+        const tokensIn =
+            typeof usage.promptTokens === 'number' ? usage.promptTokens : 0;
+        const tokensOut =
+            typeof usage.completionTokens === 'number'
+                ? usage.completionTokens
+                : 0;
+        const totalTokens =
+            typeof usage.totalTokens === 'number'
+                ? usage.totalTokens
+                : tokensIn + tokensOut;
+
+        this.logger.log({
+            message: 'Business rules analyzer token usage',
+            context: BusinessRulesValidationAgentProvider.name,
+            serviceName: BusinessRulesValidationAgentProvider.name,
+            metadata: {
+                attempt,
+                tokensIn,
+                tokensOut,
+                totalTokens,
+                organizationId: ctx.organizationAndTeamData?.organizationId,
+                teamId: ctx.organizationAndTeamData?.teamId,
+            },
+        });
+    }
+
+    private buildAnalyzerFailureResult(lastError: unknown): ValidationResult {
+        return {
+            needsMoreInfo: true,
+            missingInfo:
+                lastError instanceof Error
+                    ? `Analyzer execution failed: ${lastError.message}`
+                    : 'Analyzer execution failed.',
+            summary:
+                '❌ **Error processing validation**\n\nAn error occurred while processing the system response. Please try again.',
+        };
+    }
+
+    private formatValidationResponse(result: ValidationResult): string {
+        if (result.needsMoreInfo) {
+            return result.missingInfo ?? DEFAULT_NEEDS_MORE_INFO_MESSAGE;
+        }
+
+        return result.summary ?? '';
+    }
+
     private async getLanguage(
         organizationAndTeamData: OrganizationAndTeamData,
     ): Promise<string> {
-        if (!organizationAndTeamData?.teamId) return 'en-US';
+        if (!organizationAndTeamData?.teamId) {
+            return DEFAULT_LANGUAGE;
+        }
 
         try {
             const language = await this.parametersService.findByKey(
                 ParametersKey.LANGUAGE_CONFIG,
                 organizationAndTeamData,
             );
-            return language?.configValue ?? 'en-US';
+            return language?.configValue ?? DEFAULT_LANGUAGE;
         } catch {
-            return 'en-US';
+            return DEFAULT_LANGUAGE;
         }
     }
-
 }

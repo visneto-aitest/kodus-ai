@@ -23,6 +23,10 @@ export function canProceedWithBusinessRulesAnalysis(
     return ANALYZABLE_TASK_QUALITIES.has(normalizeTaskQuality(taskQuality));
 }
 
+export function hasUsablePullRequestDiff(prDiff: string | undefined): boolean {
+    return typeof prDiff === 'string' && prDiff.trim().length > 0;
+}
+
 export function getTaskContextMissingInfoMessage(
     taskQuality: TaskQuality | undefined,
 ): string {
@@ -34,6 +38,24 @@ export function getTaskContextMissingInfoMessage(
         return buildEmptyContextMessage();
     }
     return '';
+}
+
+export function getPullRequestDiffMissingInfoMessage(): string {
+    return `## 🤔 Need Pull Request Diff
+
+I found enough task context to understand the expected behavior, but I couldn't load the pull request diff. Without the actual code changes, I can't validate whether the implementation matches the business requirements.
+
+### 🔍 What I need to validate:
+- The files and code paths changed in this PR
+- The exact implementation compared to the task requirements
+- Any regressions or missing business-rule coverage
+
+### 💡 How to fix it:
+- Ensure the PR diff tool is available and returns the patch content
+- Retry the validation after the pull request diff is fetched successfully
+
+### ⚠️ Important:
+Business rules validation requires both the task context and the code diff.`;
 }
 
 export const TASK_QUALITY_CLASSIFICATION_GUIDE =

@@ -54,7 +54,7 @@ export async function fetchPullRequestMetadata(
               }
             : {},
         callTool: (selectedTool, args) => toolCaller.callTool(selectedTool, args),
-        canExecute: () => Boolean(params),
+        validate: () => (params ? undefined : 'precondition_failed'),
         extract: extractPrBodyFromToolResult,
         fallback: undefined,
         onError: 'fallback',
@@ -64,38 +64,13 @@ export async function fetchPullRequestMetadata(
     });
 
     if (fallbackReason) {
-        const trace: CapabilityExecutionTrace =
-            fallbackReason === 'tool_unavailable' ||
-            fallbackReason === 'precondition_failed'
-                ? {
-                      ...base,
-                      status: 'skipped',
-                      reason: fallbackReason,
-                      latencyMs: Date.now() - startedAt,
-                  }
-                : {
-                      ...base,
-                      status: 'failed',
-                      reason: fallbackReason,
-                      latencyMs: Date.now() - startedAt,
-                  };
+        const trace = buildFallbackTrace(base, fallbackReason, startedAt);
 
         return { body: undefined, traces: [trace] };
     }
 
     const success = typeof body === 'string' && body.length > 0;
-    const trace: CapabilityExecutionTrace = success
-        ? {
-              ...base,
-              status: 'success',
-              latencyMs: Date.now() - startedAt,
-          }
-        : {
-              ...base,
-              status: 'failed',
-              reason: 'empty_result',
-              latencyMs: Date.now() - startedAt,
-          };
+    const trace = buildResultTrace(base, success, startedAt);
 
     return {
         body: success ? body : undefined,
@@ -117,6 +92,41 @@ function createBaseTrace(
         toolName,
         occurredAt: new Date().toISOString(),
     };
+}
+
+function buildFallbackTrace(
+    base: Omit<CapabilityExecutionTrace, 'status' | 'latencyMs' | 'reason'>,
+    reason: DeterministicFallbackReason,
+    startedAt: number,
+): CapabilityExecutionTrace {
+    return {
+        ...base,
+        status:
+            reason === 'tool_unavailable' || reason === 'precondition_failed'
+                ? 'skipped'
+                : 'failed',
+        reason,
+        latencyMs: Date.now() - startedAt,
+    };
+}
+
+function buildResultTrace(
+    base: Omit<CapabilityExecutionTrace, 'status' | 'latencyMs' | 'reason'>,
+    success: boolean,
+    startedAt: number,
+): CapabilityExecutionTrace {
+    return success
+        ? {
+              ...base,
+              status: 'success',
+              latencyMs: Date.now() - startedAt,
+          }
+        : {
+              ...base,
+              status: 'failed',
+              reason: 'empty_result',
+              latencyMs: Date.now() - startedAt,
+          };
 }
 
 function extractPrBodyFromToolResult(payload: unknown): string | undefined {

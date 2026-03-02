@@ -50,7 +50,7 @@ describe('deterministic-tool-executor', () => {
         expect(output).toBe('');
     });
 
-    it('returns fallback when predicate blocks execution', async () => {
+    it('returns fallback when validation blocks execution', async () => {
         const callTool = jest.fn();
         const onFallback = jest.fn();
 
@@ -58,7 +58,7 @@ describe('deterministic-tool-executor', () => {
             toolName: 'KODUS_GET_PULL_REQUEST',
             args: { organizationId: 'org-1' },
             callTool,
-            canExecute: () => false,
+            validate: () => 'precondition_failed',
             extract: () => 'should-not-happen',
             fallback: '',
             onFallback,
@@ -67,6 +67,24 @@ describe('deterministic-tool-executor', () => {
         expect(callTool).not.toHaveBeenCalled();
         expect(onFallback).toHaveBeenCalledWith('precondition_failed');
         expect(output).toBe('');
+    });
+
+    it('executes tool when validation passes', async () => {
+        const callTool = jest.fn().mockResolvedValue({
+            result: { data: 'ok' },
+        });
+
+        const output = await executeDeterministicTool({
+            toolName: 'KODUS_GET_PULL_REQUEST',
+            args: { organizationId: 'org-1' },
+            callTool,
+            validate: () => undefined,
+            extract: (payload) => (payload as { data?: string }).data ?? '',
+            fallback: '',
+        });
+
+        expect(callTool).toHaveBeenCalledTimes(1);
+        expect(output).toBe('ok');
     });
 
     it('returns fallback and reports missing result payload', async () => {

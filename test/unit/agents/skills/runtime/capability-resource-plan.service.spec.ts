@@ -1,7 +1,7 @@
 import { CapabilityResourcePlanService } from '@libs/agents/skills/runtime/capability-resource-plan.service';
 
 describe('CapabilityResourcePlanService', () => {
-    it('loads seeded tools from provider resources folder', () => {
+    it('loads seeded tools from the runtime capability seeds folder', () => {
         const service = new CapabilityResourcePlanService();
 
         const tools = service.getSeedTools('jira', 'task.context.read');

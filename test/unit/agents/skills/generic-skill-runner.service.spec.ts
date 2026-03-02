@@ -211,6 +211,39 @@ describe('GenericSkillRunnerService', () => {
         ).rejects.toBeInstanceOf(RequiredMcpPreflightError);
     });
 
+    it('accepts a custom MCP connection when its app name matches a required provider hint', async () => {
+        skillLoaderService.loadSkillMetaFromFilesystem.mockReturnValue(
+            withSkillMeta({
+                requiredMcps: [
+                    {
+                        category: 'task-management',
+                        label: 'Task Management',
+                        examples: 'Jira, Linear',
+                    },
+                ],
+            }),
+        );
+        mcpManagerService.getConnections.mockResolvedValue([
+            {
+                provider: 'kodusmcp',
+                allowedTools: ['KODUS_GET_PULL_REQUEST'],
+            },
+            {
+                provider: 'custom',
+                name: 'Jira',
+                allowedTools: ['getJiraIssue'],
+            },
+        ] as any);
+
+        await expect(
+            service.createFetcherOrchestration(
+                'business-rules-validation',
+                {} as any,
+                organizationAndTeamData,
+            ),
+        ).resolves.toBeDefined();
+    });
+
     it('filters external MCP providers by required MCP hints while keeping kodusmcp', async () => {
         skillLoaderService.loadSkillMetaFromFilesystem.mockReturnValue(
             withSkillMeta({
@@ -263,6 +296,40 @@ describe('GenericSkillRunnerService', () => {
             (server: { provider?: string }) => server.provider,
         );
         expect(providerList).not.toContain('notion');
+    });
+
+    it('passes MCP transport type through to createMCPAdapter', async () => {
+        skillLoaderService.loadSkillMetaFromFilesystem.mockReturnValue(
+            withSkillMeta({
+                fetcherPolicy: { allowWithoutTools: true, toolMode: 'any' },
+            }),
+        );
+        mcpManagerService.getConnections.mockResolvedValue([
+            {
+                name: 'Jira',
+                provider: 'jira',
+                type: 'http',
+                url: 'https://jira.example.com/mcp',
+                allowedTools: ['getJiraIssue'],
+            },
+        ] as any);
+
+        await service.createFetcherOrchestration(
+            'business-rules-validation',
+            {} as any,
+            organizationAndTeamData,
+        );
+
+        expect(createMCPAdapterMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                servers: expect.arrayContaining([
+                    expect.objectContaining({
+                        provider: 'jira',
+                        type: 'http',
+                    }),
+                ]),
+            }),
+        );
     });
 
     it('throws typed MCP connection error when required MCP exists but all connections fail', async () => {
@@ -405,6 +472,34 @@ describe('GenericSkillRunnerService', () => {
         );
 
         expect(runtime.capabilityRuntime.providerType).toBe('jira');
+    });
+
+    it('derives runtime providerType from custom MCP app name when provider is generic', async () => {
+        skillLoaderService.loadSkillMetaFromFilesystem.mockReturnValue(
+            withSkillMeta({
+                fetcherPolicy: { allowWithoutTools: true, toolMode: 'any' },
+            }),
+        );
+        mcpManagerService.getConnections.mockResolvedValue([
+            {
+                provider: 'kodusmcp',
+                allowedTools: ['KODUS_GET_PULL_REQUEST'],
+            },
+            {
+                provider: 'custom',
+                name: 'Jira',
+                allowedTools: ['getAccessibleAtlassianResources', 'getJiraIssue'],
+            },
+        ] as any);
+
+        const runtime = await service.createFetcherOrchestration(
+            'business-rules-validation',
+            {} as any,
+            organizationAndTeamData,
+        );
+
+        expect(runtime.capabilityRuntime.providerType).toBe('jira');
+        expect(runtime.capabilityRuntime.allProviderTypes).toContain('jira');
     });
 
     it('resolves required tools from declared capabilities', async () => {

@@ -25,13 +25,13 @@ export function buildBusinessRulesAnalysisPrompt(ctx: BusinessRulesContext): str
         acceptanceCriteria,
         '',
         'FULL_TASK_CONTEXT:',
-        ctx.taskContext ?? '(none)',
+        formatPromptValue(ctx.taskContext, '(none)'),
         '',
         'PR_DIFF:',
-        ctx.prDiff ?? '(not available)',
+        formatPromptValue(ctx.prDiff, '(not available)'),
         '',
         'PR_DESCRIPTION:',
-        ctx.prBody ?? '(not available)',
+        formatPromptValue(ctx.prBody, '(not available)'),
         '',
         `USER LANGUAGE: ${ctx.userLanguage}`,
         '',
@@ -45,6 +45,15 @@ export function buildBusinessRulesAnalysisPrompt(ctx: BusinessRulesContext): str
     );
 
     return sections.join('\n');
+}
+
+function formatPromptValue(
+    value: string | undefined,
+    fallback: string,
+): string {
+    return typeof value === 'string' && value.trim().length > 0
+        ? value
+        : fallback;
 }
 
 function formatAcceptanceCriteria(ctx: BusinessRulesContext): string {

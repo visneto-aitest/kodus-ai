@@ -28,15 +28,15 @@ import {
     ToolCaller,
 } from './runtime/skill-runtime.types';
 
-export interface SkillExecutionContext {
+export interface SkillExecutionContext<TPrepareContext = unknown> {
     organizationAndTeamData: OrganizationAndTeamData;
-    prepareContext?: any;
+    prepareContext?: TPrepareContext;
     thread?: Thread;
 }
 
-export interface SkillErrorContext {
+export interface SkillErrorContext<TPrepareContext = unknown> {
     userLanguage: string;
-    context: SkillExecutionContext;
+    context: SkillExecutionContext<TPrepareContext>;
     error: unknown;
 }
 
@@ -44,6 +44,7 @@ export abstract class AbstractSkillProvider<
     TContext extends BlueprintContext & {
         capabilityExecutionTrace?: CapabilityExecutionTrace[];
     },
+    TPrepareContext = unknown,
 > extends BaseAgentProvider {
     private readonly runtimeLogger = createLogger(this.constructor.name);
 
@@ -78,7 +79,7 @@ export abstract class AbstractSkillProvider<
 
     protected abstract createInitialContext(params: {
         organizationAndTeamData: OrganizationAndTeamData;
-        prepareContext?: any;
+        prepareContext?: TPrepareContext;
         thread?: Thread;
         userLanguage: string;
     }): TContext;
@@ -95,75 +96,53 @@ export abstract class AbstractSkillProvider<
     }
 
     protected onFetcherInitializationError(
-        _params: SkillErrorContext,
+        _params: SkillErrorContext<TPrepareContext>,
     ): string | undefined {
         return undefined;
     }
 
     protected onBlueprintExecutionError(
-        _params: SkillErrorContext,
+        _params: SkillErrorContext<TPrepareContext>,
     ): string | undefined {
         return undefined;
     }
 
     protected extractResponse(ctx: TContext): string {
-        const formatted = (ctx as { formattedResponse?: string }).formattedResponse;
+        const formatted = (ctx as { formattedResponse?: string })
+            .formattedResponse;
         return typeof formatted === 'string' ? formatted : '';
     }
 
-    async execute(context: SkillExecutionContext): Promise<string> {
-        const normalizedContext = context;
-
-        if (!normalizedContext.organizationAndTeamData) {
+    async execute(context: SkillExecutionContext<TPrepareContext>): Promise<string> {
+        const organizationAndTeamData = context.organizationAndTeamData;
+        if (!organizationAndTeamData) {
             throw new Error(
                 'Organization and team data is required for skill execution.',
             );
         }
 
         const userLanguage = await this.resolveUserLanguage(
-            normalizedContext.organizationAndTeamData,
+            organizationAndTeamData,
         );
 
-        this.runtimeLogger.log({
-            message: `${this.skillName} execution started`,
-            context: this.constructor.name,
-            serviceName: this.constructor.name,
-            metadata: {
-                skill: this.skillName,
-                userLanguage,
-                organizationId:
-                    normalizedContext.organizationAndTeamData?.organizationId,
-                teamId: normalizedContext.organizationAndTeamData?.teamId,
-            },
-        });
+        this.logExecutionStarted(organizationAndTeamData, userLanguage);
 
-        await this.fetchBYOKConfig(normalizedContext.organizationAndTeamData);
+        await this.fetchBYOKConfig(organizationAndTeamData);
 
-        let fetcherRuntime: Awaited<
-            ReturnType<GenericSkillRunnerService['createFetcherOrchestration']>
-        >;
-        try {
-            fetcherRuntime = await this.genericSkillRunner.createFetcherOrchestration(
-                this.skillName,
-                super.createLLMAdapter(this.constructor.name, `${this.skillName}-fetcher`),
-                normalizedContext.organizationAndTeamData,
-            );
-        } catch (error) {
-            const feedback = this.onFetcherInitializationError({
-                userLanguage,
-                context: normalizedContext,
-                error,
-            });
-            if (feedback) {
-                return feedback;
-            }
-            throw error;
+        const fetcherInitialization = await this.initializeFetcherRuntime(
+            context,
+            organizationAndTeamData,
+            userLanguage,
+        );
+        if (fetcherInitialization.feedback) {
+            return fetcherInitialization.feedback;
         }
+        const fetcherRuntime = fetcherInitialization.runtime;
 
         const initialCtx = this.createInitialContext({
-            organizationAndTeamData: normalizedContext.organizationAndTeamData,
-            prepareContext: normalizedContext.prepareContext,
-            thread: normalizedContext.thread,
+            organizationAndTeamData,
+            prepareContext: context.prepareContext,
+            thread: context.thread,
             userLanguage,
         });
 
@@ -176,37 +155,112 @@ export abstract class AbstractSkillProvider<
             recordExecution: (trace) => this.recordCapabilityExecution(trace),
         });
 
-        let result: Awaited<ReturnType<typeof runBlueprint<TContext>>>;
+        const blueprintExecution = await this.executeBlueprintWithHandling(
+            context,
+            initialCtx,
+            fetcherRuntime.toolCaller,
+            capabilityRuntimeConfig,
+            capabilityHooks,
+            organizationAndTeamData,
+            userLanguage,
+        );
+        if (blueprintExecution.feedback) {
+            return blueprintExecution.feedback;
+        }
+        const result = blueprintExecution.result;
+
+        this.logExecutionCompleted(result, organizationAndTeamData);
+
+        const traces = result.context.capabilityExecutionTrace ?? [];
+        if (traces.length > 0) {
+            this.logCapabilityTraces(traces, organizationAndTeamData);
+        }
+
+        return this.extractResponse(result.context);
+    }
+
+    private async initializeFetcherRuntime(
+        context: SkillExecutionContext<TPrepareContext>,
+        organizationAndTeamData: OrganizationAndTeamData,
+        userLanguage: string,
+    ): Promise<{
+        runtime: Awaited<
+            ReturnType<GenericSkillRunnerService['createFetcherOrchestration']>
+        >;
+        feedback?: undefined;
+    } | {
+        runtime?: undefined;
+        feedback: string;
+    }> {
         try {
-            result = await runBlueprint<TContext>({
-                steps: this.createBlueprint(
-                    fetcherRuntime.toolCaller,
-                    capabilityRuntimeConfig,
-                    capabilityHooks,
-                ),
-                context: initialCtx,
-                runLLMStep: (step, ctx) => this.runLLMStep(step, ctx),
-                onStepMetric: (metric) =>
-                    this.recordStepMetric(
-                        metric,
-                        normalizedContext.organizationAndTeamData,
+            return {
+                runtime:
+                    await this.genericSkillRunner.createFetcherOrchestration(
+                        this.skillName,
+                        super.createLLMAdapter(
+                            this.constructor.name,
+                            `${this.skillName}-fetcher`,
+                        ),
+                        organizationAndTeamData,
                     ),
-                logger: {
-                    log: (msg) =>
-                        this.runtimeLogger.log({
-                            message: msg,
-                            context: this.constructor.name,
-                            serviceName: this.constructor.name,
-                        }),
-                    error: (msg, err) =>
-                        this.runtimeLogger.error({
-                            message: msg,
-                            context: this.constructor.name,
-                            serviceName: this.constructor.name,
-                            metadata: { error: err },
-                        }),
-                },
+            };
+        } catch (error) {
+            const feedback = this.onFetcherInitializationError({
+                userLanguage,
+                context,
+                error,
             });
+            if (feedback) {
+                return { feedback };
+            }
+            throw error;
+        }
+    }
+
+    private async executeBlueprintWithHandling(
+        context: SkillExecutionContext<TPrepareContext>,
+        initialCtx: TContext,
+        toolCaller: ToolCaller,
+        capabilityRuntimeConfig: SkillCapabilityRuntimeConfig,
+        capabilityHooks: CapabilityExecutionHooks<TContext>,
+        organizationAndTeamData: OrganizationAndTeamData,
+        userLanguage: string,
+    ): Promise<{
+        result: Awaited<ReturnType<typeof runBlueprint<TContext>>>;
+        feedback?: undefined;
+    } | {
+        result?: undefined;
+        feedback: string;
+    }> {
+        try {
+            return {
+                result: await runBlueprint<TContext>({
+                    steps: this.createBlueprint(
+                        toolCaller,
+                        capabilityRuntimeConfig,
+                        capabilityHooks,
+                    ),
+                    context: initialCtx,
+                    runLLMStep: (step, ctx) => this.runLLMStep(step, ctx),
+                    onStepMetric: (metric) =>
+                        this.recordStepMetric(metric, organizationAndTeamData),
+                    logger: {
+                        log: (msg) =>
+                            this.runtimeLogger.log({
+                                message: msg,
+                                context: this.constructor.name,
+                                serviceName: this.constructor.name,
+                            }),
+                        error: (msg, err) =>
+                            this.runtimeLogger.error({
+                                message: msg,
+                                context: this.constructor.name,
+                                serviceName: this.constructor.name,
+                                metadata: { error: err },
+                            }),
+                    },
+                }),
+            };
         } catch (error) {
             if (error instanceof BlueprintStepContractViolationError) {
                 this.runtimeLogger.error({
@@ -215,10 +269,8 @@ export abstract class AbstractSkillProvider<
                     context: this.constructor.name,
                     serviceName: this.constructor.name,
                     metadata: {
-                        organizationId:
-                            normalizedContext.organizationAndTeamData
-                                ?.organizationId,
-                        teamId: normalizedContext.organizationAndTeamData?.teamId,
+                        organizationId: organizationAndTeamData.organizationId,
+                        teamId: organizationAndTeamData.teamId,
                         skill: this.skillName,
                         stepName: error.stepName,
                         stage: error.stage,
@@ -229,56 +281,76 @@ export abstract class AbstractSkillProvider<
 
             const feedback = this.onBlueprintExecutionError({
                 userLanguage,
-                context: normalizedContext,
+                context,
                 error,
             });
             if (feedback) {
-                return feedback;
+                return { feedback };
             }
             throw error;
         }
+    }
 
+    private logExecutionStarted(
+        organizationAndTeamData: OrganizationAndTeamData,
+        userLanguage: string,
+    ): void {
+        this.runtimeLogger.log({
+            message: `${this.skillName} execution started`,
+            context: this.constructor.name,
+            serviceName: this.constructor.name,
+            metadata: {
+                skill: this.skillName,
+                userLanguage,
+                organizationId: organizationAndTeamData.organizationId,
+                teamId: organizationAndTeamData.teamId,
+            },
+        });
+    }
+
+    private logExecutionCompleted(
+        result: Awaited<ReturnType<typeof runBlueprint<TContext>>>,
+        organizationAndTeamData: OrganizationAndTeamData,
+    ): void {
         this.runtimeLogger.log({
             message: `${this.skillName} execution completed`,
             context: this.constructor.name,
             serviceName: this.constructor.name,
             metadata: {
                 skill: this.skillName,
-                organizationId:
-                    normalizedContext.organizationAndTeamData?.organizationId,
-                teamId: normalizedContext.organizationAndTeamData?.teamId,
+                organizationId: organizationAndTeamData.organizationId,
+                teamId: organizationAndTeamData.teamId,
                 completedSteps: result.completedSteps,
                 skippedAt: result.skippedAt,
                 responseLength: this.extractResponse(result.context).length,
             },
         });
+    }
 
-        const traces = result.context.capabilityExecutionTrace ?? [];
-        if (traces.length > 0) {
-            this.runtimeLogger.log({
-                message: 'Capability execution traces',
-                context: this.constructor.name,
-                serviceName: this.constructor.name,
-                metadata: {
-                    organizationId:
-                        normalizedContext.organizationAndTeamData?.organizationId,
-                    teamId: normalizedContext.organizationAndTeamData?.teamId,
-                    skill: this.skillName,
-                    traceCount: traces.length,
-                    traces: traces.map((trace) => ({
-                        capability: trace.capability,
-                        mode: trace.mode,
-                        provider: trace.provider,
-                        tool: trace.toolName,
-                        status: trace.status,
-                        reason: trace.reason,
-                        latencyMs: trace.latencyMs,
-                    })),
-                },
-            });
-        }
-
-        return this.extractResponse(result.context);
+    private logCapabilityTraces(
+        traces: CapabilityExecutionTrace[],
+        organizationAndTeamData: OrganizationAndTeamData,
+    ): void {
+        this.runtimeLogger.log({
+            message: 'Capability execution traces',
+            context: this.constructor.name,
+            serviceName: this.constructor.name,
+            metadata: {
+                organizationId: organizationAndTeamData.organizationId,
+                teamId: organizationAndTeamData.teamId,
+                skill: this.skillName,
+                traceCount: traces.length,
+                traces: traces.map((trace) => ({
+                    capability: trace.capability,
+                    mode: trace.mode,
+                    provider: trace.provider,
+                    tool: trace.toolName,
+                    status: trace.status,
+                    reason: trace.reason,
+                    latencyMs: trace.latencyMs,
+                })),
+            },
+        });
     }
 
     protected async recordCapabilityExecution(

@@ -300,4 +300,192 @@ describe('fetchTaskContext capability', () => {
             sourceProvider: 'notion',
         });
     });
+
+    it('does not crash when provider payload contains empty objects in text fields', async () => {
+        const callTool = jest.fn<ToolCaller['callTool']>().mockResolvedValue({
+            result: {
+                data: {
+                    key: 'TASK-2',
+                    fields: {
+                        summary: 'Task title',
+                        description: {},
+                    },
+                },
+            },
+        });
+
+        const toolCaller: ToolCaller = {
+            callTool,
+            getRegisteredTools: () => [{ name: 'searchTasks' }],
+            getToolsForLLM: () => [
+                {
+                    name: 'searchTasks',
+                    parameters: {
+                        required: ['query'],
+                        properties: {
+                            query: { type: 'string', description: 'Search query' },
+                        },
+                    },
+                },
+            ],
+        };
+
+        const hooks = {
+            getSeedTaskContextTools: jest.fn(async () => ['searchTasks']),
+            getCachedTaskContextTools: jest.fn(async () => []),
+            saveCachedTaskContextTools: jest.fn(async () => undefined),
+            resolvePreferredTool: jest.fn(async () => undefined),
+            recordExecution: jest.fn(async () => undefined),
+        };
+
+        const result = await fetchTaskContext(
+            toolCaller,
+            createCapabilityRuntime('linear'),
+            createBaseParams(),
+            hooks,
+        );
+
+        expect(result.normalized).toMatchObject({
+            id: 'TASK-2',
+            title: 'Task title',
+            sourceProvider: 'linear',
+        });
+    });
+
+    it('continues to the next deterministic tool when Jira issue details only contain smart-link metadata', async () => {
+        const callTool = jest
+            .fn<ToolCaller['callTool']>()
+            .mockImplementation((toolName: string) => {
+                if (toolName === 'getJiraIssue') {
+                    return Promise.resolve({
+                        result: {
+                            data: {
+                                key: 'KC-1441',
+                                fields: {
+                                    summary: 'Extension application link',
+                                    description: {
+                                        type: 'doc',
+                                        version: 1,
+                                        content: [
+                                            {
+                                                type: 'paragraph',
+                                                content: [
+                                                    {
+                                                        type: 'inlineCard',
+                                                        attrs: {
+                                                            url: 'https://example.atlassian.net/wiki/spaces/EXT/pages/123',
+                                                        },
+                                                    },
+                                                ],
+                                            },
+                                        ],
+                                    },
+                                },
+                            },
+                        },
+                    });
+                }
+
+                if (toolName === 'search') {
+                    return Promise.resolve({
+                        result: {
+                            content: [
+                                {
+                                    type: 'text',
+                                    text: JSON.stringify({
+                                        id: 'KC-1441',
+                                        title: 'Extension application link',
+                                        description:
+                                            'The extension must open the Atlassian app link in a webview and validate unsupported hosts.',
+                                        acceptanceCriteria: [
+                                            'Open supported Atlassian links inside the extension',
+                                            'Reject unsupported hosts with a clear message',
+                                        ],
+                                    }),
+                                },
+                            ],
+                        },
+                    });
+                }
+
+                return Promise.resolve({ result: {} });
+            });
+
+        const toolCaller: ToolCaller = {
+            callTool,
+            getRegisteredTools: () => [
+                { name: 'getJiraIssue' },
+                { name: 'search' },
+            ],
+            getToolsForLLM: () => [
+                {
+                    name: 'getJiraIssue',
+                    parameters: {
+                        required: ['cloudId', 'issueIdOrKey'],
+                        properties: {
+                            cloudId: {
+                                type: 'string',
+                                description: 'Cloud ID or site URL',
+                            },
+                            issueIdOrKey: {
+                                type: 'string',
+                                description: 'Issue ID or key',
+                            },
+                        },
+                    },
+                },
+                {
+                    name: 'search',
+                    parameters: {
+                        required: ['query'],
+                        properties: {
+                            query: {
+                                type: 'string',
+                                description: 'Search query',
+                            },
+                        },
+                    },
+                },
+            ],
+        };
+
+        const hooks = {
+            getSeedTaskContextTools: jest.fn(async () => [
+                'getJiraIssue',
+                'search',
+            ]),
+            getCachedTaskContextTools: jest.fn(async () => []),
+            saveCachedTaskContextTools: jest.fn(async () => undefined),
+            resolvePreferredTool: jest.fn(async () => undefined),
+            recordExecution: jest.fn(async () => undefined),
+        };
+
+        const result = await fetchTaskContext(
+            toolCaller,
+            createCapabilityRuntime('jira'),
+            {
+                ...createBaseParams(),
+                userQuestion:
+                    '@kody -v business-logic https://kodustech.atlassian.net/jira/software/c/projects/KC/boards/2?selectedIssue=KC-1441',
+                pullRequestDescription:
+                    'Related to https://kodustech.atlassian.net/jira/software/c/projects/KC/boards/2?selectedIssue=KC-1441',
+            },
+            hooks,
+        );
+
+        const calledTools = callTool.mock.calls.map(([toolName]) => toolName);
+        expect(calledTools[0]).toBe('getJiraIssue');
+        expect(calledTools).toContain('search');
+        expect(result.normalized).toMatchObject({
+            id: 'KC-1441',
+            title: 'Extension application link',
+            description:
+                'The extension must open the Atlassian app link in a webview and validate unsupported hosts.',
+            acceptanceCriteria: [
+                'Open supported Atlassian links inside the extension',
+                'Reject unsupported hosts with a clear message',
+            ],
+            sourceProvider: 'jira',
+        });
+    });
 });

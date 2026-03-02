@@ -284,7 +284,7 @@ capability-tool-map:
 ### 6.3 Seed files (bootstrap de cold start)
 
 ```
-resources/
+runtime/capability-seeds/
 ├── jira/task.context.read.json
 ├── linear/task.context.read.json
 ├── clickup/task.context.read.json
@@ -528,7 +528,7 @@ my-skill/
 ```
 libs/agents/skills/
     business-rules-validation/SKILL.md
-    resources/{jira,linear,clickup,notion}/task.context.read.json
+    runtime/capability-seeds/{jira,linear,clickup,notion}/task.context.read.json
     runtime/
         bounded-map.ts
         capability-hooks.factory.ts

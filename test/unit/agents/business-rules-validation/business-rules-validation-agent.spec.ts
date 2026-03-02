@@ -60,10 +60,16 @@ describe('BusinessRulesValidationAgentProvider.withTimeout', () => {
 
     it('rejects with timeout error when promise exceeds timeout', async () => {
         const provider = createProvider();
-        const slow = new Promise((resolve) => setTimeout(resolve, 10_000));
+        let timeoutId: NodeJS.Timeout | undefined;
+        const slow = new Promise((resolve) => {
+            timeoutId = setTimeout(resolve, 10_000);
+        });
         await expect(
             (provider as any).withTimeout(slow, 50, 'test-timeout'),
         ).rejects.toThrow('Timeout after 50ms in test-timeout');
+        if (timeoutId) {
+            clearTimeout(timeoutId);
+        }
     });
 
     it('clears the timer after resolution to avoid leaks', async () => {

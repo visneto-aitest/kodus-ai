@@ -6,7 +6,7 @@ import {
     CapabilityExecutionTrace,
     ToolCaller,
 } from '../runtime/skill-runtime.types';
-import { asRecord } from '../runtime/value-utils';
+import { asRecord, safeJsonParse } from '../runtime/value-utils';
 
 const PR_DIFF_CAPABILITY = 'pr.diff.read';
 
@@ -52,7 +52,7 @@ export async function fetchPullRequestDiff(
               }
             : {},
         callTool: (selectedTool, args) => toolCaller.callTool(selectedTool, args),
-        canExecute: () => Boolean(params),
+        validate: () => (params ? undefined : 'precondition_failed'),
         extract: extractDiffFromToolResult,
         fallback: '',
         onError: 'fallback',
@@ -62,38 +62,13 @@ export async function fetchPullRequestDiff(
     });
 
     if (fallbackReason) {
-        const trace: CapabilityExecutionTrace =
-            fallbackReason === 'tool_unavailable' ||
-            fallbackReason === 'precondition_failed'
-                ? {
-                      ...base,
-                      status: 'skipped',
-                      reason: fallbackReason,
-                      latencyMs: Date.now() - startedAt,
-                  }
-                : {
-                      ...base,
-                      status: 'failed',
-                      reason: fallbackReason,
-                      latencyMs: Date.now() - startedAt,
-                  };
+        const trace = buildFallbackTrace(base, fallbackReason, startedAt);
 
         return { diff: '', traces: [trace] };
     }
 
     const success = typeof diff === 'string' && diff.length > 0;
-    const trace: CapabilityExecutionTrace = success
-        ? {
-              ...base,
-              status: 'success',
-              latencyMs: Date.now() - startedAt,
-          }
-        : {
-              ...base,
-              status: 'failed',
-              reason: 'empty_result',
-              latencyMs: Date.now() - startedAt,
-          };
+    const trace = buildResultTrace(base, success, startedAt);
 
     return {
         diff: success ? diff : '',
@@ -117,9 +92,45 @@ function createBaseTrace(
     };
 }
 
+function buildFallbackTrace(
+    base: Omit<CapabilityExecutionTrace, 'status' | 'latencyMs' | 'reason'>,
+    reason: DeterministicFallbackReason,
+    startedAt: number,
+): CapabilityExecutionTrace {
+    return {
+        ...base,
+        status:
+            reason === 'tool_unavailable' || reason === 'precondition_failed'
+                ? 'skipped'
+                : 'failed',
+        reason,
+        latencyMs: Date.now() - startedAt,
+    };
+}
+
+function buildResultTrace(
+    base: Omit<CapabilityExecutionTrace, 'status' | 'latencyMs' | 'reason'>,
+    success: boolean,
+    startedAt: number,
+): CapabilityExecutionTrace {
+    return success
+        ? {
+              ...base,
+              status: 'success',
+              latencyMs: Date.now() - startedAt,
+          }
+        : {
+              ...base,
+              status: 'failed',
+              reason: 'empty_result',
+              latencyMs: Date.now() - startedAt,
+          };
+}
+
 function extractDiffFromToolResult(payload: unknown): string {
     const root = asRecord(payload);
     const nestedResult = asRecord(root.result);
+    const structuredContent = asRecord(nestedResult.structuredContent);
 
     const directData = root.data;
     if (typeof directData === 'string') {
@@ -129,6 +140,29 @@ function extractDiffFromToolResult(payload: unknown): string {
     const nestedData = nestedResult.data;
     if (typeof nestedData === 'string') {
         return nestedData;
+    }
+
+    const structuredData = structuredContent.data;
+    if (typeof structuredData === 'string') {
+        return structuredData;
+    }
+
+    const content = Array.isArray(nestedResult.content)
+        ? nestedResult.content
+        : [];
+    for (const item of content) {
+        const record = asRecord(item);
+        if (record.type !== 'text' || typeof record.text !== 'string') {
+            continue;
+        }
+
+        const parsed = safeJsonParse<Record<string, unknown>>(
+            record.text,
+            {},
+        );
+        if (typeof parsed.data === 'string') {
+            return parsed.data;
+        }
     }
 
     return '';

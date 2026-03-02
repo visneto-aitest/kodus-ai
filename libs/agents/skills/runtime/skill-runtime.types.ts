@@ -1,3 +1,5 @@
+import { Thread } from '@kodus/flow';
+
 import {
     SkillCapabilityDefinition,
     SkillContracts,
@@ -8,6 +10,16 @@ export interface ToolExecutionResponse {
     result?: unknown;
 }
 
+export interface AgentCallOptions {
+    thread?: Thread;
+    userContext?: {
+        organizationAndTeamData?: {
+            organizationId: string;
+            teamId: string;
+        };
+    };
+}
+
 export interface ToolCaller {
     callTool(
         toolName: string,
@@ -16,7 +28,7 @@ export interface ToolCaller {
     callAgent?(
         agentName: string,
         prompt: string,
-        options?: unknown,
+        options?: AgentCallOptions,
     ): Promise<ToolExecutionResponse>;
     getRegisteredTools(): Array<{ name?: string }>;
     getToolsForLLM?(): Array<{ name?: string; parameters?: unknown }>;

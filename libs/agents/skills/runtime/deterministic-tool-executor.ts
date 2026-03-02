@@ -17,7 +17,7 @@ export interface ExecuteDeterministicToolParams<TOutput> {
     ) => Promise<DeterministicToolCallResponse>;
     extract: (payload: unknown) => TOutput;
     fallback: TOutput;
-    canExecute?: () => boolean;
+    validate?: () => DeterministicFallbackReason | undefined;
     onError?: 'throw' | 'fallback';
     onFallback?: (reason: DeterministicFallbackReason, error?: unknown) => void;
 }
@@ -34,8 +34,9 @@ export async function executeDeterministicTool<TOutput>(
         return params.fallback;
     }
 
-    if (params.canExecute && !params.canExecute()) {
-        params.onFallback?.('precondition_failed');
+    const validationError = params.validate?.();
+    if (validationError) {
+        params.onFallback?.(validationError);
         return params.fallback;
     }
 

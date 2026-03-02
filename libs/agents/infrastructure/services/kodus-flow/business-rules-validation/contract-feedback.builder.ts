@@ -4,7 +4,6 @@ export function buildBusinessRulesContractViolationFeedback(
     missingFields: string[] | undefined,
 ): string {
     void userLanguage;
-
     const fields =
         missingFields && missingFields.length > 0
             ? missingFields.join(', ')

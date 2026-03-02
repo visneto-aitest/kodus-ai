@@ -22,11 +22,22 @@ import {
 export const SKILL_NAME = 'business-rules-validation';
 export const PR_METADATA_CAPABILITY = 'pr.metadata.read';
 export const PR_DIFF_CAPABILITY = 'pr.diff.read';
-export const TASK_CONTEXT_CAPABILITY = 'task.context.read';
 
 interface ToolingResult<T> {
     value: T;
     traces: CapabilityExecutionTrace[];
+}
+
+interface ExecutionScope {
+    organizationId: string;
+    teamId: string;
+}
+
+interface PullRequestRef {
+    organizationId: string;
+    teamId: string;
+    repositoryId: string;
+    pullRequestNumber: number;
 }
 
 export interface BusinessRulesBlueprintTooling {
@@ -70,55 +81,39 @@ export function classifyTaskQuality(taskContext: string): TaskQuality {
 function resolvePullRequestMetadataToolArgs(
     ctx: BusinessRulesContext,
 ): PrMetadataReadParams | undefined {
-    const organizationId = ctx.organizationAndTeamData?.organizationId;
-    const teamId = ctx.organizationAndTeamData?.teamId;
-    const repositoryId = resolveRepositoryId(ctx);
-    const repositoryName = resolveRepositoryName(ctx) ?? repositoryId;
-    const prNumber = resolvePullRequestNumber(ctx);
-
-    if (
-        typeof organizationId !== 'string' ||
-        typeof teamId !== 'string' ||
-        typeof repositoryId !== 'string' ||
-        typeof repositoryName !== 'string' ||
-        typeof prNumber !== 'number'
-    ) {
+    const pullRequestRef = resolvePullRequestRef(ctx);
+    if (!pullRequestRef) {
         return undefined;
     }
 
+    const repositoryName =
+        resolveRepositoryName(ctx) ?? pullRequestRef.repositoryId;
+
     return {
-        organizationId,
-        teamId,
-        repositoryId,
+        organizationId: pullRequestRef.organizationId,
+        teamId: pullRequestRef.teamId,
+        repositoryId: pullRequestRef.repositoryId,
         repositoryName,
-        pullRequestNumber: prNumber,
+        pullRequestNumber: pullRequestRef.pullRequestNumber,
     };
 }
 
 function resolvePullRequestDiffToolArgs(
     ctx: BusinessRulesContext,
 ): PrDiffReadParams | undefined {
-    const organizationId = ctx.organizationAndTeamData?.organizationId;
-    const teamId = ctx.organizationAndTeamData?.teamId;
-    const repositoryId = resolveRepositoryId(ctx);
-    const repositoryName = resolveRepositoryName(ctx);
-    const prNumber = resolvePullRequestNumber(ctx);
-
-    if (
-        typeof organizationId !== 'string' ||
-        typeof teamId !== 'string' ||
-        typeof repositoryId !== 'string' ||
-        typeof prNumber !== 'number'
-    ) {
+    const pullRequestRef = resolvePullRequestRef(ctx);
+    if (!pullRequestRef) {
         return undefined;
     }
 
+    const repositoryName = resolveRepositoryName(ctx);
+
     return {
-        organizationId,
-        teamId,
-        repositoryId,
+        organizationId: pullRequestRef.organizationId,
+        teamId: pullRequestRef.teamId,
+        repositoryId: pullRequestRef.repositoryId,
         repositoryName,
-        pullRequestNumber: prNumber,
+        pullRequestNumber: pullRequestRef.pullRequestNumber,
     };
 }
 
@@ -138,16 +133,16 @@ export function createBusinessRulesBlueprintTooling(
         fetchPullRequestBody: async (ctx: BusinessRulesContext) => {
             const args = resolvePullRequestMetadataToolArgs(ctx);
             const toolName = capabilityTools.getToolName(PR_METADATA_CAPABILITY);
-            const metadata = await fetchPullRequestMetadata(fetcher, toolName, args, {
-                skillName: SKILL_NAME,
-                organizationId:
-                    ctx.organizationAndTeamData?.organizationId ?? 'unknown-org',
-                teamId: ctx.organizationAndTeamData?.teamId ?? 'unknown-team',
-                provider: providerType,
-            });
+            const metadata = await fetchPullRequestMetadata(
+                fetcher,
+                toolName,
+                args,
+                buildCapabilityExecutionContext(ctx, providerType),
+            );
 
-            await Promise.all(
-                metadata.traces.map((trace) => hooks?.recordExecution?.(trace)),
+            await recordCapabilityExecutionTraces(
+                hooks,
+                metadata.traces,
             );
 
             return {
@@ -159,16 +154,16 @@ export function createBusinessRulesBlueprintTooling(
         fetchPullRequestDiff: async (ctx: BusinessRulesContext) => {
             const args = resolvePullRequestDiffToolArgs(ctx);
             const toolName = capabilityTools.getToolName(PR_DIFF_CAPABILITY);
-            const diff = await fetchPullRequestDiff(fetcher, toolName, args, {
-                skillName: SKILL_NAME,
-                organizationId:
-                    ctx.organizationAndTeamData?.organizationId ?? 'unknown-org',
-                teamId: ctx.organizationAndTeamData?.teamId ?? 'unknown-team',
-                provider: providerType,
-            });
+            const diff = await fetchPullRequestDiff(
+                fetcher,
+                toolName,
+                args,
+                buildCapabilityExecutionContext(ctx, providerType),
+            );
 
-            await Promise.all(
-                diff.traces.map((trace) => hooks?.recordExecution?.(trace)),
+            await recordCapabilityExecutionTraces(
+                hooks,
+                diff.traces,
             );
 
             return {
@@ -178,45 +173,26 @@ export function createBusinessRulesBlueprintTooling(
         },
 
         fetchTaskContext: async (ctx: BusinessRulesContext) => {
+            const scope = resolveExecutionScope(ctx);
             const taskContext = await fetchTaskContextCapability(
                 fetcher,
                 capabilityRuntime,
                 {
                     skillName: SKILL_NAME,
-                    organizationId:
-                        ctx.organizationAndTeamData?.organizationId ??
-                        'unknown-org',
-                    teamId:
-                        ctx.organizationAndTeamData?.teamId ?? 'unknown-team',
+                    organizationId: scope.organizationId,
+                    teamId: scope.teamId,
                     pullRequestNumber: resolvePullRequestNumber(ctx),
                     prBody: ctx.prBody,
-                    headRef:
-                        typeof ctx.prepareContext?.pullRequest?.headRef ===
-                        'string'
-                            ? ctx.prepareContext?.pullRequest?.headRef
-                            : undefined,
-                    userQuestion:
-                        typeof ctx.prepareContext?.userQuestion === 'string'
-                            ? ctx.prepareContext?.userQuestion
-                            : undefined,
-                    pullRequestDescription:
-                        typeof ctx.prepareContext?.pullRequestDescription ===
-                        'string'
-                            ? ctx.prepareContext?.pullRequestDescription
-                            : undefined,
-                    taskContext:
-                        typeof ctx.prepareContext?.taskContext === 'string'
-                            ? ctx.prepareContext?.taskContext
-                            : undefined,
+                    headRef: resolvePullRequestHeadRef(ctx),
+                    userQuestion: readPrepareContextString(ctx, 'userQuestion'),
+                    pullRequestDescription: readPrepareContextString(
+                        ctx,
+                        'pullRequestDescription',
+                    ),
+                    taskContext: readPrepareContextString(ctx, 'taskContext'),
                     userLanguage: ctx.userLanguage,
                     thread: ctx.thread,
-                    excludedTools: [
-                        capabilityTools.getToolName(PR_METADATA_CAPABILITY),
-                        capabilityTools.getToolName(PR_DIFF_CAPABILITY),
-                    ].filter(
-                        (toolName): toolName is string =>
-                            typeof toolName === 'string',
-                    ),
+                    excludedTools: resolveExcludedTools(capabilityTools),
                     taskContextResolutionMode:
                         hooks?.resolveTaskContextMode?.(ctx, providerType) ??
                         'cache_first',
@@ -251,9 +227,47 @@ function resolvePullRequestNumber(
     return undefined;
 }
 
+function resolveExecutionScope(ctx: BusinessRulesContext): ExecutionScope {
+    return {
+        organizationId: ctx.organizationAndTeamData?.organizationId ?? 'unknown-org',
+        teamId: ctx.organizationAndTeamData?.teamId ?? 'unknown-team',
+    };
+}
+
+function resolvePullRequestRef(
+    ctx: BusinessRulesContext,
+): PullRequestRef | undefined {
+    const organizationId = ctx.organizationAndTeamData?.organizationId;
+    const teamId = ctx.organizationAndTeamData?.teamId;
+    const repositoryId = resolveRepositoryId(ctx);
+    const pullRequestNumber = resolvePullRequestNumber(ctx);
+
+    if (
+        typeof organizationId !== 'string' ||
+        typeof teamId !== 'string' ||
+        typeof repositoryId !== 'string' ||
+        typeof pullRequestNumber !== 'number'
+    ) {
+        return undefined;
+    }
+
+    return {
+        organizationId,
+        teamId,
+        repositoryId,
+        pullRequestNumber,
+    };
+}
+
 function resolveRepositoryId(ctx: BusinessRulesContext): string | undefined {
     const repositoryId = ctx.prepareContext?.repository?.id;
-    return typeof repositoryId === 'string' ? repositoryId : undefined;
+    if (typeof repositoryId === 'string' && repositoryId.trim().length > 0) {
+        return repositoryId;
+    }
+    if (typeof repositoryId === 'number') {
+        return String(repositoryId);
+    }
+    return undefined;
 }
 
 function resolveRepositoryName(ctx: BusinessRulesContext): string | undefined {
@@ -261,9 +275,62 @@ function resolveRepositoryName(ctx: BusinessRulesContext): string | undefined {
     return typeof repositoryName === 'string' ? repositoryName : undefined;
 }
 
+function resolvePullRequestHeadRef(
+    ctx: BusinessRulesContext,
+): string | undefined {
+    const headRef = ctx.prepareContext?.pullRequest?.headRef;
+    return typeof headRef === 'string' ? headRef : undefined;
+}
+
+function readPrepareContextString(
+    ctx: BusinessRulesContext,
+    key: keyof NonNullable<BusinessRulesContext['prepareContext']>,
+): string | undefined {
+    const value = ctx.prepareContext?.[key];
+    return typeof value === 'string' && value.trim().length > 0
+        ? value
+        : undefined;
+}
+
+function resolveExcludedTools(capabilityTools: {
+    getToolName: (capability: string) => string | undefined;
+}): string[] {
+    return [
+        capabilityTools.getToolName(PR_METADATA_CAPABILITY),
+        capabilityTools.getToolName(PR_DIFF_CAPABILITY),
+    ].filter((toolName): toolName is string => typeof toolName === 'string');
+}
+
 function getRegisteredToolNames(fetcher: ToolCaller): string[] {
     return fetcher
         .getRegisteredTools()
         .map((tool) => tool.name ?? '')
         .filter((toolName) => toolName.trim().length > 0);
+}
+
+function buildCapabilityExecutionContext(
+    ctx: BusinessRulesContext,
+    provider: string,
+): {
+    skillName: string;
+    organizationId: string;
+    teamId: string;
+    provider: string;
+} {
+    const scope = resolveExecutionScope(ctx);
+    return {
+        skillName: SKILL_NAME,
+        organizationId: scope.organizationId,
+        teamId: scope.teamId,
+        provider,
+    };
+}
+
+async function recordCapabilityExecutionTraces(
+    hooks: CapabilityExecutionHooks<BusinessRulesContext> | undefined,
+    traces: CapabilityExecutionTrace[],
+): Promise<void> {
+    await Promise.all(
+        traces.map((trace) => hooks?.recordExecution?.(trace)),
+    );
 }

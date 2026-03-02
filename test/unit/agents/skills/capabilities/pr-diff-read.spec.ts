@@ -91,4 +91,46 @@ describe('fetchPullRequestDiff', () => {
             reason: 'tool_unavailable',
         });
     });
+
+    it('extracts diff from MCP structuredContent payloads', async () => {
+        const callTool = jest.fn<ToolCaller['callTool']>().mockResolvedValue({
+            result: {
+                result: {
+                    content: [
+                        {
+                            type: 'text',
+                            text: JSON.stringify({
+                                success: true,
+                                data: 'diff from content text',
+                            }),
+                        },
+                    ],
+                    structuredContent: {
+                        success: true,
+                        data: 'diff from structured content',
+                    },
+                },
+            },
+        });
+        const toolCaller = createToolCaller(callTool);
+
+        const result = await fetchPullRequestDiff(
+            toolCaller,
+            'KODUS_GET_PULL_REQUEST_DIFF',
+            {
+                organizationId: 'org-1',
+                teamId: 'team-1',
+                repositoryId: 'repo-1',
+                repositoryName: 'repo-name',
+                pullRequestNumber: 7,
+            },
+            executionContext,
+        );
+
+        expect(result.diff).toBe('diff from structured content');
+        expect(result.traces[0]).toMatchObject({
+            capability: 'pr.diff.read',
+            status: 'success',
+        });
+    });
 });

@@ -11,7 +11,7 @@ export interface BusinessRulesPrepareContext extends Record<string, unknown> {
     userQuestion?: string;
     pullRequestDescription?: string;
     repository?: {
-        id?: string;
+        id?: string | number;
         name?: string;
         defaultBranch?: string;
     };

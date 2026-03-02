@@ -232,6 +232,8 @@ export class ChatWithKodyFromGitUseCase {
                     pullRequestNumber,
                     pullRequestDescription,
                     organizationAndTeamData,
+                    headRef,
+                    baseRef,
                 );
             }
 
@@ -373,6 +375,8 @@ export class ChatWithKodyFromGitUseCase {
         pullRequestNumber: number,
         pullRequestDescription: string,
         organizationAndTeamData: OrganizationAndTeamData,
+        headRef?: string,
+        baseRef?: string,
     ): Promise<void> {
         const sender = this.getSender(params);
         const commentBody =

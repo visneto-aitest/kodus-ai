@@ -12,7 +12,9 @@ import { BlueprintStep } from '@libs/shared/blueprint/blueprint.types';
 import { BusinessRulesContext } from './types';
 import {
     canProceedWithBusinessRulesAnalysis,
+    getPullRequestDiffMissingInfoMessage,
     getTaskContextMissingInfoMessage,
+    hasUsablePullRequestDiff,
 } from './task-quality.rules';
 import {
     SKILL_NAME,
@@ -36,6 +38,10 @@ const hasPrBodySchema = z.looseObject({
 
 const hasPrDiffSchema = z.looseObject({
     prDiff: z.string(),
+});
+
+const hasNonEmptyPrDiffSchema = z.looseObject({
+    prDiff: z.string().trim().min(1),
 });
 
 const hasTaskContextSchema = z.looseObject({
@@ -194,15 +200,18 @@ export function createBusinessRulesBlueprint(
             type: 'gate',
             name: 'validateContext',
             contract: {
-                input: hasTaskQualitySchema,
+                input: hasTaskQualitySchema.and(hasPrDiffSchema),
                 output: gateOutputSchema,
             },
             condition: (ctx) =>
-                canProceedWithBusinessRulesAnalysis(ctx.taskQuality),
+                canProceedWithBusinessRulesAnalysis(ctx.taskQuality) &&
+                hasUsablePullRequestDiff(ctx.prDiff),
             onFail: (ctx): BusinessRulesContext => {
-                const missingInfo = getTaskContextMissingInfoMessage(
+                const missingInfo = canProceedWithBusinessRulesAnalysis(
                     ctx.taskQuality,
-                );
+                )
+                    ? getPullRequestDiffMissingInfoMessage()
+                    : getTaskContextMissingInfoMessage(ctx.taskQuality);
                 return {
                     ...ctx,
                     validationResult: {
@@ -218,7 +227,7 @@ export function createBusinessRulesBlueprint(
             type: 'llm',
             name: 'analyzeBusinessRules',
             contract: {
-                input: hasTaskQualitySchema,
+                input: hasTaskQualitySchema.and(hasNonEmptyPrDiffSchema),
                 output: hasValidationResultSchema,
             },
             skill: SKILL_NAME,

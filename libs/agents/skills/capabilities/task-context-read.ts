@@ -1,10 +1,11 @@
-import { createLogger } from '@kodus/flow';
+import { Thread, createLogger } from '@kodus/flow';
 
 import {
     executeDeterministicTool,
     DeterministicFallbackReason,
 } from '../runtime/deterministic-tool-executor';
 import {
+    AgentCallOptions,
     CapabilityExecutionTrace,
     CapabilityStrategyScope,
     SkillCapabilityRuntimeConfig,
@@ -31,7 +32,7 @@ export interface TaskContextReadParams {
     pullRequestDescription?: string;
     taskContext?: string;
     userLanguage?: string;
-    thread?: unknown;
+    thread?: Thread;
     excludedTools?: string[];
     taskContextResolutionMode?: ResolutionMode;
     enableAgenticFallback?: boolean;
@@ -108,18 +109,21 @@ export async function fetchTaskContext(
     const providerType = capabilityRuntime.providerType || 'external';
     const registeredTools = getRegisteredToolNames(toolCaller);
     const taskContextToolSignatures = getTaskContextToolSignatures(toolCaller);
-
-    const scope = buildScope(params, providerType);
+    const scope: CapabilityStrategyScope = {
+        organizationId: params.organizationId,
+        teamId: params.teamId,
+        skillName: params.skillName,
+        capability: TASK_CONTEXT_CAPABILITY,
+        provider: providerType,
+    };
     const providerCandidates = resolveTaskContextProviders({
         providerType,
         allProviderTypes: capabilityRuntime.allProviderTypes,
     });
     const hints = resolveTaskContextHints(params);
     const resolutionMode = params.taskContextResolutionMode ?? 'cache_first';
-    const allowAgenticFallback = shouldUseAgenticTaskContextFallback(
-        params,
-        registeredTools.length > 0,
-    );
+    const allowAgenticFallback =
+        params.enableAgenticFallback !== false && registeredTools.length > 0;
 
     const cachedTools = (await hooks?.getCachedTaskContextTools?.(scope)) ?? [];
     const seededTools = uniqueNonEmpty(
@@ -136,21 +140,18 @@ export async function fetchTaskContext(
         ).flat(),
     );
 
-    const deterministicAllowlist = resolveTaskContextDeterministicAllowlist({
-        seededTools,
-    });
-
     const discoveredCandidateTools = getTaskContextCandidateTools({
         registeredTools,
-        allowlist: [...deterministicAllowlist],
+        allowlist: seededTools,
         excludedTools: params.excludedTools ?? [],
         logger,
     });
 
-    const candidateTools = applyTaskContextToolBoundary({
-        candidateTools: discoveredCandidateTools,
-        seededTools,
-    });
+    const candidateTools = seededTools.length
+        ? discoveredCandidateTools.filter((toolName) =>
+              seededTools.includes(toolName),
+          )
+        : discoveredCandidateTools;
 
     const preferredTool = await hooks?.resolvePreferredTool?.(
         scope,
@@ -168,6 +169,9 @@ export async function fetchTaskContext(
     });
 
     const traces: CapabilityExecutionTrace[] = [];
+    let bestDeterministicValue: TaskContextNormalized | undefined;
+    let bestDeterministicTool: string | undefined;
+    let bestDeterministicScore = -1;
 
     if (!orderedTools.length && !allowAgenticFallback) {
         const emptyCandidatesTrace: CapabilityExecutionTrace = {
@@ -221,7 +225,6 @@ export async function fetchTaskContext(
 
     for (const toolName of orderedTools) {
         const argsCandidates = buildTaskContextArgsCandidates(
-            toolName,
             hints,
             taskContextToolSignatures.get(toolName),
         );
@@ -244,22 +247,48 @@ export async function fetchTaskContext(
             traces.push(...result.traces);
             if (result.value) {
                 result.value.sourceProvider = providerType;
-                await maybePersistLearnedTools(
-                    hooks,
-                    scope,
-                    [toolName],
-                    candidateTools,
-                    registeredTools,
-                    cachedTools,
-                );
+                const normalizedScore = scoreNormalizedContext(result.value);
+                if (normalizedScore > bestDeterministicScore) {
+                    bestDeterministicValue = result.value;
+                    bestDeterministicTool = toolName;
+                    bestDeterministicScore = normalizedScore;
+                }
 
-                return {
-                    normalized: result.value,
-                    raw: result.value.description ?? '',
-                    traces,
-                };
+                if (isUsableTaskContext(result.value)) {
+                    await maybePersistLearnedTools(
+                        hooks,
+                        scope,
+                        [toolName],
+                        candidateTools,
+                        registeredTools,
+                        cachedTools,
+                    );
+
+                    return {
+                        normalized: result.value,
+                        raw: result.value.description ?? '',
+                        traces,
+                    };
+                }
             }
         }
+    }
+
+    if (bestDeterministicValue) {
+        await maybePersistLearnedTools(
+            hooks,
+            scope,
+            bestDeterministicTool ? [bestDeterministicTool] : [],
+            candidateTools,
+            registeredTools,
+            cachedTools,
+        );
+
+        return {
+            normalized: bestDeterministicValue,
+            raw: bestDeterministicValue.description ?? '',
+            traces,
+        };
     }
 
     if (!allowAgenticFallback) {
@@ -350,17 +379,6 @@ function extractLinks(text: string): string[] {
     }
 
     return uniqueNonEmpty(links);
-}
-
-function shouldUseAgenticTaskContextFallback(
-    params: TaskContextReadParams,
-    hasRegisteredTools: boolean,
-): boolean {
-    if (params.enableAgenticFallback === false) {
-        return false;
-    }
-
-    return hasRegisteredTools;
 }
 
 function getRegisteredToolNames(toolCaller: ToolCaller): string[] {
@@ -462,11 +480,9 @@ function getTaskContextCandidateTools(params: {
 }
 
 function buildTaskContextArgsCandidates(
-    toolName: string,
     hints: TaskContextHints,
     signature?: TaskContextToolSignature,
 ): Record<string, unknown>[] {
-    void toolName;
     const requiredParams = signature?.requiredParams ?? [];
 
     if (!requiredParams.length) {
@@ -728,11 +744,11 @@ function combineRequiredParamValues(
 function buildGenericTaskContextArgsCandidates(
     hints: TaskContextHints,
 ): Record<string, unknown>[] {
-    const rawTokens = [...hints.issueLinks, ...hints.issueKeys, hints.queryText].filter(
-        (value) => value.trim().length > 0,
-    );
-
-    const tokens = [...new Set(rawTokens)].slice(0, 4);
+    const tokens = uniqueNonEmpty([
+        ...hints.issueLinks,
+        ...hints.issueKeys,
+        hints.queryText,
+    ]).slice(0, 4);
     const args: Record<string, unknown>[] = [];
 
     for (const token of tokens) {
@@ -750,24 +766,6 @@ function buildGenericTaskContextArgsCandidates(
     }
 
     return deduped.slice(0, 16);
-}
-
-function applyTaskContextToolBoundary(params: {
-    candidateTools: string[];
-    seededTools: string[];
-}): string[] {
-    const seededSet = new Set(uniqueNonEmpty(params.seededTools));
-    if (seededSet.size === 0) {
-        return params.candidateTools;
-    }
-
-    return params.candidateTools.filter((toolName) => seededSet.has(toolName));
-}
-
-function resolveTaskContextDeterministicAllowlist(params: {
-    seededTools: string[];
-}): Set<string> {
-    return new Set(uniqueNonEmpty(params.seededTools));
 }
 
 function resolveTaskContextProviders(params: {
@@ -833,7 +831,8 @@ async function executeAndTrace<T>(
         toolName: input.toolName,
         args: input.args,
         callTool: (toolName, args) => input.toolCaller.callTool(toolName, args),
-        canExecute: () => input.canExecute,
+        validate: () =>
+            input.canExecute ? undefined : 'precondition_failed',
         extract: (payload) => input.extract(payload),
         fallback: input.fallback,
         onError: 'fallback',
@@ -960,27 +959,32 @@ Return ONLY JSON:
 }`;
 
     try {
+        const agentOptions: AgentCallOptions = {
+            thread: input.params.thread,
+            userContext: {
+                organizationAndTeamData: {
+                    organizationId: input.params.organizationId,
+                    teamId: input.params.teamId,
+                },
+            },
+        };
+
         const response = await input.toolCaller.callAgent(
             `kodus-${input.params.skillName}-fetcher`,
             prompt,
-            {
-                thread: input.params.thread as any,
-                userContext: {
-                    organizationAndTeamData: {
-                        organizationId: input.params.organizationId,
-                        teamId: input.params.teamId,
-                    },
-                },
-            },
+            agentOptions,
         );
 
         const parsed = parseAgentTaskContextResult(response.result);
-        const normalized = normalizeTaskPayload({
-            taskContext: parsed.taskContext,
-            id: parsed.id,
-            title: parsed.title,
-            sourceProvider: input.providerType,
-        });
+        const normalized =
+            parsed.taskContext.trim().length > 0
+                ? {
+                      id: parsed.id,
+                      title: parsed.title,
+                      description: parsed.taskContext,
+                      sourceProvider: input.providerType,
+                  }
+                : undefined;
 
         const traces: CapabilityExecutionTrace[] = [];
         for (const toolName of parsed.toolsUsed.length
@@ -1059,24 +1063,6 @@ function parseAgentTaskContextResult(value: unknown): {
     };
 }
 
-function normalizeTaskPayload(value: {
-    taskContext: string;
-    id?: string;
-    title?: string;
-    sourceProvider: string;
-}): TaskContextNormalized | undefined {
-    if (value.taskContext.trim().length === 0) {
-        return undefined;
-    }
-
-    return {
-        id: value.id,
-        title: value.title,
-        description: value.taskContext,
-        sourceProvider: value.sourceProvider,
-    };
-}
-
 function orderCandidateTools(params: {
     candidateTools: string[];
     preferredTool?: string;
@@ -1143,19 +1129,6 @@ async function maybePersistLearnedTools(
 
     const merged = [...new Set([...filteredLearned, ...cachedTools])];
     await hooks.saveCachedTaskContextTools(scope, merged);
-}
-
-function buildScope(
-    params: TaskContextReadParams,
-    provider: string,
-): CapabilityStrategyScope {
-    return {
-        organizationId: params.organizationId,
-        teamId: params.teamId,
-        skillName: params.skillName,
-        capability: TASK_CONTEXT_CAPABILITY,
-        provider,
-    };
 }
 
 function createBaseTrace(
@@ -1408,6 +1381,33 @@ function scoreNormalizedContext(value: TaskContextNormalized): number {
     return score;
 }
 
+function isUsableTaskContext(value: TaskContextNormalized): boolean {
+    if (value.acceptanceCriteria?.length) {
+        return true;
+    }
+
+    if (!value.description?.trim()) {
+        return false;
+    }
+
+    return !looksLikeStructuredMetadata(value.description);
+}
+
+function looksLikeStructuredMetadata(value: string): boolean {
+    const trimmed = value.trim();
+    if (!(trimmed.startsWith('{') || trimmed.startsWith('['))) {
+        return false;
+    }
+
+    return (
+        trimmed.includes('"inlineCard"') ||
+        trimmed.includes('"blockCard"') ||
+        trimmed.includes('"application"') ||
+        trimmed.includes('"attrs"') ||
+        trimmed.includes('"url"')
+    );
+}
+
 function pluckValues(
     spaces: Record<string, unknown>[],
     keys: string[],
@@ -1452,7 +1452,9 @@ function normalizeTextValue(value: unknown): string | undefined {
 
     if (value !== undefined && value !== null) {
         const serialized = safeStringify(value);
-        return serialized.trim().length > 0 ? serialized : undefined;
+        return serialized && serialized.trim().length > 0
+            ? serialized
+            : undefined;
     }
 
     return undefined;
