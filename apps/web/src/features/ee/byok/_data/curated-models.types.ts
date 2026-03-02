@@ -56,11 +56,15 @@ export function getAnnotationForModel(
     const providerAnnotations = annotations[provider];
     if (!providerAnnotations) return undefined;
 
+    let bestMatch: { pattern: string; annotation: ModelAnnotation } | undefined;
+
     for (const [pattern, annotation] of Object.entries(providerAnnotations)) {
         if (matchesPattern(pattern, modelId)) {
-            return annotation;
+            if (!bestMatch || pattern.length > bestMatch.pattern.length) {
+                bestMatch = { pattern, annotation };
+            }
         }
     }
 
-    return undefined;
+    return bestMatch?.annotation;
 }
