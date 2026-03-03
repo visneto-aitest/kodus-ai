@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Badge } from "@components/ui/badge";
 import { Button } from "@components/ui/button";
 import {
     Command,
@@ -25,7 +26,12 @@ import { ChevronsUpDownIcon } from "lucide-react";
 import { Controller, useFormContext } from "react-hook-form";
 import { ArrayHelpers } from "src/core/utils/array";
 
+import catalog from "../../../../_data/curated-models.json";
+import { getAnnotationForModel } from "../../../../_data/curated-models.types";
+import type { CuratedModelsCatalog } from "../../../../_data/curated-models.types";
 import type { EditKeyForm } from "../_types";
+
+const annotations = (catalog as CuratedModelsCatalog).annotations;
 
 export const ByokModelSelect = () => {
     const form = useFormContext<EditKeyForm>();
@@ -191,24 +197,54 @@ const ModelSelect = ({
                         <CommandEmpty>No model found.</CommandEmpty>
 
                         {ArrayHelpers.sortAlphabetically(models, "name").map(
-                            (r) => (
-                                <CommandItem
-                                    key={r.id}
-                                    value={r.id}
-                                    onSelect={(v) => {
-                                        form.reset({
-                                            model: v,
-                                            provider,
-                                            apiKey: "",
-                                            baseURL: null,
-                                        });
+                            (r) => {
+                                const annotation = getAnnotationForModel(
+                                    annotations,
+                                    provider,
+                                    r.id,
+                                );
 
-                                        resetErrorBoundary();
-                                        setOpen(false);
-                                    }}>
-                                    <span>{r.name}</span>
-                                </CommandItem>
-                            ),
+                                return (
+                                    <CommandItem
+                                        key={r.id}
+                                        value={r.id}
+                                        onSelect={(v) => {
+                                            form.reset({
+                                                model: v,
+                                                provider,
+                                                apiKey: "",
+                                                baseURL: null,
+                                            });
+
+                                            resetErrorBoundary();
+                                            setOpen(false);
+                                        }}>
+                                        <span className="flex items-center gap-2">
+                                            {r.name}
+                                            {annotation?.badge ===
+                                                "tested" && (
+                                                <Badge
+                                                    variant="success"
+                                                    size="xs">
+                                                    Tested
+                                                </Badge>
+                                            )}
+                                            {annotation?.badge ===
+                                                "untested" && (
+                                                <span className="text-warning text-xs">
+                                                    {annotation.note}
+                                                </span>
+                                            )}
+                                            {annotation?.badge ===
+                                                "legacy" && (
+                                                <span className="text-text-tertiary text-xs">
+                                                    {annotation.note}
+                                                </span>
+                                            )}
+                                        </span>
+                                    </CommandItem>
+                                );
+                            },
                         )}
 
                         {/* Allow user to switch to manual input */}

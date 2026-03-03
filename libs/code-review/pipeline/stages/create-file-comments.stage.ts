@@ -285,20 +285,33 @@ export class CreateFileCommentsStage extends BasePipelineStage<CodeReviewPipelin
                 fallbackSuggestionsBySeverity,
             );
 
-        // Save pull request suggestions
-        await this.savePullRequestSuggestions(
-            organizationAndTeamData,
-            pullRequest,
-            repository,
-            changedFiles,
-            commentResults,
-            sortedPrioritizedSuggestions,
-            allDiscardedSuggestions,
-            platformType,
-            context.fileMetadata,
-            dryRun,
-            context.prAllCommits,
-        );
+        // Save pull request suggestions — comments already posted at this point
+        try {
+            await this.savePullRequestSuggestions(
+                organizationAndTeamData,
+                pullRequest,
+                repository,
+                changedFiles,
+                commentResults,
+                sortedPrioritizedSuggestions,
+                allDiscardedSuggestions,
+                platformType,
+                context.fileMetadata,
+                dryRun,
+                context.prAllCommits,
+            );
+        } catch (error) {
+            this.logger.error({
+                message: `Error saving suggestions for PR#${pullRequest.number} — comments were already posted`,
+                context: this.stageName,
+                error,
+                metadata: {
+                    organizationAndTeamData,
+                    prNumber: pullRequest.number,
+                    commentResultsCount: commentResults.length,
+                },
+            });
+        }
 
         return {
             lineComments: commentResults,
