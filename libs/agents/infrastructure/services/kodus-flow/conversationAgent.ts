@@ -192,7 +192,7 @@ export class ConversationAgentProvider extends BaseAgentProvider {
             const preparedPrompt = this.buildPromptWithMemoryBootstrap(
                 prompt,
                 prepareContext,
-                organizationAndTeamData.organizationId,
+                organizationAndTeamData,
             );
 
             const result = await this.orchestration.callAgent(
@@ -239,12 +239,16 @@ export class ConversationAgentProvider extends BaseAgentProvider {
     private buildPromptWithMemoryBootstrap(
         prompt: string,
         prepareContext: any,
-        organizationId: string,
+        organizationAndTeamData: OrganizationAndTeamData,
     ): string {
+        const organizationId =
+            organizationAndTeamData?.organizationId?.toString() || '';
+        const teamId = organizationAndTeamData?.teamId?.toString() || '';
         const repositoryId = prepareContext?.repository?.id?.toString() || '';
 
         const memoryPayload = {
             organizationId,
+            teamId,
             ...(repositoryId ? { repositoryId } : {}),
             limit: 20,
         };

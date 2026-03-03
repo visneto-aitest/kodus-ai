@@ -95,6 +95,7 @@ interface CreateMemoryRuleResponse extends BaseResponse {
         action: 'created' | 'updated' | 'skipped';
         requiresApproval: boolean;
         message: string;
+        link: string;
     };
 }
 
@@ -724,7 +725,7 @@ export class KodyRulesTools {
         return {
             name: 'KODUS_CREATE_MEMORY',
             description:
-                'Capture a memory, preference, or coding rule derived from context to influence future interactions or code generation. Invoke this tool whenever the user demonstrates an explicit or implicit intent to save a memory, establish a convention, or note a preference. Focus on capturing the user intent rather than strictly evaluating it as a permanent architectural rule. AVOID: Transient task instructions ("Fix this now"), debugging chatter ("I see an error"), questions ("What is the deadline?"), or vague statements without clear actionable information.',
+                'Capture a memory, preference, or coding rule derived from context to influence future interactions or code generation. Invoke this tool whenever the user demonstrates an explicit or implicit intent to save a memory, establish a convention, or note a preference. Focus on capturing the user intent rather than strictly evaluating it as a permanent architectural rule. After execution, ALWAYS inform the user of: (1) final decision/action (created or updated), (2) whether approval is required in UI, and (3) the provided link to navigate in UI. If status is pending, use the returned general memories page link (without ruleId/teamId); do not claim direct memory details link will work. AVOID: Transient task instructions ("Fix this now"), debugging chatter ("I see an error"), questions ("What is the deadline?"), or vague statements without clear actionable information.',
             inputSchema,
             outputSchema: z.object({
                 success: z.boolean(),
@@ -737,6 +738,9 @@ export class KodyRulesTools {
                     action: z.enum(['created', 'updated', 'skipped']),
                     requiresApproval: z.boolean(),
                     message: z.string().optional(),
+                    link: z
+                        .string()
+                        .describe('Link to view the memory in the system'),
                 }),
             }),
             execute: wrapToolHandler(
@@ -775,10 +779,15 @@ export class KodyRulesTools {
                     const resultStatus = result?.rule?.status;
                     const awaitingApproval =
                         resultStatus === KodyRulesStatus.PENDING;
+                    const action = result?.action ?? 'created';
+                    const requiresApproval =
+                        result?.requiresApproval ?? awaitingApproval;
 
                     const message = awaitingApproval
-                        ? `Memory ${result?.action ?? 'created'} and awaiting approval.`
-                        : `Memory ${result?.action ?? 'created'} and active.`;
+                        ? `Memory ${action}. Final decision: ${action}. Approval required in UI: ${requiresApproval ? 'yes' : 'no'}. Open the Memories page to review and approve it.`
+                        : `Memory ${action}. Final decision: ${action}. Approval required in UI: ${requiresApproval ? 'yes' : 'no'}. You can open it directly from the provided link.`;
+
+                    const link = result?.link || '';
 
                     return {
                         success: true,
@@ -788,10 +797,10 @@ export class KodyRulesTools {
                             title: result?.rule?.title,
                             rule: result?.rule?.rule,
                             status: resultStatus,
-                            action: result?.action ?? 'created',
-                            requiresApproval:
-                                result?.requiresApproval ?? awaitingApproval,
+                            action,
+                            requiresApproval,
                             message,
+                            link,
                         },
                     };
                 },
@@ -865,6 +874,10 @@ export class KodyRulesTools {
                         directoryId: z.string().optional(),
                         path: z.string().optional(),
                         createdAt: z.string().optional(),
+                        link: z
+                            .string()
+                            .describe('Link to view the memory in the system')
+                            .optional(),
                     }),
                 ),
             }),

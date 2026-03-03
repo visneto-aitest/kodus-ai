@@ -77,6 +77,10 @@ export const GeneratedMemoriesApprovalSetting = () => {
         }
     });
 
+    const handleRevert = () => {
+        handleToggle();
+    };
+
     return (
         <Button
             size="lg"
@@ -93,12 +97,14 @@ export const GeneratedMemoriesApprovalSetting = () => {
                                     <Section.Title>
                                         LLM-generated memories approval
                                     </Section.Title>
-                                    {config?.llmGeneratedMemoriesRequireApproval && (
+                                    {config?.llmGeneratedMemoriesRequireApproval !==
+                                        undefined && (
                                         <OverrideIndicator
                                             initialState={
                                                 config.llmGeneratedMemoriesRequireApproval
                                             }
                                             currentValue={currentValue}
+                                            handleRevert={handleRevert}
                                         />
                                     )}
                                 </div>
