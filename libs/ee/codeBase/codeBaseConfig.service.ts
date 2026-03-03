@@ -205,13 +205,15 @@ export default class CodeBaseConfigService implements ICodeBaseConfigService {
                 ? repoConfig?.directories?.find(
                       (directory) => directory.id === params.directoryId,
                   )
-                : this.resolveConfigByDirectories(
-                      organizationAndTeamData,
-                      repoConfig as RepositoryCodeReviewConfig,
-                      this.extractUniqueDirectoryPaths(
-                          params.preliminaryFiles || [],
-                      ),
-                  );
+                : repoConfig
+                  ? this.resolveConfigByDirectories(
+                        organizationAndTeamData,
+                        repoConfig,
+                        this.extractUniqueDirectoryPaths(
+                            params.preliminaryFiles || [],
+                        ),
+                    )
+                  : undefined;
 
             const directoryDelta = directoryConfig?.configs;
 
