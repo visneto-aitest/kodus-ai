@@ -172,6 +172,92 @@ export default class CodeBaseConfigService implements ICodeBaseConfigService {
         }
     }
 
+    async getSimpleConfig(
+        organizationAndTeamData: OrganizationAndTeamData,
+        params: {
+            repositoryId?: string;
+            directoryId?: string;
+            preliminaryFiles?: FileChange[];
+        },
+    ): Promise<CodeReviewConfigWithoutLLMProvider> {
+        try {
+            const parameter = await this.parametersService.findOne({
+                configKey: ParametersKey.CODE_REVIEW_CONFIG,
+                team: { uuid: organizationAndTeamData.teamId },
+                active: true,
+            });
+
+            if (!parameter?.configValue) {
+                return this.DEFAULT_CONFIG;
+            }
+
+            const globalDelta = parameter.configValue?.configs;
+
+            const repoConfig = params.repositoryId
+                ? parameter.configValue?.repositories?.find(
+                      (repo) => repo.id === params.repositoryId,
+                  )
+                : undefined;
+
+            const repoDelta = repoConfig?.configs;
+
+            const directoryConfig = params.directoryId
+                ? repoConfig?.directories?.find(
+                      (directory) => directory.id === params.directoryId,
+                  )
+                : repoConfig
+                  ? this.resolveConfigByDirectories(
+                        organizationAndTeamData,
+                        repoConfig,
+                        this.extractUniqueDirectoryPaths(
+                            params.preliminaryFiles || [],
+                        ),
+                    )
+                  : undefined;
+
+            const directoryDelta = directoryConfig?.configs;
+
+            const merged = deepMerge(
+                this.DEFAULT_CONFIG,
+                globalDelta || {},
+                repoDelta || {},
+                directoryDelta || {},
+            );
+
+            let configLevel = ConfigLevel.GLOBAL;
+            let directoryId: string | undefined = undefined;
+            let directoryPath: string | undefined = undefined;
+
+            if (directoryDelta) {
+                configLevel = ConfigLevel.DIRECTORY;
+                directoryId = directoryConfig?.id;
+                directoryPath = directoryConfig?.path;
+            } else if (repoDelta) {
+                configLevel = ConfigLevel.REPOSITORY;
+            }
+
+            return {
+                ...merged,
+                configLevel,
+                directoryId,
+                directoryPath,
+                v2PromptOverrides: this.sanitizeV2PromptOverrides(
+                    merged.v2PromptOverrides,
+                ),
+            } as CodeReviewConfigWithoutLLMProvider;
+        } catch (error) {
+            this.logger.error({
+                message: 'Error getting simple code review config parameters',
+                context: CodeBaseConfigService.name,
+                error,
+                metadata: { organizationAndTeamData, params },
+            });
+            throw new Error(
+                'Error getting simple code review config parameters',
+            );
+        }
+    }
+
     private sanitizeV2PromptOverrides(
         overrides: CodeReviewConfig['v2PromptOverrides'],
     ): CodeReviewConfig['v2PromptOverrides'] {
@@ -628,7 +714,7 @@ export default class CodeBaseConfigService implements ICodeBaseConfigService {
     }
 
     private async getReviewModeConfigParameter(
-        organizationAndTeamData: OrganizationAndTeamData,
+        _organizationAndTeamData: OrganizationAndTeamData,
     ): Promise<ReviewModeConfig> {
         return ReviewModeConfig.HEAVY_MODE;
     }

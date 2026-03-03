@@ -1333,11 +1333,14 @@ Analyze the suggestions and recommend the most relevant rules.`;
         }
 
         try {
-            const mergedConfig = await this.codeBaseConfigService.getConfig(
-                organizationAndTeamData,
-                { id: memory.repositoryId, name: '' },
-                [],
-            );
+            const mergedConfig =
+                await this.codeBaseConfigService.getSimpleConfig(
+                    organizationAndTeamData,
+                    {
+                        repositoryId: memory.repositoryId,
+                        directoryId: memory.directoryId,
+                    },
+                );
 
             return mergedConfig.llmGeneratedMemoriesRequireApproval === true;
         } catch (error) {

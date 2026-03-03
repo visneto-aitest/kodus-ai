@@ -67,7 +67,7 @@ describe('KodyRulesService.createOrUpdateMemory', () => {
         };
 
         const codeBaseConfigServiceMock = {
-            getConfig: jest.fn().mockResolvedValue({
+            getSimpleConfig: jest.fn().mockResolvedValue({
                 llmGeneratedMemoriesRequireApproval: requireApproval,
             }),
         };

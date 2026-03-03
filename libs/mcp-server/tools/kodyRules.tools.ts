@@ -680,7 +680,6 @@ export class KodyRulesTools {
                 ),
             teamId: z
                 .string()
-                .optional()
                 .describe(
                     'Team UUID used to resolve repository code-review settings that control generated-memory activation behavior',
                 ),
@@ -807,6 +806,11 @@ export class KodyRulesTools {
                 .describe(
                     'Organization UUID - unique identifier for the organization where memories are stored',
                 ),
+            teamId: z
+                .string()
+                .describe(
+                    'Team UUID used to resolve repository code-review settings that control generated-memory activation behavior',
+                ),
             repositoryId: z
                 .string()
                 .optional()
@@ -869,6 +873,7 @@ export class KodyRulesTools {
                     const memories = await this.kodyRulesService.findMemories(
                         {
                             organizationId: args.organizationId,
+                            teamId: args.teamId,
                         },
                         {
                             repositoryId: args.repositoryId,
