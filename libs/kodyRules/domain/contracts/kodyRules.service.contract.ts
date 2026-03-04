@@ -24,6 +24,7 @@ export interface CreateOrUpdateMemoryResult {
     rule: Partial<IKodyRule> | IKodyRule;
     action: MemoryCreationAction;
     requiresApproval: boolean;
+    link: string;
 }
 
 export interface IKodyRulesService extends IKodyRulesRepository {

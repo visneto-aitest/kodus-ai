@@ -16,6 +16,7 @@ export interface FindMemoriesResult {
     directoryId?: string;
     path?: string;
     createdAt?: string;
+    link: string;
 }
 
 export enum KodyRuleProcessingStatus {

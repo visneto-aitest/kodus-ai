@@ -16,12 +16,11 @@ import {
 } from "@services/parameters/types";
 import { usePermission } from "@services/permissions/hooks";
 import { Action, ResourceType } from "@services/permissions/types";
-import { DownloadIcon, RotateCcwIcon, SaveIcon } from "lucide-react";
+import { DownloadIcon, SaveIcon } from "lucide-react";
 import { FormProvider, useFormContext } from "react-hook-form";
+import { AsyncBoundary } from "src/core/components/async-boundary";
 import { useSelectedTeamId } from "src/core/providers/selected-team-context";
 import { unformatConfig } from "src/core/utils/helpers";
-
-import { AsyncBoundary } from "src/core/components/async-boundary";
 
 import { CodeReviewPagesBreadcrumb } from "../../_components/breadcrumb";
 import GeneratingConfig from "../../_components/generating-config";
@@ -207,16 +206,6 @@ export default function General() {
                         Download {downloadFileText} YML configuration file
                     </Button>
 
-                    {formIsDirty && (
-                        <Button
-                            size="md"
-                            variant="cancel"
-                            leftIcon={<RotateCcwIcon />}
-                            onClick={() => form.reset()}>
-                            Reset
-                        </Button>
-                    )}
-
                     <Button
                         size="md"
                         variant="primary"
@@ -230,51 +219,27 @@ export default function General() {
             </Page.Header>
 
             <Page.Content>
-                <div data-field-name="automatedReviewActive">
-                    <AutomatedReviewActive />
-                </div>
-                <div data-field-name="kodusConfigFileOverridesWebPreferences">
-                    <KodusConfigFileOverridesWebPreferences />
-                </div>
-                <div data-field-name="pullRequestApprovalActive">
-                    <PullRequestApprovalActive />
-                </div>
+                <AutomatedReviewActive />
+                <KodusConfigFileOverridesWebPreferences />
+                <PullRequestApprovalActive />
                 <AsyncBoundary errorVariant="minimal">
-                    <div data-field-name="isRequestChangesActive">
-                        <IsRequestChangesActive />
-                    </div>
+                    <IsRequestChangesActive />
                 </AsyncBoundary>
-                <div data-field-name="runOnDraft">
-                    <RunOnDraft />
-                </div>
-                <div data-field-name="showStatusFeedback">
-                    <ShowStatusFeedback />
-                </div>
+                <RunOnDraft />
+                <ShowStatusFeedback />
                 <AsyncBoundary errorVariant="minimal">
-                    <div data-field-name="enableCommittableSuggestions">
-                        <EnableCommittableSuggestions />
-                    </div>
+                    <EnableCommittableSuggestions />
                 </AsyncBoundary>
                 <AsyncBoundary errorVariant="minimal">
-                    <div data-field-name="crossfileDependenciesAnalysis">
-                        <CrossfileDependenciesAnalysis />
-                    </div>
+                    <CrossfileDependenciesAnalysis />
                 </AsyncBoundary>
-                <div data-field-name="ignorePaths">
-                    <IgnorePaths />
-                </div>
-                <div data-field-name="ignoredTitleKeywords">
-                    <IgnoredTitleKeywords />
-                </div>
-                <div data-field-name="baseBranches">
-                    <BaseBranches />
-                </div>
+                <IgnorePaths />
+                <IgnoredTitleKeywords />
+                <BaseBranches />
 
                 {repositoryId === "global" && (
                     <FormProvider {...form}>
-                        <div data-field-name="language">
-                            <LanguageSelector />
-                        </div>
+                        <LanguageSelector />
                     </FormProvider>
                 )}
             </Page.Content>

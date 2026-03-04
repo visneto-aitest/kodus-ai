@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import React, { Suspense, useEffect, useRef, useState } from "react";
 import { Badge } from "@components/ui/badge";
 import { Button } from "@components/ui/button";
 import {
@@ -12,12 +12,37 @@ import {
 } from "@components/ui/card";
 import { FormControl } from "@components/ui/form-control";
 import { Page } from "@components/ui/page";
-import { Spinner } from "@components/ui/spinner";
-import { RichTextEditorWithMentions } from "@components/ui/rich-text-editor-with-mentions";
 import { getTextStatsFromTiptapJSON } from "@components/ui/rich-text-editor";
-import { convertTiptapJSONToText } from "src/core/utils/tiptap-json-to-text";
+import { RichTextEditorWithMentions } from "@components/ui/rich-text-editor-with-mentions";
+import { Spinner } from "@components/ui/spinner";
+import { toast } from "@components/ui/toaster/use-toast";
+import { useReactQueryInvalidateQueries } from "@hooks/use-invalidate-queries";
+import { PARAMETERS_PATHS } from "@services/parameters";
+import { createOrUpdateCodeReviewParameter } from "@services/parameters/fetch";
+import { CodeReviewV2Defaults } from "@services/parameters/hooks";
+import {
+    KodyLearningStatus,
+    ParametersConfigKey,
+} from "@services/parameters/types";
+import { usePermission } from "@services/permissions/hooks";
+import { Action, ResourceType } from "@services/permissions/types";
+import { SaveIcon } from "lucide-react";
+import { Controller, Path, useFormContext } from "react-hook-form";
 import { useMCPMentions } from "src/core/hooks/use-mcp-mentions";
-import { useUnsavedChangesGuard } from "src/core/hooks/use-unsaved-changes-guard";
+import { useSelectedTeamId } from "src/core/providers/selected-team-context";
+import { unformatConfig } from "src/core/utils/helpers";
+import { convertTiptapJSONToText } from "src/core/utils/tiptap-json-to-text";
+
+import { CodeReviewPagesBreadcrumb } from "../../_components/breadcrumb";
+import GeneratingConfig from "../../_components/generating-config";
+import { OverrideIndicatorForm } from "../../_components/override";
+import { type CodeReviewFormType } from "../../_types";
+import {
+    useDefaultCodeReviewConfig,
+    usePlatformConfig,
+} from "../../../_components/context";
+import { useCodeReviewRouteParams } from "../../../_hooks";
+import { ExternalReferencesDisplay } from "../pr-summary/_components/external-references-display";
 
 // Use the exported utility function from rich-text-editor
 function getTextFromValue(value: string | object | null | undefined): string {
@@ -25,7 +50,11 @@ function getTextFromValue(value: string | object | null | undefined): string {
 }
 
 function parseFieldValue(value: any): string | object {
-    if (typeof value === "string" && value.startsWith("{") && value.trim().startsWith("{")) {
+    if (
+        typeof value === "string" &&
+        value.startsWith("{") &&
+        value.trim().startsWith("{")
+    ) {
         try {
             return JSON.parse(value);
         } catch {
@@ -44,33 +73,6 @@ function serializeFieldValue(value: string | object): string {
     }
     return value || "";
 }
-import { toast } from "@components/ui/toaster/use-toast";
-import { useReactQueryInvalidateQueries } from "@hooks/use-invalidate-queries";
-import { PARAMETERS_PATHS } from "@services/parameters";
-import { createOrUpdateCodeReviewParameter } from "@services/parameters/fetch";
-import { CodeReviewV2Defaults } from "@services/parameters/hooks";
-import {
-    KodyLearningStatus,
-    ParametersConfigKey,
-} from "@services/parameters/types";
-import { usePermission } from "@services/permissions/hooks";
-import { Action, ResourceType } from "@services/permissions/types";
-import { SaveIcon } from "lucide-react";
-import { Controller, Path, useFormContext } from "react-hook-form";
-import { useSelectedTeamId } from "src/core/providers/selected-team-context";
-import { unformatConfig } from "src/core/utils/helpers";
-
-import { CodeReviewPagesBreadcrumb } from "../../_components/breadcrumb";
-import GeneratingConfig from "../../_components/generating-config";
-import { OverrideIndicatorForm } from "../../_components/override";
-import { type CodeReviewFormType } from "../../_types";
-import {
-    useCodeReviewConfig,
-    useDefaultCodeReviewConfig,
-    usePlatformConfig,
-} from "../../../_components/context";
-import { useCodeReviewRouteParams } from "../../../_hooks";
-import { ExternalReferencesDisplay } from "../pr-summary/_components/external-references-display";
 
 function CustomPromptsContent() {
     const platformConfig = usePlatformConfig();
@@ -78,9 +80,12 @@ function CustomPromptsContent() {
     const { teamId } = useSelectedTeamId();
     const { repositoryId, directoryId } = useCodeReviewRouteParams();
     const { resetQueries, generateQueryKey } = useReactQueryInvalidateQueries();
-    const config = useCodeReviewConfig();
     const defaults = useDefaultCodeReviewConfig()?.v2PromptOverrides;
     const initialized = useRef(false);
+
+    if (!defaults) {
+        return null;
+    }
 
     const canEdit = usePermission(
         Action.Update,
@@ -89,116 +94,6 @@ function CustomPromptsContent() {
     );
 
     const { mcpGroups, formatInsertByType } = useMCPMentions();
-
-    // --- Manual dirty tracking for navigation guard ---
-    // RHF's isDirty is unreliable for these fields because the rich text
-    // editor converts plain strings to Tiptap JSON on render, making the
-    // form permanently dirty. We compare TEXT CONTENT instead.
-    const PROMPT_FIELDS: Array<keyof any> = [
-        "v2PromptOverrides.generation.main.value",
-        "v2PromptOverrides.categories.descriptions.bug.value",
-        "v2PromptOverrides.categories.descriptions.performance.value",
-        "v2PromptOverrides.categories.descriptions.security.value",
-        "v2PromptOverrides.severity.flags.critical.value",
-        "v2PromptOverrides.severity.flags.high.value",
-        "v2PromptOverrides.severity.flags.medium.value",
-        "v2PromptOverrides.severity.flags.low.value",
-    ];
-
-    const promptValues = form.watch(PROMPT_FIELDS as any);
-    const initialTextsRef = useRef<string[] | null>(null);
-
-    // Derive initial text state directly from the saved config + factory defaults.
-    // This avoids a race condition where reading form state via requestAnimationFrame
-    // might fire before the prefill effect has updated the form values.
-    // For each field: use the saved config value if present, otherwise the factory default.
-    if (!initialTextsRef.current && defaults) {
-        initialTextsRef.current = PROMPT_FIELDS.map((fieldPath) => {
-            // Try saved config value first (mirrors form's initial state from layout)
-            const savedValue = (fieldPath as string)
-                .split(".")
-                .reduce<any>((acc, key) => acc?.[key], config);
-            const savedText = getTextFromValue(savedValue)?.trim() ?? "";
-            if (savedText) return savedText;
-
-            // Fallback to factory defaults (same data the prefill effect uses)
-            const defaultPath = (fieldPath as string)
-                .replace("v2PromptOverrides.", "")
-                .replace(".value", "");
-            const defaultValue = defaultPath
-                .split(".")
-                .reduce<any>((acc, key) => acc?.[key], defaults);
-            return getTextFromValue(defaultValue)?.trim() ?? "";
-        });
-    }
-
-    const isPromptsDirty = (() => {
-        if (!initialTextsRef.current) return false;
-        return PROMPT_FIELDS.some((_, i) => {
-            const currentText =
-                getTextFromValue(promptValues[i])?.trim() ?? "";
-            return currentText !== initialTextsRef.current![i];
-        });
-    })();
-
-    const scrollToDirtyPrompt = useCallback(() => {
-        if (!initialTextsRef.current) return;
-
-        const dirtyIndex = PROMPT_FIELDS.findIndex((_, i) => {
-            const currentText =
-                getTextFromValue(promptValues[i])?.trim() ?? "";
-            return currentText !== initialTextsRef.current![i];
-        });
-
-        if (dirtyIndex >= 0) {
-            const fieldPath = PROMPT_FIELDS[dirtyIndex] as string;
-            let el: Element | null = null;
-            const segments = fieldPath.split(".");
-            for (let i = segments.length; i > 0 && !el; i--) {
-                el = document.querySelector(
-                    `[data-field-name="${segments.slice(0, i).join(".")}"]`,
-                );
-            }
-            if (el) {
-                el.scrollIntoView({ behavior: "smooth", block: "center" });
-                el.classList.add("field-highlight");
-                setTimeout(
-                    () => el!.classList.remove("field-highlight"),
-                    1800,
-                );
-                el.querySelectorAll<HTMLElement>(
-                    "[data-reset-button]:not(:disabled)",
-                ).forEach((btn) => {
-                    btn.classList.add("field-highlight");
-                    setTimeout(
-                        () => btn.classList.remove("field-highlight"),
-                        1800,
-                    );
-                });
-                return;
-            }
-        }
-
-        const header = document.querySelector("[data-header-actions]");
-        if (header) {
-            header.scrollIntoView({ behavior: "smooth", block: "center" });
-            header.classList.add("field-highlight");
-            setTimeout(
-                () => header.classList.remove("field-highlight"),
-                1800,
-            );
-        }
-    }, [promptValues]);
-
-    useUnsavedChangesGuard({
-        id: "custom-prompts",
-        isDirty: isPromptsDirty,
-        onBlock: scrollToDirtyPrompt,
-    });
-
-    if (!defaults) {
-        return null;
-    }
 
     const handleSubmit = form.handleSubmit(async (formData) => {
         try {
@@ -238,12 +133,6 @@ function CustomPromptsContent() {
 
             form.reset(formData);
 
-            // Update the text-based dirty tracking baseline
-            initialTextsRef.current = PROMPT_FIELDS.map((path) => {
-                const value = form.getValues(path as any);
-                return getTextFromValue(value)?.trim() ?? "";
-            });
-
             toast({
                 description: "Settings saved",
                 variant: "success",
@@ -261,6 +150,7 @@ function CustomPromptsContent() {
     });
 
     const {
+        isDirty: formIsDirty,
         isValid: formIsValid,
         isSubmitting: formIsSubmitting,
     } = form.formState;
@@ -320,9 +210,10 @@ function CustomPromptsContent() {
                 ? path.split(".").reduce<any>((acc, key) => acc?.[key], current)
                 : undefined;
 
-            const currentText = typeof currentValue === "object" && currentValue !== null
-                ? getTextFromValue(currentValue)
-                : String(currentValue || "");
+            const currentText =
+                typeof currentValue === "object" && currentValue !== null
+                    ? getTextFromValue(currentValue)
+                    : String(currentValue || "");
             if (!currentValue || currentText.trim() === "") {
                 form.setValue(path, value ?? "", { shouldDirty: false });
                 changed = true;
@@ -348,7 +239,7 @@ function CustomPromptsContent() {
                         variant="primary"
                         leftIcon={<SaveIcon />}
                         onClick={handleSubmit}
-                        disabled={!canEdit || !isPromptsDirty || !formIsValid}
+                        disabled={!canEdit || !formIsDirty || !formIsValid}
                         loading={formIsSubmitting}>
                         Save settings
                     </Button>
@@ -356,7 +247,7 @@ function CustomPromptsContent() {
             </Page.Header>
 
             <Page.Content className="gap-8">
-                <Card data-field-name="v2PromptOverrides.generation">
+                <Card>
                     <CardHeader>
                         <CardTitle>Suggestion Prompts</CardTitle>
                         <CardDescription>
@@ -382,7 +273,9 @@ function CustomPromptsContent() {
                                             const def =
                                                 defaults?.generation?.main ??
                                                 "";
-                                            const fieldText = getTextFromValue(field.value);
+                                            const fieldText = getTextFromValue(
+                                                field.value,
+                                            );
                                             const isDefault =
                                                 fieldText.trim() === def.trim();
                                             return (
@@ -395,7 +288,6 @@ function CustomPromptsContent() {
                                                             : "Custom"}
                                                     </Badge>
                                                     <Button
-                                                        data-reset-button
                                                         size="sm"
                                                         variant="helper"
                                                         onClick={() =>
@@ -425,44 +317,104 @@ function CustomPromptsContent() {
                                                     value={(() => {
                                                         const val = field.value;
                                                         // If it's a JSON string, parse to object
-                                                        if (typeof val === "string" && val.startsWith("{")) {
+                                                        if (
+                                                            typeof val ===
+                                                                "string" &&
+                                                            val.startsWith("{")
+                                                        ) {
                                                             try {
-                                                                return JSON.parse(val);
+                                                                return JSON.parse(
+                                                                    val,
+                                                                );
                                                             } catch {
                                                                 return val;
                                                             }
                                                         }
                                                         // Se já é objeto, usa direto
-                                                        if (typeof val === "object" && val !== null) {
+                                                        if (
+                                                            typeof val ===
+                                                                "object" &&
+                                                            val !== null
+                                                        ) {
                                                             return val;
                                                         }
                                                         return val ?? "";
                                                     })()}
-                                                    onChangeAction={(value: string | object) => {
+                                                    onChangeAction={(
+                                                        value: string | object,
+                                                    ) => {
                                                         // Convert Tiptap JSON object to JSON string for saving
-                                                        const toSave = typeof value === "object" && value !== null
-                                                            ? JSON.stringify(value)
-                                                            : (typeof value === "string" ? value : "");
+                                                        const toSave =
+                                                            typeof value ===
+                                                                "object" &&
+                                                            value !== null
+                                                                ? JSON.stringify(
+                                                                      value,
+                                                                  )
+                                                                : typeof value ===
+                                                                    "string"
+                                                                  ? value
+                                                                  : "";
                                                         field.onChange(toSave);
                                                     }}
                                                     placeholder="Describe what Kody should analyze and suggest... Use @ to insert MCP tools for dynamic data."
                                                     className="min-h-32"
                                                     groups={mcpGroups}
-                                                    formatInsertByType={formatInsertByType}
+                                                    formatInsertByType={
+                                                        formatInsertByType
+                                                    }
                                                 />
-                                                <FormControl.Helper className="mt-2 block text-right text-xs text-text-secondary">
+                                                <FormControl.Helper className="text-text-secondary mt-2 block text-right text-xs">
                                                     {(() => {
-                                                        const stats = typeof field.value === "object" && field.value !== null
-                                                            ? getTextStatsFromTiptapJSON(field.value)
-                                                            : { characters: field.value?.length || 0, words: 0, mentions: 0 };
+                                                        const stats =
+                                                            typeof field.value ===
+                                                                "object" &&
+                                                            field.value !== null
+                                                                ? getTextStatsFromTiptapJSON(
+                                                                      field.value,
+                                                                  )
+                                                                : {
+                                                                      characters:
+                                                                          field
+                                                                              .value
+                                                                              ?.length ||
+                                                                          0,
+                                                                      words: 0,
+                                                                      mentions: 0,
+                                                                  };
                                                         return (
                                                             <>
-                                                                <span className="font-medium">{stats.characters}</span> chars
-                                                                {stats.words > 0 && (
-                                                                    <> · <span className="font-medium">{stats.words}</span> words</>
+                                                                <span className="font-medium">
+                                                                    {
+                                                                        stats.characters
+                                                                    }
+                                                                </span>{" "}
+                                                                chars
+                                                                {stats.words >
+                                                                    0 && (
+                                                                    <>
+                                                                        {" "}
+                                                                        ·{" "}
+                                                                        <span className="font-medium">
+                                                                            {
+                                                                                stats.words
+                                                                            }
+                                                                        </span>{" "}
+                                                                        words
+                                                                    </>
                                                                 )}
-                                                                {stats.mentions > 0 && (
-                                                                    <> · <span className="font-medium">{stats.mentions}</span> mentions</>
+                                                                {stats.mentions >
+                                                                    0 && (
+                                                                    <>
+                                                                        {" "}
+                                                                        ·{" "}
+                                                                        <span className="font-medium">
+                                                                            {
+                                                                                stats.mentions
+                                                                            }
+                                                                        </span>{" "}
+                                                                        mentions
+                                                                    </>
                                                                 )}
                                                                 {" / 2000"}
                                                             </>
@@ -470,7 +422,13 @@ function CustomPromptsContent() {
                                                     })()}
                                                 </FormControl.Helper>
                                                 <ExternalReferencesDisplay
-                                                    externalReferences={(form.getValues("v2PromptOverrides.generation.main") as any)?.externalReferences}
+                                                    externalReferences={
+                                                        (
+                                                            form.getValues(
+                                                                "v2PromptOverrides.generation.main",
+                                                            ) as any
+                                                        )?.externalReferences
+                                                    }
                                                     compact
                                                 />
                                             </div>
@@ -482,7 +440,7 @@ function CustomPromptsContent() {
                     </CardContent>
                 </Card>
 
-                <Card data-field-name="v2PromptOverrides.categories">
+                <Card>
                     <CardHeader>
                         <CardTitle>Category Prompts</CardTitle>
                         <CardDescription>
@@ -508,7 +466,9 @@ function CustomPromptsContent() {
                                             const def =
                                                 defaults?.categories
                                                     ?.descriptions?.bug ?? "";
-                                            const fieldText = getTextFromValue(field.value);
+                                            const fieldText = getTextFromValue(
+                                                field.value,
+                                            );
                                             const isDefault =
                                                 fieldText.trim() === def.trim();
                                             return (
@@ -521,7 +481,6 @@ function CustomPromptsContent() {
                                                             : "Custom"}
                                                     </Badge>
                                                     <Button
-                                                        data-reset-button
                                                         size="sm"
                                                         variant="helper"
                                                         onClick={() =>
@@ -550,43 +509,103 @@ function CustomPromptsContent() {
                                                 <RichTextEditorWithMentions
                                                     value={(() => {
                                                         const val = field.value;
-                                                        if (typeof val === "string" && val.startsWith("{")) {
+                                                        if (
+                                                            typeof val ===
+                                                                "string" &&
+                                                            val.startsWith("{")
+                                                        ) {
                                                             try {
-                                                                return JSON.parse(val);
+                                                                return JSON.parse(
+                                                                    val,
+                                                                );
                                                             } catch {
                                                                 return val;
                                                             }
                                                         }
-                                                        if (typeof val === "object" && val !== null) {
+                                                        if (
+                                                            typeof val ===
+                                                                "object" &&
+                                                            val !== null
+                                                        ) {
                                                             return val;
                                                         }
                                                         return val ?? "";
                                                     })()}
-                                                    onChangeAction={(value: string | object) => {
-                                                        const toSave = typeof value === "object" && value !== null
-                                                            ? JSON.stringify(value)
-                                                            : (typeof value === "string" ? value : "");
+                                                    onChangeAction={(
+                                                        value: string | object,
+                                                    ) => {
+                                                        const toSave =
+                                                            typeof value ===
+                                                                "object" &&
+                                                            value !== null
+                                                                ? JSON.stringify(
+                                                                      value,
+                                                                  )
+                                                                : typeof value ===
+                                                                    "string"
+                                                                  ? value
+                                                                  : "";
                                                         field.onChange(toSave);
                                                     }}
                                                     placeholder="Type the prompt for Bugs"
                                                     className="min-h-32"
                                                     disabled={field.disabled}
                                                     groups={mcpGroups}
-                                                    formatInsertByType={formatInsertByType}
+                                                    formatInsertByType={
+                                                        formatInsertByType
+                                                    }
                                                 />
-                                                <FormControl.Helper className="mt-2 block text-right text-xs text-text-secondary">
+                                                <FormControl.Helper className="text-text-secondary mt-2 block text-right text-xs">
                                                     {(() => {
-                                                        const stats = typeof field.value === "object" && field.value !== null
-                                                            ? getTextStatsFromTiptapJSON(field.value)
-                                                            : { characters: field.value?.length || 0, words: 0, mentions: 0 };
+                                                        const stats =
+                                                            typeof field.value ===
+                                                                "object" &&
+                                                            field.value !== null
+                                                                ? getTextStatsFromTiptapJSON(
+                                                                      field.value,
+                                                                  )
+                                                                : {
+                                                                      characters:
+                                                                          field
+                                                                              .value
+                                                                              ?.length ||
+                                                                          0,
+                                                                      words: 0,
+                                                                      mentions: 0,
+                                                                  };
                                                         return (
                                                             <>
-                                                                <span className="font-medium">{stats.characters}</span> chars
-                                                                {stats.words > 0 && (
-                                                                    <> · <span className="font-medium">{stats.words}</span> words</>
+                                                                <span className="font-medium">
+                                                                    {
+                                                                        stats.characters
+                                                                    }
+                                                                </span>{" "}
+                                                                chars
+                                                                {stats.words >
+                                                                    0 && (
+                                                                    <>
+                                                                        {" "}
+                                                                        ·{" "}
+                                                                        <span className="font-medium">
+                                                                            {
+                                                                                stats.words
+                                                                            }
+                                                                        </span>{" "}
+                                                                        words
+                                                                    </>
                                                                 )}
-                                                                {stats.mentions > 0 && (
-                                                                    <> · <span className="font-medium">{stats.mentions}</span> mentions</>
+                                                                {stats.mentions >
+                                                                    0 && (
+                                                                    <>
+                                                                        {" "}
+                                                                        ·{" "}
+                                                                        <span className="font-medium">
+                                                                            {
+                                                                                stats.mentions
+                                                                            }
+                                                                        </span>{" "}
+                                                                        mentions
+                                                                    </>
                                                                 )}
                                                                 {" / 2000"}
                                                             </>
@@ -594,7 +613,13 @@ function CustomPromptsContent() {
                                                     })()}
                                                 </FormControl.Helper>
                                                 <ExternalReferencesDisplay
-                                                    externalReferences={(form.getValues("v2PromptOverrides.categories.descriptions.bug") as any)?.externalReferences}
+                                                    externalReferences={
+                                                        (
+                                                            form.getValues(
+                                                                "v2PromptOverrides.categories.descriptions.bug",
+                                                            ) as any
+                                                        )?.externalReferences
+                                                    }
                                                     compact
                                                 />
                                             </div>
@@ -621,7 +646,9 @@ function CustomPromptsContent() {
                                                 defaults?.categories
                                                     ?.descriptions
                                                     ?.performance ?? "";
-                                            const fieldText = getTextFromValue(field.value);
+                                            const fieldText = getTextFromValue(
+                                                field.value,
+                                            );
                                             const isDefault =
                                                 fieldText.trim() === def.trim();
                                             return (
@@ -634,7 +661,6 @@ function CustomPromptsContent() {
                                                             : "Custom"}
                                                     </Badge>
                                                     <Button
-                                                        data-reset-button
                                                         size="sm"
                                                         variant="helper"
                                                         onClick={() =>
@@ -663,43 +689,103 @@ function CustomPromptsContent() {
                                                 <RichTextEditorWithMentions
                                                     value={(() => {
                                                         const val = field.value;
-                                                        if (typeof val === "string" && val.startsWith("{")) {
+                                                        if (
+                                                            typeof val ===
+                                                                "string" &&
+                                                            val.startsWith("{")
+                                                        ) {
                                                             try {
-                                                                return JSON.parse(val);
+                                                                return JSON.parse(
+                                                                    val,
+                                                                );
                                                             } catch {
                                                                 return val;
                                                             }
                                                         }
-                                                        if (typeof val === "object" && val !== null) {
+                                                        if (
+                                                            typeof val ===
+                                                                "object" &&
+                                                            val !== null
+                                                        ) {
                                                             return val;
                                                         }
                                                         return val ?? "";
                                                     })()}
-                                                    onChangeAction={(value: string | object) => {
-                                                        const toSave = typeof value === "object" && value !== null
-                                                            ? JSON.stringify(value)
-                                                            : (typeof value === "string" ? value : "");
+                                                    onChangeAction={(
+                                                        value: string | object,
+                                                    ) => {
+                                                        const toSave =
+                                                            typeof value ===
+                                                                "object" &&
+                                                            value !== null
+                                                                ? JSON.stringify(
+                                                                      value,
+                                                                  )
+                                                                : typeof value ===
+                                                                    "string"
+                                                                  ? value
+                                                                  : "";
                                                         field.onChange(toSave);
                                                     }}
                                                     placeholder="Type the prompt for Performance"
                                                     className="min-h-32"
                                                     disabled={field.disabled}
                                                     groups={mcpGroups}
-                                                    formatInsertByType={formatInsertByType}
+                                                    formatInsertByType={
+                                                        formatInsertByType
+                                                    }
                                                 />
-                                                <FormControl.Helper className="mt-2 block text-right text-xs text-text-secondary">
+                                                <FormControl.Helper className="text-text-secondary mt-2 block text-right text-xs">
                                                     {(() => {
-                                                        const stats = typeof field.value === "object" && field.value !== null
-                                                            ? getTextStatsFromTiptapJSON(field.value)
-                                                            : { characters: field.value?.length || 0, words: 0, mentions: 0 };
+                                                        const stats =
+                                                            typeof field.value ===
+                                                                "object" &&
+                                                            field.value !== null
+                                                                ? getTextStatsFromTiptapJSON(
+                                                                      field.value,
+                                                                  )
+                                                                : {
+                                                                      characters:
+                                                                          field
+                                                                              .value
+                                                                              ?.length ||
+                                                                          0,
+                                                                      words: 0,
+                                                                      mentions: 0,
+                                                                  };
                                                         return (
                                                             <>
-                                                                <span className="font-medium">{stats.characters}</span> chars
-                                                                {stats.words > 0 && (
-                                                                    <> · <span className="font-medium">{stats.words}</span> words</>
+                                                                <span className="font-medium">
+                                                                    {
+                                                                        stats.characters
+                                                                    }
+                                                                </span>{" "}
+                                                                chars
+                                                                {stats.words >
+                                                                    0 && (
+                                                                    <>
+                                                                        {" "}
+                                                                        ·{" "}
+                                                                        <span className="font-medium">
+                                                                            {
+                                                                                stats.words
+                                                                            }
+                                                                        </span>{" "}
+                                                                        words
+                                                                    </>
                                                                 )}
-                                                                {stats.mentions > 0 && (
-                                                                    <> · <span className="font-medium">{stats.mentions}</span> mentions</>
+                                                                {stats.mentions >
+                                                                    0 && (
+                                                                    <>
+                                                                        {" "}
+                                                                        ·{" "}
+                                                                        <span className="font-medium">
+                                                                            {
+                                                                                stats.mentions
+                                                                            }
+                                                                        </span>{" "}
+                                                                        mentions
+                                                                    </>
                                                                 )}
                                                                 {" / 2000"}
                                                             </>
@@ -707,7 +793,13 @@ function CustomPromptsContent() {
                                                     })()}
                                                 </FormControl.Helper>
                                                 <ExternalReferencesDisplay
-                                                    externalReferences={(form.getValues("v2PromptOverrides.categories.descriptions.performance") as any)?.externalReferences}
+                                                    externalReferences={
+                                                        (
+                                                            form.getValues(
+                                                                "v2PromptOverrides.categories.descriptions.performance",
+                                                            ) as any
+                                                        )?.externalReferences
+                                                    }
                                                     compact
                                                 />
                                             </div>
@@ -734,7 +826,9 @@ function CustomPromptsContent() {
                                                 defaults?.categories
                                                     ?.descriptions?.security ??
                                                 "";
-                                            const fieldText = getTextFromValue(field.value);
+                                            const fieldText = getTextFromValue(
+                                                field.value,
+                                            );
                                             const isDefault =
                                                 fieldText.trim() === def.trim();
                                             return (
@@ -747,7 +841,6 @@ function CustomPromptsContent() {
                                                             : "Custom"}
                                                     </Badge>
                                                     <Button
-                                                        data-reset-button
                                                         size="sm"
                                                         variant="helper"
                                                         onClick={() =>
@@ -776,43 +869,103 @@ function CustomPromptsContent() {
                                                 <RichTextEditorWithMentions
                                                     value={(() => {
                                                         const val = field.value;
-                                                        if (typeof val === "string" && val.startsWith("{")) {
+                                                        if (
+                                                            typeof val ===
+                                                                "string" &&
+                                                            val.startsWith("{")
+                                                        ) {
                                                             try {
-                                                                return JSON.parse(val);
+                                                                return JSON.parse(
+                                                                    val,
+                                                                );
                                                             } catch {
                                                                 return val;
                                                             }
                                                         }
-                                                        if (typeof val === "object" && val !== null) {
+                                                        if (
+                                                            typeof val ===
+                                                                "object" &&
+                                                            val !== null
+                                                        ) {
                                                             return val;
                                                         }
                                                         return val ?? "";
                                                     })()}
-                                                    onChangeAction={(value: string | object) => {
-                                                        const toSave = typeof value === "object" && value !== null
-                                                            ? JSON.stringify(value)
-                                                            : (typeof value === "string" ? value : "");
+                                                    onChangeAction={(
+                                                        value: string | object,
+                                                    ) => {
+                                                        const toSave =
+                                                            typeof value ===
+                                                                "object" &&
+                                                            value !== null
+                                                                ? JSON.stringify(
+                                                                      value,
+                                                                  )
+                                                                : typeof value ===
+                                                                    "string"
+                                                                  ? value
+                                                                  : "";
                                                         field.onChange(toSave);
                                                     }}
                                                     placeholder="Type the prompt for Security"
                                                     className="min-h-32"
                                                     disabled={field.disabled}
                                                     groups={mcpGroups}
-                                                    formatInsertByType={formatInsertByType}
+                                                    formatInsertByType={
+                                                        formatInsertByType
+                                                    }
                                                 />
-                                                <FormControl.Helper className="mt-2 block text-right text-xs text-text-secondary">
+                                                <FormControl.Helper className="text-text-secondary mt-2 block text-right text-xs">
                                                     {(() => {
-                                                        const stats = typeof field.value === "object" && field.value !== null
-                                                            ? getTextStatsFromTiptapJSON(field.value)
-                                                            : { characters: field.value?.length || 0, words: 0, mentions: 0 };
+                                                        const stats =
+                                                            typeof field.value ===
+                                                                "object" &&
+                                                            field.value !== null
+                                                                ? getTextStatsFromTiptapJSON(
+                                                                      field.value,
+                                                                  )
+                                                                : {
+                                                                      characters:
+                                                                          field
+                                                                              .value
+                                                                              ?.length ||
+                                                                          0,
+                                                                      words: 0,
+                                                                      mentions: 0,
+                                                                  };
                                                         return (
                                                             <>
-                                                                <span className="font-medium">{stats.characters}</span> chars
-                                                                {stats.words > 0 && (
-                                                                    <> · <span className="font-medium">{stats.words}</span> words</>
+                                                                <span className="font-medium">
+                                                                    {
+                                                                        stats.characters
+                                                                    }
+                                                                </span>{" "}
+                                                                chars
+                                                                {stats.words >
+                                                                    0 && (
+                                                                    <>
+                                                                        {" "}
+                                                                        ·{" "}
+                                                                        <span className="font-medium">
+                                                                            {
+                                                                                stats.words
+                                                                            }
+                                                                        </span>{" "}
+                                                                        words
+                                                                    </>
                                                                 )}
-                                                                {stats.mentions > 0 && (
-                                                                    <> · <span className="font-medium">{stats.mentions}</span> mentions</>
+                                                                {stats.mentions >
+                                                                    0 && (
+                                                                    <>
+                                                                        {" "}
+                                                                        ·{" "}
+                                                                        <span className="font-medium">
+                                                                            {
+                                                                                stats.mentions
+                                                                            }
+                                                                        </span>{" "}
+                                                                        mentions
+                                                                    </>
                                                                 )}
                                                                 {" / 2000"}
                                                             </>
@@ -820,7 +973,13 @@ function CustomPromptsContent() {
                                                     })()}
                                                 </FormControl.Helper>
                                                 <ExternalReferencesDisplay
-                                                    externalReferences={(form.getValues("v2PromptOverrides.categories.descriptions.security") as any)?.externalReferences}
+                                                    externalReferences={
+                                                        (
+                                                            form.getValues(
+                                                                "v2PromptOverrides.categories.descriptions.security",
+                                                            ) as any
+                                                        )?.externalReferences
+                                                    }
                                                     compact
                                                 />
                                             </div>
@@ -832,7 +991,7 @@ function CustomPromptsContent() {
                     </CardContent>
                 </Card>
 
-                <Card data-field-name="v2PromptOverrides.severity">
+                <Card>
                     <CardHeader>
                         <CardTitle>Severity Prompts</CardTitle>
                         <CardDescription>
@@ -858,7 +1017,9 @@ function CustomPromptsContent() {
                                             const def =
                                                 defaults?.severity?.flags
                                                     ?.critical ?? "";
-                                            const fieldText = getTextFromValue(field.value);
+                                            const fieldText = getTextFromValue(
+                                                field.value,
+                                            );
                                             const isDefault =
                                                 fieldText.trim() === def.trim();
                                             return (
@@ -871,7 +1032,6 @@ function CustomPromptsContent() {
                                                             : "Custom"}
                                                     </Badge>
                                                     <Button
-                                                        data-reset-button
                                                         size="sm"
                                                         variant="helper"
                                                         onClick={() =>
@@ -900,43 +1060,103 @@ function CustomPromptsContent() {
                                                 <RichTextEditorWithMentions
                                                     value={(() => {
                                                         const val = field.value;
-                                                        if (typeof val === "string" && val.startsWith("{")) {
+                                                        if (
+                                                            typeof val ===
+                                                                "string" &&
+                                                            val.startsWith("{")
+                                                        ) {
                                                             try {
-                                                                return JSON.parse(val);
+                                                                return JSON.parse(
+                                                                    val,
+                                                                );
                                                             } catch {
                                                                 return val;
                                                             }
                                                         }
-                                                        if (typeof val === "object" && val !== null) {
+                                                        if (
+                                                            typeof val ===
+                                                                "object" &&
+                                                            val !== null
+                                                        ) {
                                                             return val;
                                                         }
                                                         return val ?? "";
                                                     })()}
-                                                    onChangeAction={(value: string | object) => {
-                                                        const toSave = typeof value === "object" && value !== null
-                                                            ? JSON.stringify(value)
-                                                            : (typeof value === "string" ? value : "");
+                                                    onChangeAction={(
+                                                        value: string | object,
+                                                    ) => {
+                                                        const toSave =
+                                                            typeof value ===
+                                                                "object" &&
+                                                            value !== null
+                                                                ? JSON.stringify(
+                                                                      value,
+                                                                  )
+                                                                : typeof value ===
+                                                                    "string"
+                                                                  ? value
+                                                                  : "";
                                                         field.onChange(toSave);
                                                     }}
                                                     placeholder="Type the prompt for Critical"
                                                     className="min-h-32"
                                                     disabled={field.disabled}
                                                     groups={mcpGroups}
-                                                    formatInsertByType={formatInsertByType}
+                                                    formatInsertByType={
+                                                        formatInsertByType
+                                                    }
                                                 />
-                                                <FormControl.Helper className="mt-2 block text-right text-xs text-text-secondary">
+                                                <FormControl.Helper className="text-text-secondary mt-2 block text-right text-xs">
                                                     {(() => {
-                                                        const stats = typeof field.value === "object" && field.value !== null
-                                                            ? getTextStatsFromTiptapJSON(field.value)
-                                                            : { characters: field.value?.length || 0, words: 0, mentions: 0 };
+                                                        const stats =
+                                                            typeof field.value ===
+                                                                "object" &&
+                                                            field.value !== null
+                                                                ? getTextStatsFromTiptapJSON(
+                                                                      field.value,
+                                                                  )
+                                                                : {
+                                                                      characters:
+                                                                          field
+                                                                              .value
+                                                                              ?.length ||
+                                                                          0,
+                                                                      words: 0,
+                                                                      mentions: 0,
+                                                                  };
                                                         return (
                                                             <>
-                                                                <span className="font-medium">{stats.characters}</span> chars
-                                                                {stats.words > 0 && (
-                                                                    <> · <span className="font-medium">{stats.words}</span> words</>
+                                                                <span className="font-medium">
+                                                                    {
+                                                                        stats.characters
+                                                                    }
+                                                                </span>{" "}
+                                                                chars
+                                                                {stats.words >
+                                                                    0 && (
+                                                                    <>
+                                                                        {" "}
+                                                                        ·{" "}
+                                                                        <span className="font-medium">
+                                                                            {
+                                                                                stats.words
+                                                                            }
+                                                                        </span>{" "}
+                                                                        words
+                                                                    </>
                                                                 )}
-                                                                {stats.mentions > 0 && (
-                                                                    <> · <span className="font-medium">{stats.mentions}</span> mentions</>
+                                                                {stats.mentions >
+                                                                    0 && (
+                                                                    <>
+                                                                        {" "}
+                                                                        ·{" "}
+                                                                        <span className="font-medium">
+                                                                            {
+                                                                                stats.mentions
+                                                                            }
+                                                                        </span>{" "}
+                                                                        mentions
+                                                                    </>
                                                                 )}
                                                                 {" / 2000"}
                                                             </>
@@ -944,7 +1164,13 @@ function CustomPromptsContent() {
                                                     })()}
                                                 </FormControl.Helper>
                                                 <ExternalReferencesDisplay
-                                                    externalReferences={(form.getValues("v2PromptOverrides.severity.flags.critical") as any)?.externalReferences}
+                                                    externalReferences={
+                                                        (
+                                                            form.getValues(
+                                                                "v2PromptOverrides.severity.flags.critical",
+                                                            ) as any
+                                                        )?.externalReferences
+                                                    }
                                                     compact
                                                 />
                                             </div>
@@ -970,7 +1196,9 @@ function CustomPromptsContent() {
                                             const def =
                                                 defaults?.severity?.flags
                                                     ?.high ?? "";
-                                            const fieldText = getTextFromValue(field.value);
+                                            const fieldText = getTextFromValue(
+                                                field.value,
+                                            );
                                             const isDefault =
                                                 fieldText.trim() === def.trim();
                                             return (
@@ -983,7 +1211,6 @@ function CustomPromptsContent() {
                                                             : "Custom"}
                                                     </Badge>
                                                     <Button
-                                                        data-reset-button
                                                         size="sm"
                                                         variant="helper"
                                                         onClick={() =>
@@ -1012,43 +1239,103 @@ function CustomPromptsContent() {
                                                 <RichTextEditorWithMentions
                                                     value={(() => {
                                                         const val = field.value;
-                                                        if (typeof val === "string" && val.startsWith("{")) {
+                                                        if (
+                                                            typeof val ===
+                                                                "string" &&
+                                                            val.startsWith("{")
+                                                        ) {
                                                             try {
-                                                                return JSON.parse(val);
+                                                                return JSON.parse(
+                                                                    val,
+                                                                );
                                                             } catch {
                                                                 return val;
                                                             }
                                                         }
-                                                        if (typeof val === "object" && val !== null) {
+                                                        if (
+                                                            typeof val ===
+                                                                "object" &&
+                                                            val !== null
+                                                        ) {
                                                             return val;
                                                         }
                                                         return val ?? "";
                                                     })()}
-                                                    onChangeAction={(value: string | object) => {
-                                                        const toSave = typeof value === "object" && value !== null
-                                                            ? JSON.stringify(value)
-                                                            : (typeof value === "string" ? value : "");
+                                                    onChangeAction={(
+                                                        value: string | object,
+                                                    ) => {
+                                                        const toSave =
+                                                            typeof value ===
+                                                                "object" &&
+                                                            value !== null
+                                                                ? JSON.stringify(
+                                                                      value,
+                                                                  )
+                                                                : typeof value ===
+                                                                    "string"
+                                                                  ? value
+                                                                  : "";
                                                         field.onChange(toSave);
                                                     }}
                                                     placeholder="Type the prompt for High"
                                                     className="min-h-32"
                                                     disabled={field.disabled}
                                                     groups={mcpGroups}
-                                                    formatInsertByType={formatInsertByType}
+                                                    formatInsertByType={
+                                                        formatInsertByType
+                                                    }
                                                 />
-                                                <FormControl.Helper className="mt-2 block text-right text-xs text-text-secondary">
+                                                <FormControl.Helper className="text-text-secondary mt-2 block text-right text-xs">
                                                     {(() => {
-                                                        const stats = typeof field.value === "object" && field.value !== null
-                                                            ? getTextStatsFromTiptapJSON(field.value)
-                                                            : { characters: field.value?.length || 0, words: 0, mentions: 0 };
+                                                        const stats =
+                                                            typeof field.value ===
+                                                                "object" &&
+                                                            field.value !== null
+                                                                ? getTextStatsFromTiptapJSON(
+                                                                      field.value,
+                                                                  )
+                                                                : {
+                                                                      characters:
+                                                                          field
+                                                                              .value
+                                                                              ?.length ||
+                                                                          0,
+                                                                      words: 0,
+                                                                      mentions: 0,
+                                                                  };
                                                         return (
                                                             <>
-                                                                <span className="font-medium">{stats.characters}</span> chars
-                                                                {stats.words > 0 && (
-                                                                    <> · <span className="font-medium">{stats.words}</span> words</>
+                                                                <span className="font-medium">
+                                                                    {
+                                                                        stats.characters
+                                                                    }
+                                                                </span>{" "}
+                                                                chars
+                                                                {stats.words >
+                                                                    0 && (
+                                                                    <>
+                                                                        {" "}
+                                                                        ·{" "}
+                                                                        <span className="font-medium">
+                                                                            {
+                                                                                stats.words
+                                                                            }
+                                                                        </span>{" "}
+                                                                        words
+                                                                    </>
                                                                 )}
-                                                                {stats.mentions > 0 && (
-                                                                    <> · <span className="font-medium">{stats.mentions}</span> mentions</>
+                                                                {stats.mentions >
+                                                                    0 && (
+                                                                    <>
+                                                                        {" "}
+                                                                        ·{" "}
+                                                                        <span className="font-medium">
+                                                                            {
+                                                                                stats.mentions
+                                                                            }
+                                                                        </span>{" "}
+                                                                        mentions
+                                                                    </>
                                                                 )}
                                                                 {" / 2000"}
                                                             </>
@@ -1056,7 +1343,13 @@ function CustomPromptsContent() {
                                                     })()}
                                                 </FormControl.Helper>
                                                 <ExternalReferencesDisplay
-                                                    externalReferences={(form.getValues("v2PromptOverrides.severity.flags.high") as any)?.externalReferences}
+                                                    externalReferences={
+                                                        (
+                                                            form.getValues(
+                                                                "v2PromptOverrides.severity.flags.high",
+                                                            ) as any
+                                                        )?.externalReferences
+                                                    }
                                                     compact
                                                 />
                                             </div>
@@ -1082,7 +1375,9 @@ function CustomPromptsContent() {
                                             const def =
                                                 defaults?.severity?.flags
                                                     ?.medium ?? "";
-                                            const fieldText = getTextFromValue(field.value);
+                                            const fieldText = getTextFromValue(
+                                                field.value,
+                                            );
                                             const isDefault =
                                                 fieldText.trim() === def.trim();
                                             return (
@@ -1095,7 +1390,6 @@ function CustomPromptsContent() {
                                                             : "Custom"}
                                                     </Badge>
                                                     <Button
-                                                        data-reset-button
                                                         size="sm"
                                                         variant="helper"
                                                         onClick={() =>
@@ -1124,43 +1418,103 @@ function CustomPromptsContent() {
                                                 <RichTextEditorWithMentions
                                                     value={(() => {
                                                         const val = field.value;
-                                                        if (typeof val === "string" && val.startsWith("{")) {
+                                                        if (
+                                                            typeof val ===
+                                                                "string" &&
+                                                            val.startsWith("{")
+                                                        ) {
                                                             try {
-                                                                return JSON.parse(val);
+                                                                return JSON.parse(
+                                                                    val,
+                                                                );
                                                             } catch {
                                                                 return val;
                                                             }
                                                         }
-                                                        if (typeof val === "object" && val !== null) {
+                                                        if (
+                                                            typeof val ===
+                                                                "object" &&
+                                                            val !== null
+                                                        ) {
                                                             return val;
                                                         }
                                                         return val ?? "";
                                                     })()}
-                                                    onChangeAction={(value: string | object) => {
-                                                        const toSave = typeof value === "object" && value !== null
-                                                            ? JSON.stringify(value)
-                                                            : (typeof value === "string" ? value : "");
+                                                    onChangeAction={(
+                                                        value: string | object,
+                                                    ) => {
+                                                        const toSave =
+                                                            typeof value ===
+                                                                "object" &&
+                                                            value !== null
+                                                                ? JSON.stringify(
+                                                                      value,
+                                                                  )
+                                                                : typeof value ===
+                                                                    "string"
+                                                                  ? value
+                                                                  : "";
                                                         field.onChange(toSave);
                                                     }}
                                                     placeholder="Type the prompt for Medium"
                                                     className="min-h-32"
                                                     disabled={field.disabled}
                                                     groups={mcpGroups}
-                                                    formatInsertByType={formatInsertByType}
+                                                    formatInsertByType={
+                                                        formatInsertByType
+                                                    }
                                                 />
-                                                <FormControl.Helper className="mt-2 block text-right text-xs text-text-secondary">
+                                                <FormControl.Helper className="text-text-secondary mt-2 block text-right text-xs">
                                                     {(() => {
-                                                        const stats = typeof field.value === "object" && field.value !== null
-                                                            ? getTextStatsFromTiptapJSON(field.value)
-                                                            : { characters: field.value?.length || 0, words: 0, mentions: 0 };
+                                                        const stats =
+                                                            typeof field.value ===
+                                                                "object" &&
+                                                            field.value !== null
+                                                                ? getTextStatsFromTiptapJSON(
+                                                                      field.value,
+                                                                  )
+                                                                : {
+                                                                      characters:
+                                                                          field
+                                                                              .value
+                                                                              ?.length ||
+                                                                          0,
+                                                                      words: 0,
+                                                                      mentions: 0,
+                                                                  };
                                                         return (
                                                             <>
-                                                                <span className="font-medium">{stats.characters}</span> chars
-                                                                {stats.words > 0 && (
-                                                                    <> · <span className="font-medium">{stats.words}</span> words</>
+                                                                <span className="font-medium">
+                                                                    {
+                                                                        stats.characters
+                                                                    }
+                                                                </span>{" "}
+                                                                chars
+                                                                {stats.words >
+                                                                    0 && (
+                                                                    <>
+                                                                        {" "}
+                                                                        ·{" "}
+                                                                        <span className="font-medium">
+                                                                            {
+                                                                                stats.words
+                                                                            }
+                                                                        </span>{" "}
+                                                                        words
+                                                                    </>
                                                                 )}
-                                                                {stats.mentions > 0 && (
-                                                                    <> · <span className="font-medium">{stats.mentions}</span> mentions</>
+                                                                {stats.mentions >
+                                                                    0 && (
+                                                                    <>
+                                                                        {" "}
+                                                                        ·{" "}
+                                                                        <span className="font-medium">
+                                                                            {
+                                                                                stats.mentions
+                                                                            }
+                                                                        </span>{" "}
+                                                                        mentions
+                                                                    </>
                                                                 )}
                                                                 {" / 2000"}
                                                             </>
@@ -1168,7 +1522,13 @@ function CustomPromptsContent() {
                                                     })()}
                                                 </FormControl.Helper>
                                                 <ExternalReferencesDisplay
-                                                    externalReferences={(form.getValues("v2PromptOverrides.severity.flags.medium") as any)?.externalReferences}
+                                                    externalReferences={
+                                                        (
+                                                            form.getValues(
+                                                                "v2PromptOverrides.severity.flags.medium",
+                                                            ) as any
+                                                        )?.externalReferences
+                                                    }
                                                     compact
                                                 />
                                             </div>
@@ -1194,7 +1554,9 @@ function CustomPromptsContent() {
                                             const def =
                                                 defaults?.severity?.flags
                                                     ?.low ?? "";
-                                            const fieldText = getTextFromValue(field.value);
+                                            const fieldText = getTextFromValue(
+                                                field.value,
+                                            );
                                             const isDefault =
                                                 fieldText.trim() === def.trim();
                                             return (
@@ -1207,7 +1569,6 @@ function CustomPromptsContent() {
                                                             : "Custom"}
                                                     </Badge>
                                                     <Button
-                                                        data-reset-button
                                                         size="sm"
                                                         variant="helper"
                                                         onClick={() =>
@@ -1236,43 +1597,103 @@ function CustomPromptsContent() {
                                                 <RichTextEditorWithMentions
                                                     value={(() => {
                                                         const val = field.value;
-                                                        if (typeof val === "string" && val.startsWith("{")) {
+                                                        if (
+                                                            typeof val ===
+                                                                "string" &&
+                                                            val.startsWith("{")
+                                                        ) {
                                                             try {
-                                                                return JSON.parse(val);
+                                                                return JSON.parse(
+                                                                    val,
+                                                                );
                                                             } catch {
                                                                 return val;
                                                             }
                                                         }
-                                                        if (typeof val === "object" && val !== null) {
+                                                        if (
+                                                            typeof val ===
+                                                                "object" &&
+                                                            val !== null
+                                                        ) {
                                                             return val;
                                                         }
                                                         return val ?? "";
                                                     })()}
-                                                    onChangeAction={(value: string | object) => {
-                                                        const toSave = typeof value === "object" && value !== null
-                                                            ? JSON.stringify(value)
-                                                            : (typeof value === "string" ? value : "");
+                                                    onChangeAction={(
+                                                        value: string | object,
+                                                    ) => {
+                                                        const toSave =
+                                                            typeof value ===
+                                                                "object" &&
+                                                            value !== null
+                                                                ? JSON.stringify(
+                                                                      value,
+                                                                  )
+                                                                : typeof value ===
+                                                                    "string"
+                                                                  ? value
+                                                                  : "";
                                                         field.onChange(toSave);
                                                     }}
                                                     placeholder="Type the prompt for Low"
                                                     className="min-h-32"
                                                     disabled={field.disabled}
                                                     groups={mcpGroups}
-                                                    formatInsertByType={formatInsertByType}
+                                                    formatInsertByType={
+                                                        formatInsertByType
+                                                    }
                                                 />
-                                                <FormControl.Helper className="mt-2 block text-right text-xs text-text-secondary">
+                                                <FormControl.Helper className="text-text-secondary mt-2 block text-right text-xs">
                                                     {(() => {
-                                                        const stats = typeof field.value === "object" && field.value !== null
-                                                            ? getTextStatsFromTiptapJSON(field.value)
-                                                            : { characters: field.value?.length || 0, words: 0, mentions: 0 };
+                                                        const stats =
+                                                            typeof field.value ===
+                                                                "object" &&
+                                                            field.value !== null
+                                                                ? getTextStatsFromTiptapJSON(
+                                                                      field.value,
+                                                                  )
+                                                                : {
+                                                                      characters:
+                                                                          field
+                                                                              .value
+                                                                              ?.length ||
+                                                                          0,
+                                                                      words: 0,
+                                                                      mentions: 0,
+                                                                  };
                                                         return (
                                                             <>
-                                                                <span className="font-medium">{stats.characters}</span> chars
-                                                                {stats.words > 0 && (
-                                                                    <> · <span className="font-medium">{stats.words}</span> words</>
+                                                                <span className="font-medium">
+                                                                    {
+                                                                        stats.characters
+                                                                    }
+                                                                </span>{" "}
+                                                                chars
+                                                                {stats.words >
+                                                                    0 && (
+                                                                    <>
+                                                                        {" "}
+                                                                        ·{" "}
+                                                                        <span className="font-medium">
+                                                                            {
+                                                                                stats.words
+                                                                            }
+                                                                        </span>{" "}
+                                                                        words
+                                                                    </>
                                                                 )}
-                                                                {stats.mentions > 0 && (
-                                                                    <> · <span className="font-medium">{stats.mentions}</span> mentions</>
+                                                                {stats.mentions >
+                                                                    0 && (
+                                                                    <>
+                                                                        {" "}
+                                                                        ·{" "}
+                                                                        <span className="font-medium">
+                                                                            {
+                                                                                stats.mentions
+                                                                            }
+                                                                        </span>{" "}
+                                                                        mentions
+                                                                    </>
                                                                 )}
                                                                 {" / 2000"}
                                                             </>
@@ -1280,7 +1701,13 @@ function CustomPromptsContent() {
                                                     })()}
                                                 </FormControl.Helper>
                                                 <ExternalReferencesDisplay
-                                                    externalReferences={(form.getValues("v2PromptOverrides.severity.flags.low") as any)?.externalReferences}
+                                                    externalReferences={
+                                                        (
+                                                            form.getValues(
+                                                                "v2PromptOverrides.severity.flags.low",
+                                                            ) as any
+                                                        )?.externalReferences
+                                                    }
                                                     compact
                                                 />
                                             </div>

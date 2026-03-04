@@ -1,10 +1,6 @@
 import * as React from "react";
 import * as NavigationMenuPrimitive from "@radix-ui/react-navigation-menu";
 import { cn } from "src/core/utils/components";
-import {
-    hasUnsavedChanges,
-    triggerNavigationBlock,
-} from "src/core/utils/navigation-guard";
 
 const NavigationMenu = React.forwardRef<
     React.ComponentRef<typeof NavigationMenuPrimitive.Root>,
@@ -42,18 +38,10 @@ const NavigationMenuItem = NavigationMenuPrimitive.Item;
 const NavigationMenuLink = React.forwardRef<
     React.ComponentRef<typeof NavigationMenuPrimitive.Link>,
     React.ComponentPropsWithoutRef<typeof NavigationMenuPrimitive.Link>
->(({ className, onClick, ...props }, ref) => (
+>(({ className, ...props }, ref) => (
     <NavigationMenuPrimitive.Link
         ref={ref}
         className={cn("transition select-none", className)}
-        onClick={(e) => {
-            if (hasUnsavedChanges()) {
-                e.preventDefault();
-                triggerNavigationBlock();
-                return;
-            }
-            onClick?.(e);
-        }}
         {...props}
     />
 ));

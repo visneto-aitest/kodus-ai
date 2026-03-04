@@ -1,18 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@components/ui/button";
 import { Page } from "@components/ui/page";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@components/ui/tabs";
 import { toast } from "@components/ui/toaster/use-toast";
 import { useAsyncAction } from "@hooks/use-async-action";
-import { useUnsavedChangesGuard } from "@hooks/use-unsaved-changes-guard";
 import { usePermission } from "@services/permissions/hooks";
 import { Action, ResourceType } from "@services/permissions/types";
 import { savePullRequestMessages } from "@services/pull-request-messages/fetch";
 import { useSuspensePullRequestMessages } from "@services/pull-request-messages/hooks";
 import { useQueryClient } from "@tanstack/react-query";
-import { RotateCcwIcon, SaveIcon } from "lucide-react";
+import { SaveIcon } from "lucide-react";
 import { PageBoundary } from "src/core/components/page-boundary";
 import { pathToApiUrl, unformatConfig } from "src/core/utils/helpers";
 
@@ -84,59 +83,6 @@ function CustomMessagesContent() {
             (pullRequestMessages.globalSettings?.suggestionCopyPrompt?.value ??
                 true);
 
-    const isDirty =
-        wasStartReviewMessageChanged ||
-        wasEndReviewMessageChanged ||
-        wasGlobalSettingsChanged;
-
-    const handleReset = useCallback(() => {
-        setMessages({
-            startReviewMessage: pullRequestMessages.startReviewMessage,
-            endReviewMessage: pullRequestMessages.endReviewMessage,
-        });
-        setGlobalSettings({
-            hideComments: pullRequestMessages.globalSettings?.hideComments,
-            suggestionCopyPrompt:
-                pullRequestMessages.globalSettings?.suggestionCopyPrompt,
-        });
-    }, [pullRequestMessages]);
-
-    const scrollToDirtyField = useCallback(() => {
-        const fieldName = wasStartReviewMessageChanged
-            ? "startReviewMessage"
-            : wasEndReviewMessageChanged
-              ? "endReviewMessage"
-              : "globalSettings";
-
-        const el = document.querySelector(
-            `[data-field-name="${fieldName}"]`,
-        );
-        if (el) {
-            el.scrollIntoView({ behavior: "smooth", block: "center" });
-            el.classList.add("field-highlight");
-            setTimeout(() => el.classList.remove("field-highlight"), 1800);
-        } else {
-            const header = document.querySelector("[data-header-actions]");
-            if (header) {
-                header.scrollIntoView({
-                    behavior: "smooth",
-                    block: "center",
-                });
-                header.classList.add("field-highlight");
-                setTimeout(
-                    () => header.classList.remove("field-highlight"),
-                    1800,
-                );
-            }
-        }
-    }, [wasStartReviewMessageChanged, wasEndReviewMessageChanged]);
-
-    useUnsavedChangesGuard({
-        id: "custom-messages",
-        isDirty,
-        onBlock: scrollToDirtyField,
-    });
-
     const [action, { loading: isSaving }] = useAsyncAction(async () => {
         try {
             const unformattedMessages = unformatConfig(messages);
@@ -183,23 +129,18 @@ function CustomMessagesContent() {
                 <Page.Title>Custom Messages</Page.Title>
 
                 <Page.HeaderActions>
-                    {isDirty && (
-                        <Button
-                            size="md"
-                            variant="cancel"
-                            leftIcon={<RotateCcwIcon />}
-                            onClick={handleReset}>
-                            Reset
-                        </Button>
-                    )}
-
                     <Button
                         size="md"
                         variant="primary"
                         loading={isSaving}
                         leftIcon={<SaveIcon />}
                         onClick={() => action()}
-                        disabled={!canEdit || !isDirty}>
+                        disabled={
+                            !canEdit ||
+                            (!wasStartReviewMessageChanged &&
+                                !wasEndReviewMessageChanged &&
+                                !wasGlobalSettingsChanged)
+                        }>
                         Save changes
                     </Button>
                 </Page.HeaderActions>
@@ -231,8 +172,7 @@ function CustomMessagesContent() {
                     <TabsContent
                         forceMount
                         className="flex-1"
-                        value="start-review-message"
-                        data-field-name="startReviewMessage">
+                        value="start-review-message">
                         <TabContent
                             type="startReviewMessage"
                             value={messages.startReviewMessage}
@@ -259,8 +199,7 @@ function CustomMessagesContent() {
                     <TabsContent
                         forceMount
                         className="flex-1"
-                        value="end-review-message"
-                        data-field-name="endReviewMessage">
+                        value="end-review-message">
                         <TabContent
                             type="endReviewMessage"
                             value={messages.endReviewMessage}
@@ -287,8 +226,7 @@ function CustomMessagesContent() {
                     <TabsContent
                         forceMount
                         className="flex-1 gap-y-4"
-                        value="global-settings"
-                        data-field-name="globalSettings">
+                        value="global-settings">
                         <HiddenComments
                             hideComments={globalSettings.hideComments}
                             initialState={
@@ -298,7 +236,7 @@ function CustomMessagesContent() {
                                 setGlobalSettings((prev) => ({
                                     ...prev,
                                     hideComments: {
-                                        ...prev.hideComments,
+                                        ...(prev.hideComments ?? {}),
                                         value,
                                     },
                                 }));
@@ -307,7 +245,7 @@ function CustomMessagesContent() {
                                 setGlobalSettings((prev) => ({
                                     ...prev,
                                     hideComments: {
-                                        ...prev.hideComments,
+                                        ...(prev.hideComments ?? {}),
                                         value: initialState.globalSettings
                                             ?.hideComments?.value,
                                     },
@@ -327,7 +265,7 @@ function CustomMessagesContent() {
                                 setGlobalSettings((prev) => ({
                                     ...prev,
                                     suggestionCopyPrompt: {
-                                        ...prev.suggestionCopyPrompt,
+                                        ...(prev.suggestionCopyPrompt ?? {}),
                                         value,
                                     },
                                 }));
@@ -336,7 +274,7 @@ function CustomMessagesContent() {
                                 setGlobalSettings((prev) => ({
                                     ...prev,
                                     suggestionCopyPrompt: {
-                                        ...prev.suggestionCopyPrompt,
+                                        ...(prev.suggestionCopyPrompt ?? {}),
                                         value: initialState.globalSettings
                                             ?.suggestionCopyPrompt?.value,
                                     },

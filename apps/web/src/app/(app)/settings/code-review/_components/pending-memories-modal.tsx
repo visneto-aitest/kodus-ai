@@ -1,4 +1,4 @@
-import { Dispatch, SetStateAction, useMemo, useState } from "react";
+import { Dispatch, SetStateAction, useEffect, useMemo, useState } from "react";
 import { Button } from "@components/ui/button";
 import { Card, CardContent, CardHeader } from "@components/ui/card";
 import { Checkbox } from "@components/ui/checkbox";
@@ -252,6 +252,7 @@ const UpdateMemoryCard = ({
 const PendingMemoriesFooter = ({
     activeTab,
     canEdit,
+    hasChanges,
     selectedRuleIds,
     itemsInActiveTab,
     onSelectAll,
@@ -262,6 +263,7 @@ const PendingMemoriesFooter = ({
 }: {
     activeTab: ModalTab;
     canEdit: boolean;
+    hasChanges: boolean;
     selectedRuleIds: string[];
     itemsInActiveTab: KodyRule[];
     onSelectAll: () => void;
@@ -306,7 +308,10 @@ const PendingMemoriesFooter = ({
             </div>
         )}
 
-        <Button size="md" variant="cancel" onClick={magicModal.hide}>
+        <Button
+            size="md"
+            variant="cancel"
+            onClick={() => magicModal.hide(hasChanges)}>
             Cancel
         </Button>
 
@@ -370,6 +375,17 @@ export const PendingMemoriesModal = ({
     const [activeTab, setActiveTab] = useState<ModalTab>(
         pendingNewMemories.length > 0 ? "new" : "updates",
     );
+    const [newMemories, setNewMemories] = useState<KodyRule[]>(() =>
+        pendingNewMemories.filter(
+            (rule) => rule.requestType !== KodyRuleRequestType.MEMORY_UPDATE,
+        ),
+    );
+    const [updates, setUpdates] = useState<KodyRule[]>(() =>
+        pendingUpdates.filter(
+            (rule) => rule.requestType === KodyRuleRequestType.MEMORY_UPDATE,
+        ),
+    );
+    const [hasChanges, setHasChanges] = useState(false);
     const [selectedNewIds, setSelectedNewIds] = useState<string[]>([]);
     const [selectedUpdateIds, setSelectedUpdateIds] = useState<string[]>([]);
     const canEdit = usePermission(
@@ -387,27 +403,23 @@ export const PendingMemoriesModal = ({
         [activeMemories],
     );
 
-    const updates = useMemo(
-        () =>
-            pendingUpdates.filter(
-                (rule) =>
-                    rule.requestType === KodyRuleRequestType.MEMORY_UPDATE,
-            ),
-        [pendingUpdates],
-    );
-
-    const newMemories = useMemo(
-        () =>
-            pendingNewMemories.filter(
-                (rule) =>
-                    rule.requestType !== KodyRuleRequestType.MEMORY_UPDATE,
-            ),
-        [pendingNewMemories],
-    );
-
     const selectedRuleIds =
         activeTab === "new" ? selectedNewIds : selectedUpdateIds;
     const itemsInActiveTab = activeTab === "new" ? newMemories : updates;
+
+    useEffect(() => {
+        if (activeTab === "new" && newMemories.length === 0 && updates.length) {
+            setActiveTab("updates");
+        }
+
+        if (
+            activeTab === "updates" &&
+            updates.length === 0 &&
+            newMemories.length
+        ) {
+            setActiveTab("new");
+        }
+    }, [activeTab, newMemories.length, updates.length]);
 
     const toggleSelection = (
         setter: Dispatch<SetStateAction<string[]>>,
@@ -420,39 +432,88 @@ export const PendingMemoriesModal = ({
         );
     };
 
-    const applyPendingItems = async (ids: string[], hide: boolean = true) => {
+    const applyPendingItems = async (ids: string[]) => {
         magicModal.lock();
         try {
             await applyPendingKodyRules(ids);
+            setHasChanges(true);
+            setNewMemories((previous) =>
+                previous.filter((rule) => !ids.includes(rule.uuid || "")),
+            );
+            setUpdates((previous) =>
+                previous.filter((rule) => !ids.includes(rule.uuid || "")),
+            );
+            setSelectedNewIds((selected) =>
+                selected.filter((id) => !ids.includes(id)),
+            );
+            setSelectedUpdateIds((selected) =>
+                selected.filter((id) => !ids.includes(id)),
+            );
         } catch (error) {
             console.error("Error applying pending items:", error);
         } finally {
-            magicModal.hide(hide);
+            magicModal.unlock();
         }
     };
 
-    const discardPendingItems = async (ids: string[], hide: boolean = true) => {
+    const discardPendingItems = async (ids: string[]) => {
         magicModal.lock();
         try {
             await discardPendingKodyRules(ids);
+            setHasChanges(true);
+            setNewMemories((previous) =>
+                previous.filter((rule) => !ids.includes(rule.uuid || "")),
+            );
+            setUpdates((previous) =>
+                previous.filter((rule) => !ids.includes(rule.uuid || "")),
+            );
+            setSelectedNewIds((selected) =>
+                selected.filter((id) => !ids.includes(id)),
+            );
+            setSelectedUpdateIds((selected) =>
+                selected.filter((id) => !ids.includes(id)),
+            );
         } catch (error) {
             console.error("Error discarding pending items:", error);
         } finally {
-            magicModal.hide(hide);
+            magicModal.unlock();
         }
     };
 
-    const convertPendingItemsToMemories = async (
-        ids: string[],
-        hide: boolean = true,
-    ) => {
+    const convertPendingItemsToMemories = async (ids: string[]) => {
         magicModal.lock();
         try {
             await convertPendingUpdatesToMemoriesRequest(ids);
+            setHasChanges(true);
+
+            setUpdates((currentUpdates) => {
+                const remainingUpdates: KodyRule[] = [];
+                const rulesToConvert: KodyRule[] = [];
+
+                for (const rule of currentUpdates) {
+                    if (ids.includes(rule.uuid || "")) {
+                        rulesToConvert.push(rule);
+                    } else {
+                        remainingUpdates.push(rule);
+                    }
+                }
+
+                if (rulesToConvert.length > 0) {
+                    setNewMemories((currentMems) => [
+                        ...currentMems,
+                        ...rulesToConvert,
+                    ]);
+                }
+
+                return remainingUpdates;
+            });
+            setSelectedUpdateIds((selected) =>
+                selected.filter((id) => !ids.includes(id)),
+            );
         } catch (error) {
             console.error("Error converting pending items to memories:", error);
         } finally {
-            magicModal.hide(hide);
+            magicModal.unlock();
         }
     };
 
@@ -479,7 +540,13 @@ export const PendingMemoriesModal = ({
     };
 
     return (
-        <Dialog open onOpenChange={() => magicModal.hide()}>
+        <Dialog
+            open
+            onOpenChange={(open) => {
+                if (!open) {
+                    magicModal.hide(hasChanges);
+                }
+            }}>
             <DialogContent className="flex max-h-[80vh] max-w-(--breakpoint-lg) flex-col overflow-hidden">
                 <DialogHeader>
                     <DialogTitle>Pending Memories</DialogTitle>
@@ -522,10 +589,10 @@ export const PendingMemoriesModal = ({
                                             )
                                         }
                                         onDiscard={(ids) =>
-                                            discardPendingItems(ids, false)
+                                            discardPendingItems(ids)
                                         }
                                         onApply={(ids) =>
-                                            applyPendingItems(ids, false)
+                                            applyPendingItems(ids)
                                         }
                                     />
                                 ))
@@ -564,14 +631,13 @@ export const PendingMemoriesModal = ({
                                             onConvert={(ids) =>
                                                 convertPendingItemsToMemories(
                                                     ids,
-                                                    false,
                                                 )
                                             }
                                             onDiscard={(ids) =>
-                                                discardPendingItems(ids, false)
+                                                discardPendingItems(ids)
                                             }
                                             onApply={(ids) =>
-                                                applyPendingItems(ids, false)
+                                                applyPendingItems(ids)
                                             }
                                         />
                                     );
@@ -584,6 +650,7 @@ export const PendingMemoriesModal = ({
                 <PendingMemoriesFooter
                     activeTab={activeTab}
                     canEdit={canEdit}
+                    hasChanges={hasChanges}
                     selectedRuleIds={selectedRuleIds}
                     itemsInActiveTab={itemsInActiveTab}
                     onSelectAll={selectAllInActiveTab}

@@ -10,7 +10,7 @@ import {
     KodyLearningStatus,
     ParametersConfigKey,
 } from "@services/parameters/types";
-import { RotateCcwIcon, SaveIcon } from "lucide-react";
+import { SaveIcon } from "lucide-react";
 import { useFormContext } from "react-hook-form";
 import { useSelectedTeamId } from "src/core/providers/selected-team-context";
 import { unformatConfig } from "src/core/utils/helpers";
@@ -109,16 +109,6 @@ export default function ReviewCategories() {
                 <Page.Title>Review Categories</Page.Title>
 
                 <Page.HeaderActions>
-                    {formIsDirty && (
-                        <Button
-                            size="md"
-                            variant="cancel"
-                            leftIcon={<RotateCcwIcon />}
-                            onClick={() => form.reset()}>
-                            Reset
-                        </Button>
-                    )}
-
                     <Button
                         size="md"
                         variant="primary"
@@ -132,12 +122,8 @@ export default function ReviewCategories() {
             </Page.Header>
 
             <Page.Content>
-                <div data-field-name="codeReviewVersion">
-                    <CodeReviewVersionSelector />
-                </div>
-                <div data-field-name="analysisTypes">
-                    <AnalysisTypes />
-                </div>
+                <CodeReviewVersionSelector />
+                <AnalysisTypes />
             </Page.Content>
         </Page.Root>
     );

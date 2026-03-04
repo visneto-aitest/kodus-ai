@@ -1241,6 +1241,12 @@ Analyze the suggestions and recommend the most relevant rules.`;
                     rule: resolution.existingMemory,
                     action: 'skipped',
                     requiresApproval: false,
+                    link: this.buildMemoryLink(
+                        resolution.existingMemory.repositoryId,
+                        resolution.existingMemory.uuid,
+                        organizationAndTeamData.teamId,
+                        resolution.existingMemory.status,
+                    ),
                 };
             }
 
@@ -1304,6 +1310,12 @@ Analyze the suggestions and recommend the most relevant rules.`;
                 rule,
                 action: resolution?.action === 'update' ? 'updated' : 'created',
                 requiresApproval,
+                link: this.buildMemoryLink(
+                    rule.repositoryId,
+                    rule.uuid,
+                    organizationAndTeamData.teamId,
+                    rule.status,
+                ),
             };
         } catch (error) {
             this.logger.error({
@@ -1475,7 +1487,17 @@ Analyze the suggestions and recommend the most relevant rules.`;
         );
 
         return rule
-            ? { rule, action: 'created', requiresApproval: true }
+            ? {
+                  rule,
+                  action: 'created',
+                  requiresApproval: true,
+                  link: this.buildMemoryLink(
+                      rule.repositoryId,
+                      rule.uuid,
+                      orgData.teamId,
+                      rule.status,
+                  ),
+              }
             : null;
     }
 
@@ -1652,6 +1674,12 @@ Analyze the suggestions and recommend the most relevant rules.`;
                     directoryId: memory.directoryId || undefined,
                     path: memory.path || undefined,
                     createdAt: memory.createdAt?.toISOString(),
+                    link: this.buildMemoryLink(
+                        memory.repositoryId,
+                        memory.uuid,
+                        organizationAndTeamData.teamId,
+                        memory.status,
+                    ),
                 }));
 
             return filteredMemories;
@@ -1668,5 +1696,41 @@ Analyze the suggestions and recommend the most relevant rules.`;
 
             throw error;
         }
+    }
+
+    private buildMemoryLink(
+        repositoryId: string | null | undefined,
+        ruleId: string | undefined,
+        teamId?: string,
+        status?: KodyRulesStatus,
+    ): string {
+        const baseUrl = (process.env.API_USER_INVITE_BASE_URL || '').replace(
+            /\/$/,
+            '',
+        );
+
+        if (!baseUrl) {
+            return '';
+        }
+
+        const scope =
+            repositoryId && repositoryId !== 'global' ? repositoryId : 'global';
+
+        const memoryUrl = new URL(baseUrl);
+
+        if (status === KodyRulesStatus.PENDING || !ruleId) {
+            memoryUrl.pathname = `/settings/code-review/${scope}/kody-rules`;
+            memoryUrl.searchParams.set('tab', 'memories');
+            return memoryUrl.toString();
+        }
+
+        memoryUrl.pathname = `/settings/code-review/${scope}/kody-rules/${ruleId}`;
+        memoryUrl.searchParams.set('tab', 'memories');
+
+        if (teamId) {
+            memoryUrl.searchParams.set('teamId', teamId);
+        }
+
+        return memoryUrl.toString();
     }
 }
