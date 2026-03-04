@@ -5,13 +5,17 @@ import { captureAction } from './capture.js';
 import { statusAction } from './status.js';
 import { showAction } from './show.js';
 import { promoteAction } from './promote.js';
+import { sessionHooksCommand } from './session-hooks/index.js';
+import { listAction } from './list.js';
 
 export const decisionsCommand = new Command('decisions')
-  .description('Capture and persist coding-session decisions');
+  .description('Session tracking, decision capture, and structured logging');
+
+decisionsCommand.addCommand(sessionHooksCommand);
 
 decisionsCommand
   .command('enable')
-  .description('Install all hooks and initialize module config for decision capture')
+  .description('Install session tracking and decision capture hooks')
   .option('--agents <agents>', 'Comma-separated list: claude,cursor,codex', 'claude,cursor,codex')
   .option('--codex-config <path>', 'Path to Codex config.toml (default: ~/.codex/config.toml)')
   .option('--force', 'Overwrite existing modules.yml')
@@ -19,7 +23,7 @@ decisionsCommand
 
 decisionsCommand
   .command('disable')
-  .description('Remove all decision hooks (preserves .kody/ data)')
+  .description('Remove all hooks (preserves session data)')
   .action(disableAction);
 
 decisionsCommand
@@ -33,13 +37,18 @@ decisionsCommand
 
 decisionsCommand
   .command('status')
-  .description('Show current branch decision status')
+  .description('Show session and decision status')
   .action(statusAction);
 
 decisionsCommand
+  .command('list')
+  .description('List all tracked sessions')
+  .action(listAction);
+
+decisionsCommand
   .command('show')
-  .description('Show PR decisions (current branch) or module decisions')
-  .argument('[name]', 'Module name or branch name')
+  .description('Show session details or module decisions')
+  .argument('[name]', 'Session ID prefix, module name, or branch name')
   .action(showAction);
 
 decisionsCommand

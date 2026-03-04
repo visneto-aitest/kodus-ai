@@ -8,7 +8,8 @@ import type {
 } from '../../types/index.js';
 import { ApiError } from '../../types/index.js';
 import type { MemoryCaptureApiRequest, MemoryCaptureApiResponse } from '../../types/index.js';
-import type { IKodusApi, IAuthApi, IReviewApi, ITrialApi, IMemoryApi, GitMetrics } from './api.interface.js';
+import type { IKodusApi, IAuthApi, IReviewApi, ITrialApi, IMemoryApi, ISessionsApi, GitMetrics } from './api.interface.js';
+import { RealSessionsApi } from './sessions.api.js';
 import { getDeviceIdentity, updateDeviceToken } from '../../utils/device.js';
 
 /**
@@ -133,7 +134,7 @@ function normalizeApiErrorMessage(statusCode: number, endpoint: string, errorDat
   return trimmed;
 }
 
-async function request<T>(
+export async function request<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
@@ -526,4 +527,5 @@ export class RealApi implements IKodusApi {
   review: IReviewApi = new RealReviewApi();
   trial: ITrialApi = new RealTrialApi();
   memory: IMemoryApi = new RealMemoryApi();
+  sessions: ISessionsApi = new RealSessionsApi();
 }

@@ -6,6 +6,7 @@ import {
   removeMergeHook,
   resolveCodexConfigPath,
 } from './hooks.js';
+import { removeSessionHooks } from './session-hooks-install.js';
 
 export async function disableAction(): Promise<void> {
   const isRepo = await gitService.isGitRepository();
@@ -17,12 +18,17 @@ export async function disableAction(): Promise<void> {
   const gitRoot = (await gitService.getGitRoot()).trim();
 
   const claudeResult = await removeClaudeCompatibleHooks(gitRoot);
+  const sessionResult = await removeSessionHooks(gitRoot);
   const codexResult = await removeCodexNotify(resolveCodexConfigPath());
   const mergeResult = await removeMergeHook(gitRoot);
 
+  const captureRemoved = claudeResult.removed;
+  const sessionRemoved = sessionResult.removed;
+
   console.log(chalk.green('\u2713 Decision hooks removed.'));
-  console.log(`  Claude Code / Cursor hooks: ${claudeResult.removed ? 'removed' : 'not found'}`);
+  console.log(`  Decision capture hooks: ${captureRemoved ? 'removed' : 'not found'}`);
+  console.log(`  Session tracking hooks: ${sessionRemoved ? 'removed' : 'not found'}`);
   console.log(`  Codex notify: ${codexResult.removed ? 'removed' : 'not found'}`);
   console.log(`  Post-merge hook: ${mergeResult.removed ? 'removed' : 'not found'}`);
-  console.log(chalk.dim('  Memory data in .kody/ preserved.'));
+  console.log(chalk.dim('  Session data in git branches (kody/sessions, kody/checkpoints/*) preserved.'));
 }

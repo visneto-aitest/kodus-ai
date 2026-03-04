@@ -11,28 +11,31 @@ export async function showAction(name?: string): Promise<void> {
 
   const repoRoot = (await gitService.getGitRoot()).trim();
 
+  // If no argument, try current branch PR memory
   if (!name) {
-    // Show current branch PR memory
     let branch: string;
     try {
       branch = (await gitService.getCurrentBranch()).trim();
     } catch {
-      console.error(chalk.red('Error: Could not determine current branch.'));
-      process.exit(1);
+      console.log(chalk.dim('No PR memory found.'));
+      console.log('');
+      console.log(chalk.dim('Session data is available in the Kodus dashboard.'));
       return;
     }
 
     const prMemory = await memoryService.readPrMemory(repoRoot, branch);
-    if (!prMemory) {
-      console.log(chalk.dim(`No PR memory found for branch: ${branch}`));
+    if (prMemory) {
+      console.log(prMemory.content);
       return;
     }
 
-    console.log(prMemory.content);
+    console.log(chalk.dim('No PR memory found for this branch.'));
+    console.log('');
+    console.log(chalk.dim('Session data is available in the Kodus dashboard.'));
     return;
   }
 
-  // Try as module name first
+  // Try as module name
   const moduleContent = await memoryService.readModuleMemory(repoRoot, name);
   if (moduleContent) {
     console.log(moduleContent);
@@ -46,5 +49,7 @@ export async function showAction(name?: string): Promise<void> {
     return;
   }
 
-  console.log(chalk.dim(`No memory found for: ${name}`));
+  console.log(chalk.dim(`No module or branch memory found for: ${name}`));
+  console.log('');
+  console.log(chalk.dim('Session data is available in the Kodus dashboard.'));
 }

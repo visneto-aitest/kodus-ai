@@ -9,6 +9,7 @@ import type {
   MemoryCaptureApiRequest,
   MemoryCaptureApiResponse,
 } from '../../types/index.js';
+import type { SessionApiEvent } from '../../types/session-events.js';
 
 export interface IAuthApi {
   login(email: string, password: string): Promise<AuthResponse>;
@@ -45,9 +46,14 @@ export interface IMemoryApi {
   submitCapture(payload: MemoryCaptureApiRequest, accessToken: string): Promise<MemoryCaptureApiResponse>;
 }
 
+export interface ISessionsApi {
+  sendEvent(event: SessionApiEvent, repoRoot: string): Promise<void>;
+}
+
 export interface IKodusApi {
   auth: IAuthApi;
   review: IReviewApi;
   trial: ITrialApi;
   memory: IMemoryApi;
+  sessions: ISessionsApi;
 }

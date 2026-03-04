@@ -24,7 +24,12 @@ export async function statusAction(): Promise<void> {
   console.log(chalk.bold(`Branch: ${branch}`));
   console.log('');
 
-  // PR memory status
+  // ── Session tracking ────────────────────────────────────────────
+  console.log(chalk.green('Session tracking: API-based'));
+  console.log(chalk.dim('  Session data is sent to the Kodus API and available in the dashboard.'));
+  console.log('');
+
+  // ── PR memory (legacy decisions) ──────────────────────────────────
   const prMemory = await memoryService.readPrMemory(repoRoot, branch);
   if (prMemory && prMemory.meta) {
     const meta = prMemory.meta;
@@ -34,18 +39,15 @@ export async function statusAction(): Promise<void> {
     console.log(`  Agent: ${meta.agent}`);
     console.log(`  Updated: ${meta.updatedAt}`);
 
-    // Count decisions in content
     const decisionCount = (prMemory.content.match(/^### \[\w+\]/gm) || []).length;
     const captureCount = (prMemory.content.match(/^### \d{4}-\d{2}-\d{2}T/gm) || []).length;
     console.log(`  Decisions: ${decisionCount}`);
     console.log(`  Captures: ${captureCount}`);
-  } else {
-    console.log(chalk.dim('No PR memory for this branch yet.'));
   }
 
   console.log('');
 
-  // Module config status
+  // ── Module config ─────────────────────────────────────────────────
   const config = await loadConfig(repoRoot);
   if (config) {
     console.log(chalk.green(`Module config: ${config.modules.length} module(s)`));

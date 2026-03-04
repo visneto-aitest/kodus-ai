@@ -12,6 +12,7 @@ import {
   resolveCodexConfigPath,
   detectModules,
 } from './hooks.js';
+import { installSessionHooks } from './session-hooks-install.js';
 
 interface EnableOptions {
   agents?: string;
@@ -40,14 +41,21 @@ export async function enableAction(options: EnableOptions): Promise<void> {
   const installClaudeCompat = agents.has('claude') || agents.has('cursor');
   const installCodex = agents.has('codex');
 
-  // 1. Claude Code / Cursor hooks
-  let claudeStatus = 'skipped';
+  // 1. Decision capture hooks (Claude Code / Cursor)
+  let captureStatus = 'skipped';
   if (installClaudeCompat) {
     const result = await installClaudeCompatibleHooks(gitRoot);
-    claudeStatus = result.changed ? 'installed' : 'already configured';
+    captureStatus = result.changed ? 'installed' : 'already configured';
   }
 
-  // 2. Codex notify
+  // 2. Session tracking hooks (Claude Code / Cursor)
+  let sessionStatus = 'skipped';
+  if (installClaudeCompat) {
+    const result = await installSessionHooks(gitRoot, 'claude-code');
+    sessionStatus = result.changed ? 'installed' : 'already configured';
+  }
+
+  // 3. Codex notify
   let codexStatus = 'skipped';
   if (installCodex) {
     const codexConfigPath = resolveCodexConfigPath(options.codexConfig);
@@ -61,11 +69,11 @@ export async function enableAction(options: EnableOptions): Promise<void> {
     }
   }
 
-  // 3. Post-merge hook (always)
+  // 4. Post-merge hook (always)
   const mergeResult = await installMergeHook(gitRoot);
   const mergeStatus = mergeResult.alreadyInstalled ? 'already configured' : 'installed';
 
-  // 4. Init modules.yml
+  // 5. Init modules.yml
   const configPath = path.join(gitRoot, '.kody', 'modules.yml');
   let modulesStatus: string;
   let modulesExist = false;
@@ -94,9 +102,13 @@ export async function enableAction(options: EnableOptions): Promise<void> {
       : 'created (no modules detected)';
   }
 
+  // 6. Ensure logs directory (only local dir needed — session data lives in git)
+  await fs.mkdir(path.join(gitRoot, '.kody', 'logs'), { recursive: true });
+
   // Summary
   console.log(chalk.green('\u2713 Decisions enabled for this repository.'));
-  console.log(`  Claude Code / Cursor hooks: ${claudeStatus}`);
+  console.log(`  Decision capture hooks: ${captureStatus}`);
+  console.log(`  Session tracking hooks: ${sessionStatus}`);
   console.log(`  Codex notify: ${codexStatus}`);
   console.log(`  Post-merge hook: ${mergeStatus}`);
   console.log(`  Module config: ${modulesStatus}`);
