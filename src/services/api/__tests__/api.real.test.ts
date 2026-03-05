@@ -6,17 +6,27 @@ const deviceMocks = vi.hoisted(() => ({
   updateDeviceToken: vi.fn(),
 }));
 
+const configMocks = vi.hoisted(() => ({
+  loadConfig: vi.fn(),
+}));
+
 vi.mock('../../../utils/device.js', () => ({
   getDeviceIdentity: deviceMocks.getDeviceIdentity,
   updateDeviceToken: deviceMocks.updateDeviceToken,
 }));
 
-import { RealApi } from '../api.real.js';
+vi.mock('../../../utils/config.js', () => ({
+  loadConfig: configMocks.loadConfig,
+}));
+
+import { RealApi, _resetConfigCache } from '../api.real.js';
 
 describe('RealApi request headers', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    _resetConfigCache();
+    configMocks.loadConfig.mockResolvedValue(null);
     fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock as any);
     deviceMocks.getDeviceIdentity.mockResolvedValue({
@@ -27,6 +37,9 @@ describe('RealApi request headers', () => {
   });
 
   afterEach(() => {
+    delete process.env.KODUS_API_URL;
+    delete process.env.CF_ACCESS_CLIENT_ID;
+    delete process.env.CF_ACCESS_CLIENT_SECRET;
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -135,6 +148,8 @@ describe('RealApi review.getPullRequestSuggestions', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    _resetConfigCache();
+    configMocks.loadConfig.mockResolvedValue(null);
     fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock as any);
     deviceMocks.getDeviceIdentity.mockResolvedValue({
@@ -144,6 +159,9 @@ describe('RealApi review.getPullRequestSuggestions', () => {
   });
 
   afterEach(() => {
+    delete process.env.KODUS_API_URL;
+    delete process.env.CF_ACCESS_CLIENT_ID;
+    delete process.env.CF_ACCESS_CLIENT_SECRET;
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -223,6 +241,8 @@ describe('RealApi review.analyze auth mode', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    _resetConfigCache();
+    configMocks.loadConfig.mockResolvedValue(null);
     fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock as any);
     deviceMocks.getDeviceIdentity.mockResolvedValue({
@@ -232,6 +252,9 @@ describe('RealApi review.analyze auth mode', () => {
   });
 
   afterEach(() => {
+    delete process.env.KODUS_API_URL;
+    delete process.env.CF_ACCESS_CLIENT_ID;
+    delete process.env.CF_ACCESS_CLIENT_SECRET;
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -257,5 +280,166 @@ describe('RealApi review.analyze auth mode', () => {
     expect(url).toContain('/cli/review');
     expect(options.headers.Authorization).toBe('Bearer eyJ.test.token');
     expect(options.headers['X-Team-Key']).toBeUndefined();
+  });
+});
+
+describe('Cloudflare Access headers from config', () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    _resetConfigCache();
+    configMocks.loadConfig.mockResolvedValue(null);
+    fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock as any);
+    deviceMocks.getDeviceIdentity.mockResolvedValue({
+      deviceId: '11111111-1111-4111-8111-111111111111',
+    });
+    deviceMocks.updateDeviceToken.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    delete process.env.KODUS_API_URL;
+    delete process.env.CF_ACCESS_CLIENT_ID;
+    delete process.env.CF_ACCESS_CLIENT_SECRET;
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  function mockJsonResponse(data: any = {}) {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ data }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+  }
+
+  it('sends CF headers when config has cfAccessClientId and cfAccessClientSecret', async () => {
+    configMocks.loadConfig.mockResolvedValue({
+      teamKey: 'kodus_abc',
+      teamName: 'Team',
+      organizationName: 'Org',
+      cfAccessClientId: 'cf-id-from-config',
+      cfAccessClientSecret: 'cf-secret-from-config',
+    });
+    mockJsonResponse({ fingerprint: 'fp', reviewsUsed: 0, reviewsLimit: 5, filesLimit: 10, linesLimit: 500, resetsAt: new Date().toISOString(), isLimited: false });
+
+    const api = new RealApi();
+    await api.trial.getStatus('fp');
+
+    const [, options] = fetchMock.mock.calls[0];
+    expect(options.headers['CF-Access-Client-Id']).toBe('cf-id-from-config');
+    expect(options.headers['CF-Access-Client-Secret']).toBe('cf-secret-from-config');
+  });
+
+  it('does not send CF headers when config has no CF fields', async () => {
+    configMocks.loadConfig.mockResolvedValue({
+      teamKey: 'kodus_abc',
+      teamName: 'Team',
+      organizationName: 'Org',
+    });
+    mockJsonResponse({ fingerprint: 'fp', reviewsUsed: 0, reviewsLimit: 5, filesLimit: 10, linesLimit: 500, resetsAt: new Date().toISOString(), isLimited: false });
+
+    const api = new RealApi();
+    await api.trial.getStatus('fp');
+
+    const [, options] = fetchMock.mock.calls[0];
+    expect(options.headers['CF-Access-Client-Id']).toBeUndefined();
+    expect(options.headers['CF-Access-Client-Secret']).toBeUndefined();
+  });
+
+  it('env vars take priority over config for CF headers', async () => {
+    configMocks.loadConfig.mockResolvedValue({
+      teamKey: 'kodus_abc',
+      teamName: 'Team',
+      organizationName: 'Org',
+      cfAccessClientId: 'cf-id-from-config',
+      cfAccessClientSecret: 'cf-secret-from-config',
+    });
+    process.env.CF_ACCESS_CLIENT_ID = 'cf-id-from-env';
+    process.env.CF_ACCESS_CLIENT_SECRET = 'cf-secret-from-env';
+    mockJsonResponse({ fingerprint: 'fp', reviewsUsed: 0, reviewsLimit: 5, filesLimit: 10, linesLimit: 500, resetsAt: new Date().toISOString(), isLimited: false });
+
+    const api = new RealApi();
+    await api.trial.getStatus('fp');
+
+    const [, options] = fetchMock.mock.calls[0];
+    expect(options.headers['CF-Access-Client-Id']).toBe('cf-id-from-env');
+    expect(options.headers['CF-Access-Client-Secret']).toBe('cf-secret-from-env');
+  });
+});
+
+describe('API base URL from config', () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    _resetConfigCache();
+    configMocks.loadConfig.mockResolvedValue(null);
+    fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock as any);
+    deviceMocks.getDeviceIdentity.mockResolvedValue({
+      deviceId: '11111111-1111-4111-8111-111111111111',
+    });
+    deviceMocks.updateDeviceToken.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    delete process.env.KODUS_API_URL;
+    delete process.env.CF_ACCESS_CLIENT_ID;
+    delete process.env.CF_ACCESS_CLIENT_SECRET;
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  function mockJsonResponse(data: any = {}) {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ data }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+  }
+
+  it('uses apiUrl from config when KODUS_API_URL env var is not set', async () => {
+    configMocks.loadConfig.mockResolvedValue({
+      teamKey: 'kodus_abc',
+      teamName: 'Team',
+      organizationName: 'Org',
+      apiUrl: 'https://custom.example.com',
+    });
+    mockJsonResponse({ fingerprint: 'fp', reviewsUsed: 0, reviewsLimit: 5, filesLimit: 10, linesLimit: 500, resetsAt: new Date().toISOString(), isLimited: false });
+
+    const api = new RealApi();
+    await api.trial.getStatus('fp');
+
+    const [url] = fetchMock.mock.calls[0];
+    expect(url).toMatch(/^https:\/\/custom\.example\.com\//);
+  });
+
+  it('KODUS_API_URL env var takes priority over config apiUrl', async () => {
+    configMocks.loadConfig.mockResolvedValue({
+      teamKey: 'kodus_abc',
+      teamName: 'Team',
+      organizationName: 'Org',
+      apiUrl: 'https://from-config.example.com',
+    });
+    process.env.KODUS_API_URL = 'https://from-env.example.com';
+    mockJsonResponse({ fingerprint: 'fp', reviewsUsed: 0, reviewsLimit: 5, filesLimit: 10, linesLimit: 500, resetsAt: new Date().toISOString(), isLimited: false });
+
+    const api = new RealApi();
+    await api.trial.getStatus('fp');
+
+    const [url] = fetchMock.mock.calls[0];
+    expect(url).toMatch(/^https:\/\/from-env\.example\.com\//);
+  });
+
+  it('falls back to default URL when no config and no env var', async () => {
+    mockJsonResponse({ fingerprint: 'fp', reviewsUsed: 0, reviewsLimit: 5, filesLimit: 10, linesLimit: 500, resetsAt: new Date().toISOString(), isLimited: false });
+
+    const api = new RealApi();
+    await api.trial.getStatus('fp');
+
+    const [url] = fetchMock.mock.calls[0];
+    expect(url).toMatch(/^https:\/\/api\.kodus\.io\//);
   });
 });

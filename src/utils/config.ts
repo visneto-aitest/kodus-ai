@@ -9,6 +9,9 @@ export interface CliConfig {
   teamKey: string;
   teamName: string;
   organizationName: string;
+  apiUrl?: string;
+  cfAccessClientId?: string;
+  cfAccessClientSecret?: string;
 }
 
 function isJsonParseError(error: unknown): boolean {

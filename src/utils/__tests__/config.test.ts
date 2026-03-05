@@ -76,6 +76,26 @@ describe('config utils', () => {
     expect(files).toContain('config.json');
   });
 
+  it('saves and loads config with apiUrl and Cloudflare Access fields', async () => {
+    const home = await fs.mkdtemp(path.join(os.tmpdir(), 'kodus-config-test-'));
+    tempDirs.push(home);
+    const { saveConfig, loadConfig } = await importConfigModule(home);
+
+    const input = {
+      teamKey: 'kodus_abc123',
+      teamName: 'Platform Team',
+      organizationName: 'Kodus',
+      apiUrl: 'https://kodus.example.com',
+      cfAccessClientId: 'my-client-id',
+      cfAccessClientSecret: 'my-client-secret',
+    };
+
+    await saveConfig(input);
+    const loaded = await loadConfig();
+
+    expect(loaded).toEqual(input);
+  });
+
   it('self-heals malformed JSON by isolating corrupted config', async () => {
     const home = await fs.mkdtemp(path.join(os.tmpdir(), 'kodus-config-test-'));
     tempDirs.push(home);

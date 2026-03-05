@@ -9,32 +9,41 @@ import type {
 import { ApiError } from '../../types/index.js';
 import type { MemoryCaptureApiRequest, MemoryCaptureApiResponse } from '../../types/index.js';
 import type { IKodusApi, IAuthApi, IReviewApi, ITrialApi, IMemoryApi, GitMetrics } from './api.interface.js';
+import { loadConfig, type CliConfig } from '../../utils/config.js';
 import { getDeviceIdentity, updateDeviceToken } from '../../utils/device.js';
 
 /**
- * Validates and returns the API base URL
- * Prevents URL injection attacks by validating custom API URLs
+ * Cached config loaded once at first request.
  */
-function getApiBaseUrl(): string {
-  const customUrl = process.env.KODUS_API_URL;
-  const defaultUrl = 'https://api.kodus.io';
+let _configCache: CliConfig | null | undefined;
 
-  if (!customUrl) {
-    return defaultUrl;
+async function getCachedConfig(): Promise<CliConfig | null> {
+  if (_configCache === undefined) {
+    _configCache = await loadConfig();
   }
+  return _configCache;
+}
 
+/** @internal Exported for testing only. */
+export function _resetConfigCache(): void {
+  _configCache = undefined;
+}
+
+/**
+ * Validates a custom API URL. Returns it if valid, or null if invalid.
+ */
+function validateApiUrl(customUrl: string): string | null {
+  const defaultUrl = 'https://api.kodus.io';
   try {
     const url = new URL(customUrl);
 
-    // Only allow HTTPS (except localhost for development)
     const isLocalhost = url.hostname === 'localhost' || url.hostname === '127.0.0.1';
     if (url.protocol !== 'https:' && !isLocalhost) {
-      console.error('Security Error: KODUS_API_URL must use HTTPS protocol');
+      console.error('Security Error: API URL must use HTTPS protocol');
       console.error(`Falling back to default: ${defaultUrl}`);
-      return defaultUrl;
+      return null;
     }
 
-    // Warn about non-standard API URLs
     const standardDomains = ['api.kodus.io', 'localhost', '127.0.0.1'];
     const isStandard = standardDomains.some(domain => url.hostname === domain || url.hostname.endsWith(`.${domain}`));
 
@@ -44,14 +53,62 @@ function getApiBaseUrl(): string {
 
     return customUrl;
   } catch (error) {
-    console.error('Invalid KODUS_API_URL format:', customUrl);
+    console.error('Invalid API URL format:', customUrl);
     console.error(`Falling back to default: ${defaultUrl}`);
-    return defaultUrl;
+    return null;
   }
 }
 
-const API_BASE_URL = getApiBaseUrl();
+/**
+ * Returns the API base URL.
+ * Priority: KODUS_API_URL env var > config.json apiUrl > default
+ */
+export async function resolveApiBaseUrl(): Promise<string> {
+  const defaultUrl = 'https://api.kodus.io';
+
+  // Env var takes priority
+  if (process.env.KODUS_API_URL) {
+    return validateApiUrl(process.env.KODUS_API_URL) ?? defaultUrl;
+  }
+
+  // Then config file
+  const config = await getCachedConfig();
+  if (config?.apiUrl) {
+    return validateApiUrl(config.apiUrl) ?? defaultUrl;
+  }
+
+  return defaultUrl;
+}
+
 const REQUEST_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes
+
+/**
+ * Returns Cloudflare Access headers when configured.
+ * Priority: env vars > config.json
+ *
+ * Required when the API is behind Cloudflare Access (zero-trust proxy).
+ */
+export async function getCloudflareAccessHeaders(): Promise<Record<string, string>> {
+  const clientId = process.env.CF_ACCESS_CLIENT_ID;
+  const clientSecret = process.env.CF_ACCESS_CLIENT_SECRET;
+
+  if (clientId && clientSecret) {
+    return {
+      'CF-Access-Client-Id': clientId,
+      'CF-Access-Client-Secret': clientSecret,
+    };
+  }
+
+  const config = await getCachedConfig();
+  if (config?.cfAccessClientId && config?.cfAccessClientSecret) {
+    return {
+      'CF-Access-Client-Id': config.cfAccessClientId,
+      'CF-Access-Client-Secret': config.cfAccessClientSecret,
+    };
+  }
+
+  return {};
+}
 
 interface ApiErrorPayload {
   message?: string;
@@ -137,7 +194,8 @@ async function request<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const url = `${API_BASE_URL}${endpoint}`;
+  const baseUrl = await resolveApiBaseUrl();
+  const url = `${baseUrl}${endpoint}`;
   let deviceIdentity: { deviceId: string; deviceToken?: string } | undefined;
 
   if (process.env.KODUS_VERBOSE) {
@@ -152,6 +210,7 @@ async function request<T>(
     }
   }
 
+  const cfHeaders = await getCloudflareAccessHeaders();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
@@ -162,6 +221,7 @@ async function request<T>(
       signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
+        ...cfHeaders,
         ...(deviceIdentity?.deviceId ? { 'X-Kodus-Device-Id': deviceIdentity.deviceId } : {}),
         ...(deviceIdentity?.deviceToken ? { 'X-Kodus-Device-Token': deviceIdentity.deviceToken } : {}),
         ...options.headers,
