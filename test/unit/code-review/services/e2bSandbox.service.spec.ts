@@ -144,7 +144,7 @@ describe('E2BSandboxService', () => {
             const mockKill = jest.fn().mockResolvedValue(undefined);
             const mockRun = jest
                 .fn()
-                .mockResolvedValue({ stdout: '', stderr: '' });
+                .mockResolvedValue({ exitCode: 0, stdout: '', stderr: '' });
             const mockSandbox = {
                 commands: { run: mockRun },
                 kill: mockKill,
@@ -288,7 +288,7 @@ describe('E2BSandboxService', () => {
 
             const mockRun = jest
                 .fn()
-                .mockResolvedValue({ stdout: '', stderr: '' });
+                .mockResolvedValue({ exitCode: 0, stdout: '', stderr: '' });
             const mockKill = jest.fn().mockResolvedValue(undefined);
             const fallbackSandbox = {
                 commands: { run: mockRun },
@@ -356,7 +356,7 @@ describe('E2BSandboxService', () => {
             const mockKill = jest.fn().mockResolvedValue(undefined);
             const mockRun = jest
                 .fn()
-                .mockResolvedValue({ stdout: '', stderr: '' });
+                .mockResolvedValue({ exitCode: 0, stdout: '', stderr: '' });
             const mockSandbox = {
                 commands: { run: mockRun },
                 kill: mockKill,
@@ -457,7 +457,7 @@ describe('E2BSandboxService', () => {
             const mockKill = jest.fn().mockResolvedValue(undefined);
             const { Sandbox } = require('e2b');
             Sandbox.create.mockResolvedValue({
-                commands: { run: jest.fn().mockResolvedValue({ stdout: '' }) },
+                commands: { run: jest.fn().mockResolvedValue({ exitCode: 0, stdout: '' }) },
                 kill: mockKill,
             });
 
@@ -482,7 +482,7 @@ describe('E2BSandboxService', () => {
                 .mockRejectedValue(new Error('kill failed'));
             const { Sandbox } = require('e2b');
             Sandbox.create.mockResolvedValue({
-                commands: { run: jest.fn().mockResolvedValue({ stdout: '' }) },
+                commands: { run: jest.fn().mockResolvedValue({ exitCode: 0, stdout: '' }) },
                 kill: mockKill,
             });
 
@@ -508,7 +508,7 @@ describe('E2BSandboxService', () => {
         beforeEach(async () => {
             service = await createService({ API_E2B_KEY: 'key' });
 
-            mockRun = jest.fn().mockResolvedValue({ stdout: 'output' });
+            mockRun = jest.fn().mockResolvedValue({ exitCode: 0, stdout: 'output' });
             const { Sandbox } = require('e2b');
             Sandbox.create.mockResolvedValue({
                 commands: { run: mockRun },

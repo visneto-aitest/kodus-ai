@@ -504,12 +504,12 @@ export class SuggestionService implements ISuggestionService {
                 metadata: { severityLimits, organizationAndTeamData, prNumber },
             });
 
-            // Fallback: retorna todas as sugestões (mutação in-place)
-            for (const s of suggestions) {
-                s.priorityStatus = PriorityStatus.PRIORITIZED;
-                s.deliveryStatus = DeliveryStatus.NOT_SENT;
-            }
-            return suggestions;
+            // Fallback: retorna todas as sugestões como novas cópias (sem mutação)
+            return suggestions.map((s) => ({
+                ...s,
+                priorityStatus: PriorityStatus.PRIORITIZED,
+                deliveryStatus: DeliveryStatus.NOT_SENT,
+            }));
         }
     }
 
