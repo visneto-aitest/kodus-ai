@@ -4,26 +4,18 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Sandbox } from 'e2b';
 
+import {
+    CreateSandboxParams,
+    ISandboxProvider,
+    SandboxInstance,
+} from '@libs/code-review/domain/contracts/sandbox.provider';
 import { RemoteCommands } from './collectCrossFileContexts.service';
 
 const SANDBOX_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const REPO_DIR = '/home/user/repo';
 
-interface CreateSandboxParams {
-    cloneUrl: string;
-    authToken: string;
-    branch: string;
-    prNumber?: number;
-    platform: PlatformType;
-}
-
-interface SandboxWithCommands {
-    remoteCommands: RemoteCommands;
-    cleanup: () => Promise<void>;
-}
-
 @Injectable()
-export class E2BSandboxService {
+export class E2BSandboxService implements ISandboxProvider {
     private readonly logger = createLogger(E2BSandboxService.name);
 
     constructor(private readonly configService: ConfigService) {}
@@ -38,7 +30,7 @@ export class E2BSandboxService {
 
     async createSandboxWithRepo(
         params: CreateSandboxParams,
-    ): Promise<SandboxWithCommands> {
+    ): Promise<SandboxInstance> {
         const { cloneUrl, authToken, branch, prNumber, platform } = params;
         const apiKey = this.configService.get<string>('API_E2B_KEY');
 
@@ -211,16 +203,26 @@ export class E2BSandboxService {
                 path: string,
                 glob?: string,
             ): Promise<string> => {
-                const fullPath = this.resolvePath(path);
-                const escapedPath = fullPath.replace(/'/g, "'\\''");
+                // Validate path (same security checks as resolvePath)
+                if (path.startsWith('/')) {
+                    throw new Error('Absolute paths are not allowed');
+                }
+                if (path.includes('..')) {
+                    throw new Error(
+                        'Path traversal using ".." is not allowed',
+                    );
+                }
+                const escapedPath = path.replace(/'/g, "'\\''");
                 const globArg = glob
                     ? ` --glob '${glob.replace(/'/g, "'\\''")}'`
                     : '';
                 // Use single quotes to prevent bash from interpreting
                 // regex escape sequences (e.g. \b as backspace).
                 const escapedPattern = pattern.replace(/'/g, "'\\''");
+                // Run inside REPO_DIR so rg outputs relative paths (e.g. "./src/foo.ts")
+                // instead of absolute ones (which resolvePath rejects on read).
                 const result = await sandbox.commands.run(
-                    `rg --no-heading -n '${escapedPattern}' '${escapedPath}'${globArg}`,
+                    `cd ${REPO_DIR} && rg --no-heading -n '${escapedPattern}' '${escapedPath}'${globArg}`,
                     { timeoutMs: 30_000 },
                 );
                 return result.stdout;
@@ -268,3 +270,4 @@ export class E2BSandboxService {
         return `${REPO_DIR}/${path}`;
     }
 }
+// sandbox-test

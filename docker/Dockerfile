@@ -75,7 +75,7 @@ ENV API_DEVELOPMENT_MODE=false
 ENV SENTRY_RELEASE=${RELEASE_VERSION}
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates procps \
+    ca-certificates procps git ripgrep \
   && rm -rf /var/lib/apt/lists/*
 
 COPY --chown=1000:1000 --from=prod-deps /usr/src/app/node_modules ./node_modules

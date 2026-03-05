@@ -5,7 +5,10 @@ import {
     COLLECT_CROSS_FILE_CONTEXTS_SERVICE_TOKEN,
     CollectCrossFileContextsService,
 } from '@libs/code-review/infrastructure/adapters/services/collectCrossFileContexts.service';
-import { E2BSandboxService } from '@libs/code-review/infrastructure/adapters/services/e2bSandbox.service';
+import {
+    ISandboxProvider,
+    SANDBOX_PROVIDER_TOKEN,
+} from '@libs/code-review/domain/contracts/sandbox.provider';
 import { BasePipelineStage } from '@libs/core/infrastructure/pipeline/abstracts/base-stage.abstract';
 import { StageVisibility } from '@libs/core/infrastructure/pipeline/enums/stage-visibility.enum';
 import { CodeManagementService } from '@libs/platform/infrastructure/adapters/services/codeManagement.service';
@@ -54,7 +57,8 @@ export class CollectCrossFileContextStage extends BasePipelineStage<CodeReviewPi
     constructor(
         @Inject(COLLECT_CROSS_FILE_CONTEXTS_SERVICE_TOKEN)
         private readonly collectCrossFileContextsService: CollectCrossFileContextsService,
-        private readonly e2bSandboxService: E2BSandboxService,
+        @Inject(SANDBOX_PROVIDER_TOKEN)
+        private readonly sandboxProvider: ISandboxProvider,
         private readonly codeManagementService: CodeManagementService,
     ) {
         super();
@@ -115,10 +119,10 @@ export class CollectCrossFileContextStage extends BasePipelineStage<CodeReviewPi
             return context;
         }
 
-        // Guard: skip if E2B is not available
-        if (!this.e2bSandboxService.isAvailable()) {
+        // Guard: skip if sandbox is not available
+        if (!this.sandboxProvider.isAvailable()) {
             this.logger.log({
-                message: `Skipping cross-file context collection: API_E2B_KEY not configured for ${label}`,
+                message: `Skipping cross-file context collection: no sandbox provider configured for ${label}`,
                 context: this.stageName,
                 metadata: {
                     organizationAndTeamData: context?.organizationAndTeamData,
@@ -148,8 +152,8 @@ export class CollectCrossFileContextStage extends BasePipelineStage<CodeReviewPi
                 return context;
             }
 
-            // Create E2B sandbox and clone repo
-            const sandbox = await this.e2bSandboxService.createSandboxWithRepo({
+            // Create sandbox and clone repo
+            const sandbox = await this.sandboxProvider.createSandboxWithRepo({
                 cloneUrl: cloneInfo.url,
                 authToken: cloneInfo.authToken,
                 branch: cloneInfo.branch,
@@ -187,6 +191,11 @@ export class CollectCrossFileContextStage extends BasePipelineStage<CodeReviewPi
 
             return this.updateContext(context, (draft) => {
                 draft.crossFileContexts = result;
+                // Keep sandbox alive for safeguard agent verification
+                draft.sandboxHandle = {
+                    remoteCommands: sandbox.remoteCommands,
+                    cleanup: sandbox.cleanup,
+                };
             });
         } catch (error) {
             // Non-fatal: log error and return context unchanged
@@ -199,11 +208,19 @@ export class CollectCrossFileContextStage extends BasePipelineStage<CodeReviewPi
                     prNumber: context?.pullRequest?.number,
                 },
             });
-            return context;
-        } finally {
+            // Cleanup sandbox on error since we won't store it in context
             if (cleanup) {
-                await cleanup();
+                try {
+                    await cleanup();
+                } catch (cleanupErr) {
+                    this.logger.warn({
+                        message: `Sandbox cleanup failed after cross-file context error`,
+                        context: this.stageName,
+                        error: cleanupErr,
+                    });
+                }
             }
+            return context;
         }
     }
 
@@ -257,8 +274,9 @@ export class CollectCrossFileContextStage extends BasePipelineStage<CodeReviewPi
         const platform = gitContext.inferredPlatform || PlatformType.GITHUB;
         const branch = gitContext.branch || 'main';
 
-        // Try to get auth token from team's platform integration
+        // Try to get clone params (HTTPS URL + auth token) from team's platform integration
         let authToken = '';
+        let cloneUrl = gitContext.remote;
         try {
             const cloneParams = await this.codeManagementService.getCloneParams(
                 {
@@ -273,6 +291,10 @@ export class CollectCrossFileContextStage extends BasePipelineStage<CodeReviewPi
                 platform,
             );
             authToken = cloneParams.auth?.token || '';
+            // Use the HTTPS URL from the platform service (E2B sandbox requires HTTPS for token auth)
+            if (cloneParams.url) {
+                cloneUrl = cloneParams.url;
+            }
         } catch (error) {
             // Fallback: no auth (works for public repos)
             this.logger.warn({
@@ -282,8 +304,24 @@ export class CollectCrossFileContextStage extends BasePipelineStage<CodeReviewPi
             });
         }
 
+        // Ensure we always use HTTPS (E2B sandbox uses http.extraHeader which only works over HTTPS)
+        if (cloneUrl.startsWith('git@')) {
+            const sshMatch = cloneUrl.match(
+                /git@([^:]+):(.+?)(?:\.git)?$/,
+            );
+            if (sshMatch) {
+                cloneUrl = `https://${sshMatch[1]}/${sshMatch[2]}`;
+            } else {
+                this.logger.warn({
+                    message: `Could not parse SSH-like git remote URL: ${cloneUrl}`,
+                    context: this.stageName,
+                });
+                return null;
+            }
+        }
+
         return {
-            url: gitContext.remote,
+            url: cloneUrl,
             authToken,
             branch,
             prNumber: undefined,

@@ -206,10 +206,21 @@ export class CommentManagerService implements ICommentManagerService {
                     summaryConfig?.behaviourForNewCommits ===
                         BehaviourForNewCommits.REPLACE
                 ) {
-                    userPromptPrefix = `
-                    This is the updated pull request summary:
-                    <pullRequestSummaryContext>${updatedPR?.body || 'No pull request summary'}</pullRequestSummaryContext>
-                    Use this summary to concatenate the existing pull request summary with the new changed files context:`;
+                    const existingBodyForPrompt = updatedPR?.body || '';
+                    const summaryBlockRegex =
+                        /<!-- kody-pr-summary:start -->([\s\S]*?)<!-- kody-pr-summary:end -->/;
+                    const previousMatch =
+                        existingBodyForPrompt.match(summaryBlockRegex);
+                    const previousSummary = previousMatch
+                        ? previousMatch[1].trim()
+                        : '';
+
+                    if (previousSummary) {
+                        userPromptPrefix = `
+                    This is the previous pull request summary (generated before the latest commits):
+                    <previousPullRequestSummary>${previousSummary}</previousPullRequestSummary>
+                    Generate a new, complete and updated summary that incorporates both the previous context and the new code changes. Do not include HTML comments or markers in your output.`;
+                    }
                 }
 
                 const fallbackProvider = LLMModelProvider.OPENAI_GPT_4O;
@@ -481,8 +492,9 @@ You must always respond in ${languageResultPrompt}.`;
                                     `${startMarker}\n${newSummary}\n${endMarker}`,
                                 );
                             } else {
-                                // No block — replace whole body
-                                finalDescription = `${startMarker}\n${newSummary}\n${endMarker}`;
+                                finalDescription = existingBody
+                                    ? `${existingBody}\n\n${startMarker}\n${newSummary}\n${endMarker}`
+                                    : `${startMarker}\n${newSummary}\n${endMarker}`;
                             }
                             break;
                         case BehaviourForNewCommits.CONCATENATE:

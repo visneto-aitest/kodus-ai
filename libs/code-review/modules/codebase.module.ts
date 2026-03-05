@@ -1,4 +1,5 @@
 import { forwardRef, Module } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { AIEngineModule } from '@libs/ai-engine/modules/ai-engine.module';
 import { CodeAnalysisOrchestrator } from '@libs/ee/codeBase/codeAnalysisOrchestrator.service';
 
@@ -37,7 +38,16 @@ import {
     COLLECT_CROSS_FILE_CONTEXTS_SERVICE_TOKEN,
     CollectCrossFileContextsService,
 } from '../infrastructure/adapters/services/collectCrossFileContexts.service';
+import {
+    CODEBASE_SEARCH_SERVICE_TOKEN,
+    CodebaseSearchService,
+} from '../infrastructure/adapters/services/codebaseSearch.service';
+import {
+    SANDBOX_PROVIDER_TOKEN,
+} from '../domain/contracts/sandbox.provider';
 import { E2BSandboxService } from '../infrastructure/adapters/services/e2bSandbox.service';
+import { LocalSandboxService } from '../infrastructure/adapters/services/localSandbox.service';
+import { NullSandboxProvider } from '../infrastructure/adapters/services/nullSandbox.service';
 import {
     CROSS_FILE_ANALYSIS_SERVICE_TOKEN,
     CrossFileAnalysisService,
@@ -122,6 +132,10 @@ import { GlobalCacheModule } from '@libs/core/cache/cache.module';
             useClass: CollectCrossFileContextsService,
         },
         {
+            provide: CODEBASE_SEARCH_SERVICE_TOKEN,
+            useClass: CodebaseSearchService,
+        },
+        {
             provide: CROSS_FILE_ANALYSIS_SERVICE_TOKEN,
             useClass: CrossFileAnalysisService,
         },
@@ -129,7 +143,26 @@ import { GlobalCacheModule } from '@libs/core/cache/cache.module';
             provide: SUGGESTION_SERVICE_TOKEN,
             useClass: SuggestionService,
         },
-        E2BSandboxService,
+        {
+            provide: SANDBOX_PROVIDER_TOKEN,
+            useFactory: (configService: ConfigService) => {
+                const provider =
+                    configService.get<string>('SANDBOX_PROVIDER') || 'auto';
+
+                if (provider === 'local') {
+                    return new LocalSandboxService(configService);
+                }
+                if (
+                    provider === 'e2b' ||
+                    (provider === 'auto' &&
+                        configService.get<string>('API_E2B_KEY'))
+                ) {
+                    return new E2BSandboxService(configService);
+                }
+                return new NullSandboxProvider();
+            },
+            inject: [ConfigService],
+        },
         CodeAnalysisOrchestrator,
         CodeReviewHandlerService,
         KodyFineTuningService,
@@ -152,7 +185,7 @@ import { GlobalCacheModule } from '@libs/core/cache/cache.module';
         COLLECT_CROSS_FILE_CONTEXTS_SERVICE_TOKEN,
         CROSS_FILE_ANALYSIS_SERVICE_TOKEN,
         SUGGESTION_SERVICE_TOKEN,
-        E2BSandboxService,
+        SANDBOX_PROVIDER_TOKEN,
         CodeAnalysisOrchestrator,
         KodyFineTuningService,
         CodeReviewHandlerService,

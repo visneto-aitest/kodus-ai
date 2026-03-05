@@ -13,7 +13,7 @@ RUN corepack disable \
  && npm i -g yarn@1.22.22
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates python3 make g++ procps git \
+      ca-certificates python3 make g++ procps git ripgrep \
     && rm -rf /var/lib/apt/lists/*
 
 RUN npm i -g yalc chokidar-cli nodemon
