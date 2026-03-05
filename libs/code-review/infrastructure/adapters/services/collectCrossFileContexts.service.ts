@@ -349,9 +349,10 @@ export class CollectCrossFileContextsService {
                 return [];
             }
 
-            // Deduplicate across batches and apply global cap
+            // Deduplicate across batches, validate, and apply global cap
             const deduped = this.deduplicatePlannerQueries(allQueries);
-            return deduped.slice(0, MAX_PLANNER_QUERIES);
+            const validated = this.validatePlannerQueries(deduped, prNumber);
+            return validated.slice(0, MAX_PLANNER_QUERIES);
         } catch (error) {
             this.logger.error({
                 message: `Planner LLM failed for PR#${prNumber}`,
@@ -450,6 +451,81 @@ export class CollectCrossFileContextsService {
         }
 
         return Array.from(seen.values());
+    }
+
+    /**
+     * Filters out low-quality planner queries that waste search budget.
+     * Catches common LLM mistakes: log strings, generic names, private symbols.
+     */
+    private validatePlannerQueries(
+        queries: PlannerQuery[],
+        prNumber: number,
+    ): PlannerQuery[] {
+        // Patterns that indicate log/comment strings, not code symbols
+        const LOG_STRING_PATTERNS = [
+            /^\[.*\]$/,            // [TIMING], [ERROR], etc.
+            /^\[.*\]/,             // [TIMING] PR#...
+            /^logger\./,           // logger.log, logger.warn
+            /^console\./,          // console.log
+            /error occurred/i,
+            /failed to/i,
+        ];
+
+        // Generic parameter names that match hundreds of files
+        const GENERIC_NAMES = new Set([
+            'config', 'options', 'params', 'context', 'data', 'result',
+            'error', 'response', 'request', 'callback', 'handler',
+            'value', 'item', 'input', 'output', 'args',
+        ]);
+
+        // Private/internal symbols unlikely to have external consumers
+        const PRIVATE_PATTERNS = [
+            /^(private|#)/,              // private keyword or # prefix
+            /^_[a-z]/,                   // _privateMethod convention
+            /^(MAX_|MIN_|DEFAULT_)/,     // Constants
+        ];
+
+        const kept: PlannerQuery[] = [];
+        const rejected: string[] = [];
+
+        for (const query of queries) {
+            const symbol = query.symbolName || '';
+
+            // Reject log/comment strings
+            if (LOG_STRING_PATTERNS.some((p) => p.test(symbol))) {
+                rejected.push(`${symbol} (log/comment string)`);
+                continue;
+            }
+
+            // Reject generic parameter names (only when symbol is the whole pattern)
+            if (GENERIC_NAMES.has(symbol.toLowerCase())) {
+                rejected.push(`${symbol} (generic name)`);
+                continue;
+            }
+
+            // Reject private/internal symbols
+            if (PRIVATE_PATTERNS.some((p) => p.test(symbol))) {
+                rejected.push(`${symbol} (private/internal)`);
+                continue;
+            }
+
+            // Reject patterns that are just log strings wrapped in regex
+            if (/\[TIMING\]|\[ERROR\]|\[WARN\]|\[INFO\]|\[DEBUG\]/.test(query.pattern)) {
+                rejected.push(`${query.pattern} (log tag pattern)`);
+                continue;
+            }
+
+            kept.push(query);
+        }
+
+        if (rejected.length > 0) {
+            this.logger.log({
+                message: `Rejected ${rejected.length} low-quality planner queries for PR#${prNumber}: ${rejected.join(', ')}`,
+                context: CollectCrossFileContextsService.name,
+            });
+        }
+
+        return kept;
     }
     //#endregion
 

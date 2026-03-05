@@ -365,8 +365,10 @@ export class SafeguardPipelineService {
         });
 
         // Build conversation history for multi-turn agent loop
+        // Gemini requires at least one USER message in contents (SYSTEM goes to systemInstruction)
         const messages: Array<{ prompt: string; role: PromptRole }> = [
             { prompt: systemPrompt, role: PromptRole.SYSTEM },
+            { prompt: 'Verify the suggestion. Begin by searching for the key symbol or reading the file.', role: PromptRole.USER },
         ];
 
         const runName = 'safeguardAgentVerification';
@@ -415,6 +417,18 @@ export class SafeguardPipelineService {
 
             // Final verdict
             if ('verdict' in parsed) {
+                // Reject "keep" verdicts on the first turn — the agent must
+                // make at least one tool call to verify the code actually
+                // contains the claimed defect before accepting a suggestion.
+                if (turn === 0 && parsed.verdict === true) {
+                    messages.push({ prompt: JSON.stringify(parsed), role: PromptRole.AI });
+                    messages.push({
+                        prompt: 'You must use at least one tool call to verify the defect exists in the actual code before giving a verdict. Search for the key symbol or read the file first.',
+                        role: PromptRole.USER,
+                    });
+                    continue;
+                }
+
                 return {
                     verified: parsed.verdict,
                     action: parsed.action || (parsed.verdict ? 'no_changes' : 'discard'),
