@@ -232,6 +232,6 @@ export function createMockRemoteCommands() {
     return {
         grep: jest.fn().mockResolvedValue(''),
         read: jest.fn().mockResolvedValue(''),
-        listDir: jest.fn().mockResolvedValue(''),
+        listDir: jest.fn().mockResolvedValue('src/index.ts\nsrc/app.ts\n'),
     };
 }

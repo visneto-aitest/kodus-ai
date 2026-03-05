@@ -38,16 +38,33 @@ export class E2BSandboxService implements ISandboxProvider {
             throw new Error('API_E2B_KEY is not configured');
         }
 
+        this.logger.log({
+            message: `[DEBUG] Creating E2B sandbox for PR#${prNumber ?? '?'} branch=${branch}`,
+            context: E2BSandboxService.name,
+            metadata: { cloneUrl, branch, prNumber, platform, hasAuthToken: !!authToken },
+        });
+
         const { sandbox, usedTemplate } = await this.createSandbox(apiKey);
+
+        this.logger.log({
+            message: `[DEBUG] E2B sandbox created (template=${usedTemplate}, id=${sandbox.sandboxId ?? 'unknown'})`,
+            context: E2BSandboxService.name,
+            metadata: { usedTemplate, sandboxId: sandbox.sandboxId },
+        });
 
         try {
             // Install dependencies only when not using a pre-built template
             // When using a template, git/ripgrep and proxy are already configured
             if (!usedTemplate) {
-                await sandbox.commands.run(
+                const installResult = await sandbox.commands.run(
                     'apt-get update -qq && apt-get install -y -qq git ripgrep shadowsocks-libev > /dev/null 2>&1',
                     { timeoutMs: 120_000, user: 'root' },
                 );
+                this.logger.log({
+                    message: `[DEBUG] apt-get install exitCode=${installResult.exitCode}`,
+                    context: E2BSandboxService.name,
+                    metadata: { exitCode: installResult.exitCode, stderr: installResult.stderr?.slice(0, 300) },
+                });
             }
 
             // Configure Shadowsocks proxy for IP tunneling (clients with restricted git access)
@@ -61,7 +78,13 @@ export class E2BSandboxService implements ISandboxProvider {
             const localRef = prNumber != null ? 'pr-head' : 'cli-head';
             const authHeader = this.buildAuthHeader(platform, authToken);
 
-            await sandbox.commands.run(
+            this.logger.log({
+                message: `[DEBUG] Git clone starting: refspec=${refspec} localRef=${localRef} cloneUrl=${cloneUrl}`,
+                context: E2BSandboxService.name,
+                metadata: { refspec, localRef, cloneUrl, platform, hasProxy: this.isProxyConfigured() },
+            });
+
+            const cloneResult = await sandbox.commands.run(
                 [
                     `git init ${REPO_DIR}`,
                     `cd ${REPO_DIR}`,
@@ -78,6 +101,33 @@ export class E2BSandboxService implements ISandboxProvider {
                     envs: { GIT_AUTH_HEADER: authHeader },
                 },
             );
+
+            this.logger.log({
+                message: `[DEBUG] Git clone finished: exitCode=${cloneResult.exitCode} stdout=${(cloneResult.stdout || '').length}chars stderr=${(cloneResult.stderr || '').length}chars`,
+                context: E2BSandboxService.name,
+                metadata: {
+                    exitCode: cloneResult.exitCode,
+                    stdout: cloneResult.stdout?.slice(0, 500),
+                    stderr: cloneResult.stderr?.slice(0, 500),
+                },
+            });
+
+            if (cloneResult.exitCode !== 0) {
+                throw new Error(
+                    `Git clone failed in E2B sandbox (exit code ${cloneResult.exitCode}): ${cloneResult.stderr || cloneResult.stdout}`.slice(0, 500),
+                );
+            }
+
+            // Verify repo contents after clone
+            const verifyResult = await sandbox.commands.run(
+                `ls -la ${REPO_DIR} && echo "---FILE-COUNT---" && find ${REPO_DIR} -maxdepth 2 -type f | head -20`,
+                { timeoutMs: 10_000 },
+            );
+            this.logger.log({
+                message: `[DEBUG] Repo contents after clone (first 500 chars): ${verifyResult.stdout?.slice(0, 500)}`,
+                context: E2BSandboxService.name,
+                metadata: { exitCode: verifyResult.exitCode, stdout: verifyResult.stdout?.slice(0, 500) },
+            });
 
             const remoteCommands = this.buildRemoteCommands(sandbox);
 
@@ -137,7 +187,13 @@ export class E2BSandboxService implements ISandboxProvider {
 
     private async setupProxy(sandbox: Sandbox): Promise<void> {
         const host = this.configService.get<string>('E2B_PROXY_HOST');
-        if (!host) return;
+        if (!host) {
+            this.logger.log({
+                message: `[DEBUG] No E2B_PROXY_HOST configured, skipping proxy setup`,
+                context: E2BSandboxService.name,
+            });
+            return;
+        }
 
         const port = this.configService.get<string>('E2B_PROXY_PORT') ?? '8388';
         const password = this.configService.get<string>('E2B_PROXY_PASSWORD');
@@ -165,6 +221,11 @@ export class E2BSandboxService implements ISandboxProvider {
             'git config --global http.proxy socks5://127.0.0.1:1080',
             { timeoutMs: 5_000 },
         );
+
+        this.logger.log({
+            message: `[DEBUG] Proxy configured: ${host}:${port} method=${method}`,
+            context: E2BSandboxService.name,
+        });
     }
 
     private buildAuthHeader(platform: PlatformType, token: string): string {
