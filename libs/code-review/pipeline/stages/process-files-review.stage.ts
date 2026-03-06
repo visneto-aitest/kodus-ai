@@ -181,7 +181,8 @@ export class ProcessFilesReview extends BasePipelineStage<CodeReviewPipelineCont
                     await context.sandboxHandle.cleanup();
                 } catch (cleanupErr) {
                     this.logger.warn({
-                        message: 'E2B sandbox cleanup failed after file analysis',
+                        message:
+                            'E2B sandbox cleanup failed after file analysis',
                         context: this.stageName,
                         error: cleanupErr,
                     });
@@ -680,6 +681,8 @@ export class ProcessFilesReview extends BasePipelineStage<CodeReviewPipelineCont
                     fileAugmentations:
                         context.augmentationsByFile?.[file.filename] ?? {},
                     crossFileSnippets: filteredSnippets,
+                    documentationContext:
+                        context.documentationByFile?.[file.filename] || [],
                 };
 
                 return this.fileReviewContextPreparation.prepareFileContext(
@@ -1333,6 +1336,7 @@ export class ProcessFilesReview extends BasePipelineStage<CodeReviewPipelineCont
                 context.fileContextMap,
             ),
             crossFileSnippets: context.crossFileContexts?.contexts,
+            documentationByFile: context.documentationByFile,
             remoteCommands: context.sandboxHandle?.remoteCommands,
         };
     }

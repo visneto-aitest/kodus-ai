@@ -2,11 +2,11 @@ import type { ContextEvidence, ContextLayer, ContextPack } from '@kodus/flow';
 import { IExternalPromptContext } from '@libs/ai-engine/domain/prompt/interfaces/promptExternalReference.interface';
 import { ContextAugmentationsMap } from '@libs/ai-engine/infrastructure/adapters/services/context/interfaces/code-review-context-pack.interface';
 import { AutomationExecutionEntity } from '@libs/automation/domain/automationExecution/entities/automation-execution.entity';
+import { IPullRequestMessages } from '@libs/code-review/domain/pullRequestMessages/interfaces/pullRequestMessages.interface';
 import {
     CollectCrossFileContextsResult,
     RemoteCommands,
 } from '@libs/code-review/infrastructure/adapters/services/collectCrossFileContexts.service';
-import { IPullRequestMessages } from '@libs/code-review/domain/pullRequestMessages/interfaces/pullRequestMessages.interface';
 import { PlatformType } from '@libs/core/domain/enums';
 import {
     AnalysisContext,
@@ -164,6 +164,10 @@ export interface CodeReviewPipelineContext extends PipelineContext {
 
     crossFileContexts?: CollectCrossFileContextsResult;
 
+    discoveredPackages?: RepositoryPackageReference[];
+    documentationQueryPlanByFile?: Record<string, DocumentationQueryPlanByFile>;
+    documentationByFile?: Record<string, DocumentationItem[]>;
+
     /** E2B sandbox handle kept alive for safeguard agent verification */
     sandboxHandle?: {
         remoteCommands: RemoteCommands;
@@ -176,4 +180,24 @@ export interface CodeReviewPipelineContext extends PipelineContext {
 export interface FileContextAgentResult {
     sandboxEvidences?: ContextEvidence[];
     resolvedPromptOverrides?: CodeReviewConfig['v2PromptOverrides'];
+}
+
+export interface RepositoryPackageReference {
+    name: string;
+    version?: string;
+    ecosystem: 'npm' | 'pip' | 'maven' | 'gradle' | 'go' | 'cargo' | 'ruby';
+    sourceFile: string;
+}
+
+export interface DocumentationQueryPlanByFile {
+    relevantPackages: string[];
+    queries: string[];
+}
+
+export interface DocumentationItem {
+    query: string;
+    title: string;
+    url: string;
+    snippet: string;
+    source: 'exa-search';
 }

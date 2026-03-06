@@ -20,11 +20,7 @@ import {
     CrossFileContextSnippet,
     RemoteCommands,
 } from '@libs/code-review/infrastructure/adapters/services/collectCrossFileContexts.service';
-import {
-    prompt_codeReviewSafeguard_system,
-    prompt_validateImplementedSuggestions,
-} from '@libs/common/utils/langchainCommon/prompts';
-import { SAFEGUARD_CROSS_FILE_CONTEXT_PREAMBLE } from '@libs/common/utils/langchainCommon/prompts/codeReviewSafeguard';
+import { prompt_validateImplementedSuggestions } from '@libs/common/utils/langchainCommon/prompts';
 import {
     prompt_codereview_system_gemini,
     prompt_codereview_system_gemini_v2,
@@ -43,9 +39,9 @@ import {
 } from '@libs/core/infrastructure/config/types/general/codeReview.type';
 import { OrganizationAndTeamData } from '@libs/core/infrastructure/config/types/general/organizationAndTeamData';
 import { BYOKPromptRunnerService } from '@libs/core/infrastructure/services/tokenTracking/byokPromptRunner.service';
-import { SafeguardPipelineService } from './safeguardPipeline.service';
 import { ObservabilityService } from '@libs/core/log/observability.service';
 import { IKodyRule } from '@libs/kodyRules/domain/interfaces/kodyRules.interface';
+import { SafeguardPipelineService } from './safeguardPipeline.service';
 
 export const LLM_ANALYSIS_SERVICE_TOKEN = Symbol.for('LLMAnalysisService');
 
@@ -366,6 +362,7 @@ export class LLMAnalysisService implements IAIAnalysisService {
             contextPack: context?.sharedContextPack as ContextPack | undefined,
             crossFileSnippets: context?.crossFileSnippets,
             memories: context?.codeReviewConfig?.kodyMemoryRules || [],
+            documentationContext: context?.documentationContext || [],
         };
 
         return baseContext;
