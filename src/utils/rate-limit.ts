@@ -5,36 +5,45 @@ import chalk from 'chalk';
 import { api } from '../services/api/index.js';
 import { gitService } from '../services/git.service.js';
 import type { TrialStatus } from '../types/index.js';
+import { cliInfo } from './logger.js';
 
 const { machineIdSync } = machineId;
 
 export async function getTrialIdentifier(): Promise<string> {
-  try {
-    const machineId = machineIdSync();
-    const username = os.userInfo().username;
-    
-    let repoPath = '';
     try {
-      repoPath = await gitService.getGitRoot();
-    } catch {
-      repoPath = process.cwd();
-    }
+        const machineId = machineIdSync();
+        const username = os.userInfo().username;
 
-    const raw = `${machineId}:${username}:${repoPath}`;
-    return crypto.createHash('sha256').update(raw).digest('hex').substring(0, 32);
-  } catch {
-    const fallback = `${os.hostname()}:${os.userInfo().username}:${Date.now()}`;
-    return crypto.createHash('sha256').update(fallback).digest('hex').substring(0, 32);
-  }
+        let repoPath = '';
+        try {
+            repoPath = await gitService.getGitRoot();
+        } catch {
+            repoPath = process.cwd();
+        }
+
+        const raw = `${machineId}:${username}:${repoPath}`;
+        return crypto
+            .createHash('sha256')
+            .update(raw)
+            .digest('hex')
+            .substring(0, 32);
+    } catch {
+        const fallback = `${os.hostname()}:${os.userInfo().username}:${Date.now()}`;
+        return crypto
+            .createHash('sha256')
+            .update(fallback)
+            .digest('hex')
+            .substring(0, 32);
+    }
 }
 
 export async function checkTrialStatus(): Promise<TrialStatus> {
-  const fingerprint = await getTrialIdentifier();
-  return api.trial.getStatus(fingerprint);
+    const fingerprint = await getTrialIdentifier();
+    return api.trial.getStatus(fingerprint);
 }
 
 export function showTrialLimitPrompt(status: TrialStatus): void {
-  const box = `
+    const box = `
 ${chalk.yellow('╭──────────────────────────────────────────────────────────╮')}
 ${chalk.yellow('│')}  ${chalk.bold.yellow('⚡ Daily limit reached')} (${status.reviewsUsed}/${status.reviewsLimit} reviews)${' '.repeat(16)}${chalk.yellow('│')}
 ${chalk.yellow('│')}                                                          ${chalk.yellow('│')}
@@ -48,6 +57,5 @@ ${chalk.yellow('│')}  ${chalk.dim('→')} ${chalk.cyan('kodus auth login')}   
 ${chalk.yellow('╰──────────────────────────────────────────────────────────╯')}
 `;
 
-  console.log(box);
+    cliInfo(box);
 }
-

@@ -1,61 +1,85 @@
 {
-  "name": "@kodus/cli",
-  "version": "0.2.4",
-  "description": "Kodus CLI - AI-powered code review from your terminal",
-  "type": "module",
-  "bin": {
-    "kodus": "./dist/index.js"
-  },
-  "main": "./dist/index.js",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/kodustech/cli.git"
-  },
-  "homepage": "https://kodus.io",
-  "bugs": {
-    "url": "https://github.com/kodustech/cli/issues"
-  },
-  "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
-    "start": "node dist/index.js",
-    "start:local": "KODUS_API_URL=http://localhost:3001 node dist/index.js",
-    "start:qa": "KODUS_API_URL=https://qa.api.kodus.io node dist/index.js",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:integration": "npm run build && vitest run --config vitest.integration.config.ts",
-    "lint": "eslint src --ext .ts",
-    "clean": "rm -rf dist",
-    "prepublishOnly": "npm run build"
-  },
-  "keywords": [
-    "kodus",
-    "code-review",
-    "ai",
-    "cli",
-    "git"
-  ],
-  "author": "Kodus",
-  "license": "MIT",
-  "dependencies": {
-    "chalk": "^5.3.0",
-    "commander": "^12.1.0",
-    "inquirer": "^9.2.23",
-    "node-machine-id": "^1.1.12",
-    "ora": "^8.0.1",
-    "simple-git": "^3.25.0",
-    "yaml": "^2.8.2"
-  },
-  "devDependencies": {
-    "@types/inquirer": "^9.0.7",
-    "@types/node": "^20.14.9",
-    "typescript": "^5.5.3",
-    "vitest": "^4.0.18"
-  },
-  "engines": {
-    "node": ">=18.0.0"
-  },
-  "files": [
-    "dist"
-  ]
+    "name": "@kodus/cli",
+    "version": "0.2.4",
+    "description": "Kodus CLI - AI-powered code review from your terminal",
+    "type": "module",
+    "bin": {
+        "kodus": "./dist/index.js"
+    },
+    "main": "./dist/index.js",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/kodustech/cli.git"
+    },
+    "homepage": "https://kodus.io",
+    "bugs": {
+        "url": "https://github.com/kodustech/cli/issues"
+    },
+    "scripts": {
+        "build": "yarn clean && tsc",
+        "dev": "tsc --watch",
+        "start": "node dist/index.js",
+        "start:local": "KODUS_API_URL=http://localhost:3001 node dist/index.js",
+        "start:qa": "KODUS_API_URL=https://qa.api.kodus.io node dist/index.js",
+        "test": "vitest run",
+        "test:watch": "vitest",
+        "test:integration": "yarn build && vitest run --config vitest.integration.config.ts",
+        "lint": "eslint src --ext .ts",
+        "lint:fix": "eslint src --ext .ts --fix",
+        "format": "prettier --write .",
+        "format:check": "prettier --check .",
+        "check": "yarn format:check && yarn lint",
+        "skills:validate": "node scripts/validate-skills.mjs",
+        "skills:prompt": "node scripts/skills-to-prompt.mjs --format=xml",
+        "skills:prompt:json": "node scripts/skills-to-prompt.mjs --format=json",
+        "clean": "rm -rf dist",
+        "prepublishOnly": "yarn build"
+    },
+    "keywords": [
+        "kodus",
+        "code-review",
+        "ai",
+        "cli",
+        "git"
+    ],
+    "author": "Kodus",
+    "license": "MIT",
+    "dependencies": {
+        "@inquirer/prompts": "^8.3.0",
+        "boxen": "^8.0.1",
+        "chalk": "^5.6.2",
+        "clipboardy": "^5.3.1",
+        "commander": "^14.0.3",
+        "execa": "^9.6.1",
+        "figlet": "^1.10.0",
+        "gradient-string": "^3.0.0",
+        "latest-version": "^9.0.0",
+        "node-machine-id": "^1.1.12",
+        "open": "^11.0.0",
+        "ora": "^9.3.0",
+        "simple-git": "^3.32.3",
+        "update-notifier": "^7.3.1",
+        "yaml": "^2.8.2"
+    },
+    "devDependencies": {
+        "@eslint/js": "^10.0.1",
+        "@types/figlet": "^1.7.0",
+        "@types/gradient-string": "^1.1.6",
+        "@types/node": "^25.3.3",
+        "@types/update-notifier": "^6.0.8",
+        "@typescript-eslint/eslint-plugin": "^8.56.1",
+        "@typescript-eslint/parser": "^8.56.1",
+        "eslint": "^10.0.2",
+        "prettier": "^3.6.2",
+        "typescript": "^5.9.3",
+        "vitest": "^4.0.18"
+    },
+    "engines": {
+        "node": ">=20.0.0"
+    },
+    "packageManager": "yarn@1.22.22",
+    "files": [
+        "dist",
+        "skills"
+    ]
 }

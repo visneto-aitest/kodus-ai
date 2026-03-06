@@ -1,0 +1,126 @@
+import { Command } from 'commander';
+import chalk from 'chalk';
+import ora from 'ora';
+import latestVersion from 'latest-version';
+import { createRequire } from 'node:module';
+import { execa } from 'execa';
+import { cliError, cliInfo } from '../utils/logger.js';
+
+const require = createRequire(import.meta.url);
+const pkg = require('../../package.json');
+const PACKAGE_NAME = '@kodus/cli';
+
+export interface InstallInstruction {
+    command: string;
+    args: string[];
+}
+
+export function resolveGlobalInstallInstruction(
+    userAgent: string | undefined,
+): InstallInstruction {
+    if (!userAgent) {
+        return {
+            command: 'npm',
+            args: ['install', '-g', `${PACKAGE_NAME}@latest`],
+        };
+    }
+
+    if (userAgent.startsWith('pnpm/')) {
+        return {
+            command: 'pnpm',
+            args: ['add', '-g', `${PACKAGE_NAME}@latest`],
+        };
+    }
+
+    if (userAgent.startsWith('yarn/1.')) {
+        return {
+            command: 'yarn',
+            args: ['global', 'add', `${PACKAGE_NAME}@latest`],
+        };
+    }
+
+    if (userAgent.startsWith('bun/')) {
+        return {
+            command: 'bun',
+            args: ['add', '-g', `${PACKAGE_NAME}@latest`],
+        };
+    }
+
+    return {
+        command: 'npm',
+        args: ['install', '-g', `${PACKAGE_NAME}@latest`],
+    };
+}
+
+export function formatInstallInstruction(
+    instruction: InstallInstruction,
+): string {
+    return [instruction.command, ...instruction.args].join(' ');
+}
+
+export const updateCommand = new Command('update')
+    .description('Update the Kodus CLI to the latest version')
+    .action(async () => {
+        const spinner = ora('Checking for updates...').start();
+
+        try {
+            const current = pkg.version;
+            const latest = await latestVersion('@kodus/cli');
+
+            if (current === latest) {
+                spinner.succeed(
+                    chalk.green(
+                        `You are already on the latest version (${current})`,
+                    ),
+                );
+                cliInfo(
+                    chalk.dim(
+                        '\nTo refresh agent skills, run: curl -fsSL https://review-skill.com/install | bash\n',
+                    ),
+                );
+                return;
+            }
+
+            spinner.stop();
+            cliInfo(
+                chalk.yellow(
+                    `\nUpdate available: ${chalk.dim(current)} → ${chalk.green(latest)}`,
+                ),
+            );
+
+            const installSpinner = ora('Installing update...').start();
+            const installInstruction = resolveGlobalInstallInstruction(
+                process.env.npm_config_user_agent,
+            );
+
+            await execa(installInstruction.command, installInstruction.args);
+
+            installSpinner.succeed(
+                chalk.green(`Successfully updated to version ${latest}!`),
+            );
+            cliInfo(
+                chalk.dim(
+                    '\nYou may need to restart your terminal for changes to take effect.\n',
+                ),
+            );
+            cliInfo(
+                chalk.dim(
+                    'To refresh agent skills, run: curl -fsSL https://review-skill.com/install | bash\n',
+                ),
+            );
+        } catch (error) {
+            spinner.fail(chalk.red('Update failed'));
+
+            if (error instanceof Error) {
+                cliError(chalk.red(`Error: ${error.message}`));
+                const installInstruction = resolveGlobalInstallInstruction(
+                    process.env.npm_config_user_agent,
+                );
+                cliInfo(
+                    chalk.yellow(
+                        `\nTry running manually: ${formatInstallInstruction(installInstruction)}`,
+                    ),
+                );
+            }
+        }
+    });

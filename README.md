@@ -11,7 +11,7 @@
   <a href="https://www.npmjs.com/package/@kodus/cli"><img src="https://img.shields.io/npm/dm/@kodus/cli.svg" alt="npm downloads"></a>
   <a href="https://github.com/kodustech/cli/blob/main/LICENSE"><img src="https://img.shields.io/github/license/kodustech/cli" alt="license"></a>
   <a href="https://github.com/kodustech/cli"><img src="https://img.shields.io/github/stars/kodustech/cli" alt="stars"></a>
-  <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D18-brightgreen" alt="node version"></a>
+  <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D20-brightgreen" alt="node version"></a>
 </p>
 
 <p align="center">
@@ -23,7 +23,7 @@
 ---
 
 ```bash
-npm install -g @kodus/cli
+yarn global add @kodus/cli
 ```
 
 ---
@@ -32,7 +32,7 @@ npm install -g @kodus/cli
 
 ```bash
 # 1. Install
-npm install -g @kodus/cli
+yarn global add @kodus/cli
 
 # 2. Authenticate (or skip for trial mode — no account needed)
 kodus auth login
@@ -71,6 +71,18 @@ kodus pr suggestions --pr-number 42 --repo-id <id>
 ```
 
 Filter by severity, export as JSON or Markdown, or pipe into an AI agent with `--prompt-only` for automated fixes.
+
+### Business Validation (PR vs Task)
+
+Run Kodus business-rules validation directly via API using PR context plus optional task reference.
+
+```bash
+# PR already has task context linked
+kodus pr business-validation --pr-url https://github.com/org/repo/pull/42
+
+# Explicit task reference
+kodus pr business-validation --pr-number 42 --repo-id <id> --task-id KC-1441
+```
 
 ### Decision Memory
 
@@ -125,6 +137,7 @@ Add to your project's `CLAUDE.md`:
 
 ```markdown
 ## Code Review
+
 After implementing changes, run `kodus review --prompt-only` to check for issues.
 If issues are found, fix them and re-run until clean.
 ```
@@ -176,14 +189,33 @@ curl -fsSL https://review-skill.com/install | bash
 
 Installs the CLI and deploys the review skill to all detected agents in one step.
 
+### Keep everything updated
+
+`kodus update` updates the CLI package only.
+
+To sync/refresh skills and commands in supported agents (Claude Code, Cursor, Codex, etc.), run:
+
+```bash
+curl -fsSL https://review-skill.com/install | bash
+```
+
+If you want to inspect the script before execution:
+
+```bash
+curl -fsSL https://review-skill.com/install -o /tmp/kodus-install.sh
+less /tmp/kodus-install.sh
+bash /tmp/kodus-install.sh
+```
+
 ### CLI only
 
 <details>
-<summary><strong>npm</strong></summary>
+<summary><strong>yarn</strong></summary>
 
 ```bash
-npm install -g @kodus/cli
+yarn global add @kodus/cli
 ```
+
 </details>
 
 <details>
@@ -192,6 +224,7 @@ npm install -g @kodus/cli
 ```bash
 npx @kodus/cli review
 ```
+
 </details>
 
 <details>
@@ -200,6 +233,7 @@ npx @kodus/cli review
 ```bash
 curl -fsSL https://raw.githubusercontent.com/kodustech/cli/main/install.sh | bash
 ```
+
 </details>
 
 <details>
@@ -208,6 +242,7 @@ curl -fsSL https://raw.githubusercontent.com/kodustech/cli/main/install.sh | bas
 ```bash
 brew install kodus/tap/kodus
 ```
+
 </details>
 
 ## Review Modes
@@ -249,6 +284,18 @@ kodus review --prompt-only             # AI agent output
 kodus review --format markdown -o report.md  # Save to file
 ```
 
+#### Output Streams
+
+- `stdout`: command result/payload (for example JSON/Markdown reports)
+- `stderr`: debug traces (`--verbose`), spinner/progress messages, and errors
+
+This keeps machine-readable output clean for piping:
+
+```bash
+kodus review --format json > review.json
+kodus review --format json --verbose 1>review.json 2>review.debug.log
+```
+
 #### Diff Targets
 
 ```bash
@@ -261,20 +308,20 @@ kodus review src/index.ts src/utils.ts # Specific files
 
 #### All Flags
 
-| Flag | Description |
-|------|-------------|
-| `--staged` | Analyze only staged files |
-| `--commit <sha>` | Analyze a specific commit |
-| `--branch <name>` | Compare against a branch |
-| `--rules-only` | Only check configured rules |
-| `--fast` | Faster analysis for large diffs |
-| `--fix` | Auto-apply all fixable issues |
-| `--prompt-only` | AI agent optimized output |
-| `--context <file>` | Include custom context file |
-| `--format <fmt>` | Output format: `terminal`, `json`, `markdown` |
-| `--output <file>` | Save output to file |
+| Flag                   | Description                                   |
+| ---------------------- | --------------------------------------------- |
+| `--staged`             | Analyze only staged files                     |
+| `--commit <sha>`       | Analyze a specific commit                     |
+| `--branch <name>`      | Compare against a branch                      |
+| `--rules-only`         | Only check configured rules                   |
+| `--fast`               | Faster analysis for large diffs               |
+| `--fix`                | Auto-apply all fixable issues                 |
+| `--prompt-only`        | AI agent optimized output                     |
+| `--context <file>`     | Include custom context file                   |
+| `--format <fmt>`       | Output format: `terminal`, `json`, `markdown` |
+| `--output <file>`      | Save output to file                           |
 | `--fail-on <severity>` | Exit code 1 if issues meet or exceed severity |
-| `-i, --interactive` | Explicitly enable interactive mode |
+| `-i, --interactive`    | Explicitly enable interactive mode            |
 
 </details>
 
@@ -387,11 +434,11 @@ kodus review --format json --fail-on error
 <details>
 <summary><strong>Environment variables</strong></summary>
 
-| Variable | Description |
-|----------|-------------|
-| `KODUS_API_URL` | API endpoint (default: `https://api.kodus.io`). HTTPS only (except localhost). |
-| `KODUS_TOKEN` | CI/CD token for automated pipelines (generated via `kodus auth token`) |
-| `KODUS_TEAM_KEY` | Team key for shared team access and AI coding agents |
+| Variable         | Description                                                                    |
+| ---------------- | ------------------------------------------------------------------------------ |
+| `KODUS_API_URL`  | API endpoint (default: `https://api.kodus.io`). HTTPS only (except localhost). |
+| `KODUS_TOKEN`    | CI/CD token for automated pipelines (generated via `kodus auth token`)         |
+| `KODUS_TEAM_KEY` | Team key for shared team access and AI coding agents                           |
 
 </details>
 
@@ -409,10 +456,10 @@ Kodus sends your code diffs to the Kodus API for analysis. We take this seriousl
 We welcome contributions! Please see our [issues page](https://github.com/kodustech/cli/issues) to get started.
 
 ```bash
-npm install       # Install dependencies
-npm run build     # Build
-npm run dev       # Watch mode
-npm test          # Run tests
+yarn install      # Install dependencies
+yarn build        # Build
+yarn dev          # Watch mode
+yarn test         # Run tests
 ```
 
 ## License

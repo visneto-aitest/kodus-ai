@@ -1,7 +1,7 @@
 #!/bin/bash
 # Gera binários standalone (não precisa de Node.js instalado)
 
-npm install -g pkg
+yarn global add pkg
 
 # Build para todas plataformas
 pkg . \
@@ -12,4 +12,3 @@ echo "✅ Binários criados em dist/"
 echo "  - dist/kodus-linux"
 echo "  - dist/kodus-macos"  
 echo "  - dist/kodus-win.exe"
-
