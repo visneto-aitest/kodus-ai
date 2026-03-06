@@ -155,7 +155,7 @@ function ActiveLicenseCard({
                     <div className="flex flex-col gap-0.5">
                         <span className="text-text-secondary">Seats</span>
                         <span className="tabular-nums font-medium">
-                            {subscription.numberOfLicenses}
+                            {subscription.usersWithAssignedLicense.length} / {subscription.numberOfLicenses}
                         </span>
                     </div>
                 </div>

@@ -285,9 +285,10 @@ export class SelfHostedLicenseService implements ILicenseService {
                 );
 
             if (param?.configValue) {
-                return typeof param.configValue === 'string'
+                const raw = typeof param.configValue === 'string'
                     ? param.configValue
                     : param.configValue.key;
+                return raw ? raw.replace(/\s+/g, '') : null;
             }
         } catch {
             // DB lookup failed, fall through to env var

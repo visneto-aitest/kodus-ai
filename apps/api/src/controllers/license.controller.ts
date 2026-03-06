@@ -64,10 +64,13 @@ export class LicenseController {
             throw new BadRequestException('Organization ID is missing from request');
         }
 
+        // Strip any whitespace that may have been introduced by copy-paste
+        const sanitizedKey = body.licenseKey.replace(/\s+/g, '');
+
         // Persist the key
         await this.createOrUpdateOrganizationParametersUseCase.execute(
             OrganizationParametersKey.LICENSE_KEY,
-            { key: body.licenseKey },
+            { key: sanitizedKey },
             { organizationId },
         );
 
@@ -82,7 +85,7 @@ export class LicenseController {
 
         // Decode payload for status details
         const payload = this.selfHostedLicenseService.decodePayload(
-            body.licenseKey,
+            sanitizedKey,
         );
 
         return {

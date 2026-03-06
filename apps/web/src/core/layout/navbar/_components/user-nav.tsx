@@ -12,6 +12,7 @@ import {
     UserIcon,
 } from "lucide-react";
 import { useFeatureFlags } from "src/app/(app)/settings/_components/context";
+import { isSelfHosted } from "src/core/utils/self-hosted";
 import { Avatar, AvatarFallback } from "src/core/components/ui/avatar";
 import { Button } from "src/core/components/ui/button";
 import {
@@ -118,7 +119,7 @@ export function UserNav() {
                     </Link>
                 )}
 
-                {(isBYOK || isTrial) && tokenUsagePage && canReadLogs && (
+                {(isSelfHosted || isBYOK || isTrial) && tokenUsagePage && canReadLogs && (
                     <Link href="/token-usage">
                         <DropdownMenuItem leftIcon={<ChartColumn />}>
                             Token Usage
