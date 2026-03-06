@@ -11,7 +11,7 @@ import {
 } from '@libs/code-review/domain/contracts/sandbox.provider';
 import { RemoteCommands } from './collectCrossFileContexts.service';
 
-const SANDBOX_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+const SANDBOX_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 const REPO_DIR = '/home/user/repo';
 
 @Injectable()
