@@ -149,8 +149,26 @@ export class CollectCrossFileContextStage extends BasePipelineStage<CodeReviewPi
                 cliContext,
             );
             if (!cloneInfo) {
+                this.logger.warn({
+                    message: `[DEBUG] resolveCloneParams returned null for ${label}`,
+                    context: this.stageName,
+                });
                 return context;
             }
+
+            this.logger.log({
+                message: `[DEBUG] Clone params resolved for ${label}: url=${cloneInfo.url} platform=${cloneInfo.platform} branch=${cloneInfo.branch} prNumber=${cloneInfo.prNumber} hasToken=${!!cloneInfo.authToken}`,
+                context: this.stageName,
+                metadata: {
+                    cloneUrl: cloneInfo.url,
+                    platform: cloneInfo.platform,
+                    branch: cloneInfo.branch,
+                    prNumber: cloneInfo.prNumber,
+                    hasAuthToken: !!cloneInfo.authToken,
+                    tokenLength: cloneInfo.authToken?.length ?? 0,
+                    sandboxProviderType: this.sandboxProvider.constructor.name,
+                },
+            });
 
             // Create sandbox and clone repo
             const sandbox = await this.sandboxProvider.createSandboxWithRepo({
@@ -162,6 +180,11 @@ export class CollectCrossFileContextStage extends BasePipelineStage<CodeReviewPi
             });
 
             cleanup = sandbox.cleanup;
+
+            this.logger.log({
+                message: `[DEBUG] Sandbox created successfully for ${label}, starting collectContexts`,
+                context: this.stageName,
+            });
 
             // Collect cross-file contexts using sandbox remoteCommands
             const result =

@@ -75,12 +75,24 @@ export class CodebaseSearchService {
             // 1. Execute grep
             const glob = includes?.[0];
             let raw: string;
+
+            this.logger.log({
+                message: `[DEBUG] codebaseSearch.grep starting: query="${query}" path="." glob="${glob ?? 'none'}"`,
+                context: CodebaseSearchService.name,
+            });
+
             try {
                 raw = await remoteCommands.grep(query, '.', glob);
             } catch (error) {
                 // rg exits with code 1 when no matches found — not an error
                 const message =
                     error instanceof Error ? error.message : String(error);
+
+                this.logger.log({
+                    message: `[DEBUG] codebaseSearch.grep threw for query="${query}": ${message.slice(0, 300)}`,
+                    context: CodebaseSearchService.name,
+                });
+
                 if (
                     message.includes('exit code 1') ||
                     message.includes('exit status 1') ||
@@ -91,6 +103,12 @@ export class CodebaseSearchService {
                 }
                 return { success: false, contexts: [], error: message };
             }
+
+            this.logger.log({
+                message: `[DEBUG] codebaseSearch.grep returned for query="${query}": ${raw ? raw.length + ' chars, ' + raw.trim().split('\n').length + ' lines' : 'EMPTY'}`,
+                context: CodebaseSearchService.name,
+                metadata: { rawPreview: raw?.slice(0, 300) },
+            });
 
             if (!raw || !raw.trim()) {
                 return { success: true, contexts: [] };

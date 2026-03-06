@@ -1203,11 +1203,10 @@ export class ProcessFilesReview extends BasePipelineStage<CodeReviewPipelineCont
             getDataPipelineKodyFineTunning?.discardedSuggestions;
 
         const discardedSuggestionsByKodyFineTuning = discardedSuggestions.map(
-            (suggestion) => {
-                suggestion.priorityStatus =
-                    PriorityStatus.DISCARDED_BY_KODY_FINE_TUNING;
-                return suggestion;
-            },
+            (suggestion) => ({
+                ...suggestion,
+                priorityStatus: PriorityStatus.DISCARDED_BY_KODY_FINE_TUNING,
+            }),
         );
 
         return {

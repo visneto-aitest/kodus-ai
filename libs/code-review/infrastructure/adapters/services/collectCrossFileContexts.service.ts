@@ -131,6 +131,27 @@ export class CollectCrossFileContextsService {
             totalSnippetsBeforeDedup: 0,
         };
 
+        // Canary: verify sandbox has files before spending tokens on planner
+        const canaryFiles = await remoteCommands.listDir('.', 1);
+        this.logger.log({
+            message: `[DEBUG] Canary listDir('.', 1) for PR#${prNumber}: ${canaryFiles ? canaryFiles.trim().split('\n').length + ' files' : 'EMPTY'}`,
+            context: CollectCrossFileContextsService.name,
+            metadata: {
+                organizationAndTeamData,
+                prNumber,
+                canaryOutput: canaryFiles?.slice(0, 500),
+                canaryLength: canaryFiles?.length ?? 0,
+            },
+        });
+        if (!canaryFiles || !canaryFiles.trim()) {
+            this.logger.warn({
+                message: `Sandbox appears empty (listDir returned no files) for PR#${prNumber} — skipping cross-file context`,
+                context: CollectCrossFileContextsService.name,
+                metadata: { organizationAndTeamData, prNumber },
+            });
+            return emptyResult;
+        }
+
         // 1. Run planner to get search queries
         const plannerQueries = await this.runPlanner(
             changedFiles,
@@ -180,8 +201,8 @@ export class CollectCrossFileContextsService {
         );
 
         if (!searchExecution.snippets.length) {
-            this.logger.log({
-                message: `No search results found for PR#${prNumber}`,
+            this.logger.warn({
+                message: `All ${plannerQueries.length} search queries returned 0 results for PR#${prNumber} — possible sandbox issue`,
                 context: CollectCrossFileContextsService.name,
                 metadata: { organizationAndTeamData, prNumber },
             });

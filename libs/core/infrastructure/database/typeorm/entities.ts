@@ -26,6 +26,9 @@ import { ParametersModel } from '../../../../organization/infrastructure/adapter
 import { TeamCliKeyModel } from '../../../../organization/infrastructure/adapters/repositories/schemas/team-cli-key.model';
 import { CliDeviceModel } from '../../../../organization/infrastructure/adapters/repositories/schemas/cli-device.model';
 import { TeamModel } from '../../../../organization/infrastructure/adapters/repositories/schemas/team.model';
+import { SkillModel } from '../../../../kody-skills/infrastructure/adapters/repositories/schemas/skill.model';
+import { SkillSubmissionModel } from '../../../../kody-skills/infrastructure/adapters/repositories/schemas/skill-submission.model';
+import { ApprovalEventModel } from '../../../../kody-skills/infrastructure/adapters/repositories/schemas/approval-event.model';
 import { TeamMemberModel } from '../../../../organization/infrastructure/adapters/repositories/schemas/teamMember.model';
 import { PullRequestsModel } from '../../../../platformData/infrastructure/adapters/repositories/schemas/pullRequests.model';
 import { InboxMessageModel } from '../../../workflow/infrastructure/repositories/schemas/inbox-message.model';
@@ -66,4 +69,7 @@ export const ENTITIES = [
     CodeReviewExecutionModel,
     InteractionModel,
     CliDeviceModel,
+    SkillModel,
+    SkillSubmissionModel,
+    ApprovalEventModel,
 ];

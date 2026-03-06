@@ -38,6 +38,9 @@ export interface TaskContextReadParams {
     userQuestion?: string;
     pullRequestDescription?: string;
     taskContext?: string;
+    taskId?: string;
+    taskUrl?: string;
+    taskReference?: string;
     userLanguage?: string;
     thread?: Thread;
     excludedTools?: string[];
@@ -74,6 +77,8 @@ export interface TaskContextReadHooks {
 interface TaskContextHints {
     issueKeys: string[];
     issueLinks: string[];
+    explicitIssueKeys: string[];
+    explicitIssueLinks: string[];
     queryText: string;
     urlHosts: string[];
     siteUrls: string[];
@@ -385,6 +390,9 @@ function resolveTaskContextHints(
     params: TaskContextReadParams,
 ): TaskContextHints {
     const candidates = [
+        params.taskReference,
+        params.taskId,
+        params.taskUrl,
         params.taskContext,
         params.pullRequestDescription,
         params.prBody,
@@ -397,8 +405,23 @@ function resolveTaskContextHints(
         .filter((value): value is string => typeof value === 'string')
         .join('\n');
 
-    const issueKeys = extractIssueKeys(candidates);
-    const issueLinks = extractLinks(candidates);
+    const explicitTaskIds = uniqueNonEmpty([
+        params.taskId ?? '',
+        ...(params.businessSignals?.ticketKeys ?? []),
+    ]);
+    const explicitTaskLinks = uniqueNonEmpty([
+        params.taskUrl ?? '',
+        ...(params.businessSignals?.taskLinks ?? []),
+    ]).filter(isLikelyTaskReferenceUrl);
+
+    const issueKeys = uniqueNonEmpty([
+        ...extractIssueKeys(candidates),
+        ...explicitTaskIds,
+    ]);
+    const issueLinks = uniqueNonEmpty([
+        ...extractLinks(candidates).filter(isLikelyTaskReferenceUrl),
+        ...explicitTaskLinks,
+    ]);
     const resourceIds = extractAris(candidates);
 
     const urlHosts = new Set<string>();
@@ -418,7 +441,12 @@ function resolveTaskContextHints(
     return {
         issueKeys,
         issueLinks,
+        explicitIssueKeys: explicitTaskIds,
+        explicitIssueLinks: explicitTaskLinks,
         queryText: [
+            params.taskReference,
+            params.taskId,
+            params.taskUrl,
             params.userQuestion,
             params.pullRequestDescription,
             ...(params.businessSignals?.requirementKeywords ?? []),
@@ -448,7 +476,11 @@ function extractLinks(text: string): string[] {
     const links: string[] = [];
     for (const match of text.matchAll(URL_REGEX)) {
         if (match[0]) {
-            links.push(match[0]);
+            const normalized = normalizeLikelyUrl(match[0]);
+            if (!normalized || !isLikelyUrl(normalized)) {
+                continue;
+            }
+            links.push(normalized);
         }
     }
 
@@ -685,15 +717,30 @@ function getCandidateValuesForParam(
         return [];
     }
 
-    const issueKeys = uniqueNonEmpty(hints.issueKeys).slice(0, 4);
-    const issueLinks = uniqueNonEmpty(hints.issueLinks).slice(0, 4);
+    const explicitIssueKeys = uniqueNonEmpty(hints.explicitIssueKeys).slice(
+        0,
+        4,
+    );
+    const explicitIssueLinks = uniqueNonEmpty(hints.explicitIssueLinks).slice(
+        0,
+        4,
+    );
+    const issueKeys = uniqueNonEmpty([
+        ...explicitIssueKeys,
+        ...hints.issueKeys,
+    ]).slice(0, 4);
+    const issueLinks = uniqueNonEmpty([
+        ...explicitIssueLinks,
+        ...hints.issueLinks,
+    ]).slice(0, 4);
     const urlHosts = uniqueNonEmpty(hints.urlHosts).slice(0, 2);
     const siteUrls = uniqueNonEmpty(hints.siteUrls).slice(0, 2);
     const resourceIds = uniqueNonEmpty(hints.resourceIds).slice(0, 4);
     const queryTokens = uniqueNonEmpty([
+        ...explicitIssueKeys,
         ...issueKeys,
-        ...issueLinks,
-        hints.queryText,
+        ...(explicitIssueKeys.length ? [] : issueLinks),
+        ...(explicitIssueKeys.length ? [] : [hints.queryText]),
     ]).slice(0, 6);
 
     const intent = inferParamIntent(paramName, paramSchema);
@@ -703,6 +750,12 @@ function getCandidateValuesForParam(
     }
 
     if (intent === 'query') {
+        if (explicitIssueKeys.length) {
+            return explicitIssueKeys;
+        }
+        if (issueKeys.length) {
+            return issueKeys;
+        }
         return queryTokens;
     }
 
@@ -711,11 +764,11 @@ function getCandidateValuesForParam(
             ? siteUrls
             : urlHosts.length
               ? urlHosts
-              : queryTokens;
+              : [];
     }
 
     if (intent === 'url') {
-        return issueLinks.length ? issueLinks : queryTokens;
+        return issueLinks.length ? issueLinks : [];
     }
 
     if (intent === 'ari') {
@@ -914,9 +967,11 @@ function buildGenericTaskContextArgsCandidates(
     hints: TaskContextHints,
 ): Record<string, unknown>[] {
     const tokens = uniqueNonEmpty([
-        ...hints.issueLinks,
+        ...hints.explicitIssueKeys,
+        ...hints.explicitIssueLinks,
+        ...(hints.explicitIssueKeys.length ? [] : hints.issueLinks),
         ...hints.issueKeys,
-        hints.queryText,
+        ...(hints.explicitIssueKeys.length ? [] : [hints.queryText]),
     ]).slice(0, 4);
     const args: Record<string, unknown>[] = [];
 
@@ -1429,6 +1484,10 @@ function extractContextCandidates(payload: unknown): Record<string, unknown>[] {
 function normalizeContextCandidate(
     candidate: Record<string, unknown>,
 ): TaskContextNormalized | undefined {
+    if (looksLikeToolErrorCandidate(candidate)) {
+        return undefined;
+    }
+
     const fields = asRecord(candidate.fields);
     const properties = asRecord(candidate.properties);
     const attributes = asRecord(candidate.attributes);
@@ -1568,6 +1627,10 @@ function isUsableTaskContext(value: TaskContextNormalized): boolean {
         return false;
     }
 
+    if (looksLikeTaskContextFailure(value)) {
+        return false;
+    }
+
     return !looksLikeStructuredMetadata(value.description);
 }
 
@@ -1584,6 +1647,76 @@ function looksLikeStructuredMetadata(value: string): boolean {
         trimmed.includes('"attrs"') ||
         trimmed.includes('"url"')
     );
+}
+
+function looksLikeTaskContextFailure(value: TaskContextNormalized): boolean {
+    const combined = [value.title, value.description]
+        .filter((entry): entry is string => typeof entry === 'string')
+        .join(' ')
+        .toLowerCase();
+
+    if (!combined) {
+        return false;
+    }
+
+    const failureIndicators = [
+        'failed to fetch',
+        'status: 404',
+        'status 404',
+        'status: 403',
+        'status 403',
+        'status: 401',
+        'status 401',
+        'not found',
+        'unauthorized',
+        'forbidden',
+        'tenant info',
+    ];
+
+    return failureIndicators.some((indicator) => combined.includes(indicator));
+}
+
+function looksLikeToolErrorCandidate(candidate: Record<string, unknown>): boolean {
+    const statusCandidates = [
+        candidate.status,
+        candidate.statusCode,
+        candidate.httpStatus,
+    ];
+    const status = statusCandidates.find(
+        (value): value is number => typeof value === 'number',
+    );
+    const hasErrorStatus = typeof status === 'number' && status >= 400;
+
+    const hasErrorFlag =
+        candidate.error === true ||
+        candidate.success === false ||
+        candidate.ok === false;
+
+    const errorValue = candidate.error;
+    const errorRecord = asRecord(errorValue);
+    const errorMessage =
+        firstNonEmptyString([
+            candidate.message,
+            candidate.errorMessage,
+            candidate.detail,
+            typeof errorValue === 'string' ? errorValue : undefined,
+            errorRecord.message,
+        ]) ?? '';
+    const normalizedErrorMessage = errorMessage.toLowerCase();
+
+    const hasErrorMessage =
+        normalizedErrorMessage.includes('failed to fetch') ||
+        normalizedErrorMessage.includes('not found') ||
+        normalizedErrorMessage.includes('unauthorized') ||
+        normalizedErrorMessage.includes('forbidden') ||
+        normalizedErrorMessage.includes('status: 404') ||
+        normalizedErrorMessage.includes('status 404') ||
+        normalizedErrorMessage.includes('status: 403') ||
+        normalizedErrorMessage.includes('status 403') ||
+        normalizedErrorMessage.includes('status: 401') ||
+        normalizedErrorMessage.includes('status 401');
+
+    return hasErrorFlag || hasErrorStatus || hasErrorMessage;
 }
 
 function pluckValues(
@@ -1791,4 +1924,53 @@ function isLikelyIssueKey(value: string): boolean {
 
 function isLikelyUrl(value: string): boolean {
     return /^https?:\/\//i.test(value);
+}
+
+function normalizeLikelyUrl(value: string): string {
+    return value
+        .trim()
+        .replace(/^[("'`<]+/g, '')
+        .replace(/[)\]'",.;:!?]+$/g, '');
+}
+
+function isLikelyTaskReferenceUrl(value: string): boolean {
+    try {
+        const parsed = new URL(value);
+        const host = parsed.hostname.toLowerCase();
+        const path = parsed.pathname.toLowerCase();
+        const query = parsed.search.toLowerCase();
+
+        const knownTaskHosts = [
+            'atlassian.net',
+            'linear.app',
+            'notion.so',
+            'notion.site',
+            'clickup.com',
+            'trello.com',
+            'asana.com',
+            'dev.azure.com',
+            'youtrack',
+            'shortcut.com',
+            'monday.com',
+        ];
+
+        if (knownTaskHosts.some((keyword) => host.includes(keyword))) {
+            return true;
+        }
+
+        return (
+            path.includes('/browse/') ||
+            path.includes('/issue/') ||
+            path.includes('/issues/') ||
+            path.includes('/ticket/') ||
+            path.includes('/tickets/') ||
+            path.includes('/task/') ||
+            path.includes('/tasks/') ||
+            path.includes('/work-items/') ||
+            path.startsWith('/t/') ||
+            query.includes('selectedissue=')
+        );
+    } catch {
+        return false;
+    }
 }
