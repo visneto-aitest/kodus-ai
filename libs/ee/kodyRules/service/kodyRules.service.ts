@@ -319,9 +319,12 @@ export class KodyRulesService implements IKodyRulesService {
 
         // If there is no UUID, it is a new rule
         if (!kodyRule.uuid) {
+            const activeRulesCount = (existing.rules ?? []).filter(
+                (r) => r.status !== KodyRulesStatus.DELETED,
+            ).length;
             await this.ensureFreePlanLimit(
                 organizationAndTeamData,
-                (existing.rules?.length ?? 0) + 1,
+                activeRulesCount + 1,
             );
 
             const newRule: IKodyRule = {
