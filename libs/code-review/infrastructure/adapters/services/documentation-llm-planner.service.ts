@@ -6,6 +6,7 @@ import {
     PromptRole,
     PromptRunnerService,
 } from '@kodus/kodus-common/llm';
+import { SUPPORTED_LANGUAGES } from '@libs/code-review/domain/contracts/SupportedLanguages';
 import {
     DocumentationQueryPlanByFile,
     RepositoryPackageReference,
@@ -20,6 +21,7 @@ import {
 import { FileChange } from '@libs/core/infrastructure/config/types/general/codeReview.type';
 import { BYOKPromptRunnerService } from '@libs/core/infrastructure/services/tokenTracking/byokPromptRunner.service';
 import { Injectable } from '@nestjs/common';
+import path from 'path';
 
 const FILE_CONTENT_LIMIT = 5000;
 const PATCH_CONTENT_LIMIT = 4000;
@@ -37,7 +39,11 @@ export class DocumentationLLMPlannerService {
     }): Promise<Record<string, DocumentationQueryPlanByFile>> {
         const { packages, changedFiles, byokConfig } = params;
 
-        if (!packages.length || !changedFiles.length) {
+        const codeFiles = changedFiles.filter((file) =>
+            this.isCodeFile(file.filename),
+        );
+
+        if (!codeFiles.length) {
             return {};
         }
 
@@ -57,9 +63,14 @@ export class DocumentationLLMPlannerService {
 
         try {
             const settled = await Promise.allSettled(
-                changedFiles.map(async (file) => {
+                codeFiles.map(async (file) => {
+                    const filePackages = this.filterPackagesForFile(
+                        packageSlice,
+                        file.filename,
+                    );
+
                     const payload: DocumentationPlannerPayload = {
-                        packages: packageSlice,
+                        packages: filePackages,
                         file: {
                             filePath: file.filename,
                             fileContent: (file.fileContent || '').slice(
@@ -106,6 +117,10 @@ export class DocumentationLLMPlannerService {
                     const mapped = this.mapResultByFile(
                         settledResult.value.result,
                         settledResult.value.file,
+                        this.getAllowedPackageNamesByFile(
+                            packageSlice,
+                            settledResult.value.file.filename,
+                        ),
                     );
 
                     if (mapped) {
@@ -126,12 +141,12 @@ export class DocumentationLLMPlannerService {
                         'Documentation planner LLM failed for one file, using fallback for that file',
                     context: DocumentationLLMPlannerService.name,
                     metadata: {
-                        fileName: changedFiles[index]?.filename,
+                        fileName: codeFiles[index]?.filename,
                     },
                     error: settledResult.reason,
                 });
 
-                const fallbackFile = changedFiles[index];
+                const fallbackFile = codeFiles[index];
                 if (fallbackFile) {
                     plans[fallbackFile.filename] =
                         this.buildFallbackPlanForFile(fallbackFile, packages);
@@ -142,7 +157,7 @@ export class DocumentationLLMPlannerService {
                 return plans;
             }
 
-            return this.buildFallbackPlan(changedFiles, packages);
+            return this.buildFallbackPlan(codeFiles, packages);
         } catch (error) {
             this.logger.warn({
                 message:
@@ -151,22 +166,27 @@ export class DocumentationLLMPlannerService {
                 error,
             });
 
-            return this.buildFallbackPlan(changedFiles, packages);
+            return this.buildFallbackPlan(codeFiles, packages);
         }
     }
 
     private mapResultByFile(
         result: DocumentationPlannerSchemaType,
         file: FileChange,
+        allowedPackageNames: Set<string>,
     ): DocumentationQueryPlanByFile | null {
         if (!result?.filePath || result.filePath !== file.filename) {
             return null;
         }
 
         const queries = this.uniqueStrings(result.queries).slice(0, 8);
-        const relevantPackages = this.uniqueStrings(
-            result.relevantPackages,
-        ).slice(0, 8);
+        const relevantPackages = this.uniqueStrings(result.relevantPackages)
+            .filter((pkgName) => allowedPackageNames.has(pkgName.toLowerCase()))
+            .slice(0, 8);
+
+        if (!queries.length || !relevantPackages.length) {
+            return null;
+        }
 
         return {
             relevantPackages,
@@ -178,13 +198,25 @@ export class DocumentationLLMPlannerService {
         changedFiles: FileChange[],
         packages: RepositoryPackageReference[],
     ): Record<string, DocumentationQueryPlanByFile> {
-        const topPackages = this.uniqueStrings(
-            packages.map((pkg) => pkg.name),
-        ).slice(0, 5);
-
         const plan: Record<string, DocumentationQueryPlanByFile> = {};
 
         for (const file of changedFiles) {
+            const filePackages = this.filterPackagesForFile(
+                packages,
+                file.filename,
+            );
+            const topPackages = this.uniqueStrings(
+                filePackages.map((pkg) => pkg.name),
+            ).slice(0, 5);
+
+            if (!topPackages.length) {
+                plan[file.filename] = {
+                    relevantPackages: [],
+                    queries: [],
+                };
+                continue;
+            }
+
             const fileText =
                 `${file.fileContent || ''}\n${file.patch || ''}`.toLowerCase();
             const matched = topPackages.filter(
@@ -215,11 +247,86 @@ export class DocumentationLLMPlannerService {
         file: FileChange,
         packages: RepositoryPackageReference[],
     ): DocumentationQueryPlanByFile {
+        const fileScopedPackages = this.filterPackagesForFile(
+            packages,
+            file.filename,
+        );
+
         return (
-            this.buildFallbackPlan([file], packages)[file.filename] || {
+            this.buildFallbackPlan([file], fileScopedPackages)[
+                file.filename
+            ] || {
                 relevantPackages: [],
                 queries: [],
             }
+        );
+    }
+
+    private filterPackagesForFile(
+        packages: RepositoryPackageReference[],
+        filePath: string,
+    ): RepositoryPackageReference[] {
+        const ecosystems = this.getAllowedEcosystemsForFile(filePath);
+
+        if (!ecosystems.length) {
+            return [];
+        }
+
+        return packages.filter((pkg) => ecosystems.includes(pkg.ecosystem));
+    }
+
+    private getAllowedPackageNamesByFile(
+        packages: RepositoryPackageReference[],
+        filePath: string,
+    ): Set<string> {
+        return new Set(
+            this.filterPackagesForFile(packages, filePath).map((pkg) =>
+                pkg.name.toLowerCase(),
+            ),
+        );
+    }
+
+    private getAllowedEcosystemsForFile(
+        filePath: string,
+    ): RepositoryPackageReference['ecosystem'][] {
+        const extension = path.posix.extname(filePath).toLowerCase();
+
+        if (!extension) {
+            return [];
+        }
+
+        const language = Object.values(SUPPORTED_LANGUAGES).find((lang) =>
+            lang.extensions.includes(extension),
+        )?.name;
+
+        switch (language) {
+            case 'typescript':
+            case 'javascript':
+                return ['npm'];
+            case 'python':
+                return ['pip'];
+            case 'java':
+                return ['maven', 'gradle'];
+            case 'go':
+                return ['go'];
+            case 'ruby':
+                return ['ruby'];
+            case 'rust':
+                return ['cargo'];
+            default:
+                return [];
+        }
+    }
+
+    private isCodeFile(filePath: string): boolean {
+        const extension = path.posix.extname(filePath).toLowerCase();
+
+        if (!extension) {
+            return false;
+        }
+
+        return Object.values(SUPPORTED_LANGUAGES).some((lang) =>
+            lang.extensions.includes(extension),
         );
     }
 

@@ -1,4 +1,8 @@
-import { PromptRunnerService } from '@kodus/kodus-common/llm';
+import {
+    BYOKProviderService,
+    LLMProviderService,
+    PromptRunnerService,
+} from '@kodus/kodus-common/llm';
 import { type IPullRequestManagerService } from '@libs/code-review/domain/contracts/PullRequestManagerService.contract';
 import { DocumentationLLMPlannerService } from '@libs/code-review/infrastructure/adapters/services/documentation-llm-planner.service';
 import { DocumentationPackageDiscoveryService } from '@libs/code-review/infrastructure/adapters/services/documentation-package-discovery.service';
@@ -6,6 +10,7 @@ import { DocumentationSearchExaService } from '@libs/code-review/infrastructure/
 import { CodeReviewPipelineContext } from '@libs/code-review/pipeline/context/code-review-pipeline.context';
 import { GatherDocumentationContextStage } from '@libs/code-review/pipeline/stages/gather-documentation-context.stage';
 import { FileChange } from '@libs/core/infrastructure/config/types/general/codeReview.type';
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 
@@ -147,6 +152,17 @@ describe('GatherDocumentationContextStage', () => {
         return service as unknown as PromptRunnerService;
     }
 
+    function buildRealPromptRunnerService(): PromptRunnerService {
+        const logger = new Logger('DocumentationPromptIntegrationTest');
+        const byokProviderService = new BYOKProviderService();
+        const llmProviderService = new LLMProviderService(
+            logger,
+            byokProviderService,
+        );
+
+        return new PromptRunnerService(logger, llmProviderService);
+    }
+
     beforeEach(async () => {
         discoveryService = {
             discoverPackages: jest.fn(),
@@ -193,6 +209,27 @@ describe('GatherDocumentationContextStage', () => {
 
         expect(result).toBe(context);
         expect(discoveryService.discoverPackages).not.toHaveBeenCalled();
+    });
+
+    it('should skip documentation gathering when there are no supported code files', async () => {
+        const context = {
+            ...baseContext,
+            changedFiles: [
+                {
+                    filename: 'README.md',
+                    patch: '@@ -1,1 +1,1 @@',
+                    fileContent: '# docs',
+                },
+            ],
+        } as unknown as CodeReviewPipelineContext;
+
+        const result = await stage.execute(context);
+
+        expect(result.documentationQueryPlanByFile).toEqual({});
+        expect(result.documentationByFile).toEqual({});
+        expect(discoveryService.discoverPackages).not.toHaveBeenCalled();
+        expect(plannerService.planDocumentationByFile).not.toHaveBeenCalled();
+        expect(searchService.searchByFilePlan).not.toHaveBeenCalled();
     });
 
     it('should store empty documentation context when no packages are discovered', async () => {
@@ -249,6 +286,67 @@ describe('GatherDocumentationContextStage', () => {
         expect(result.documentationByFile?.['src/a.ts']).toHaveLength(1);
     });
 
+    it('should only send code files to the planner', async () => {
+        const context = {
+            ...baseContext,
+            changedFiles: [
+                {
+                    filename: 'README.md',
+                    patch: '@@ -1,1 +1,1 @@',
+                    fileContent: '# docs',
+                },
+                {
+                    filename: 'src/a.ts',
+                    patch: '@@ -1,1 +1,1 @@',
+                    fileContent: 'const a = 1;',
+                },
+            ],
+        } as unknown as CodeReviewPipelineContext;
+
+        discoveryService.discoverPackages.mockResolvedValue({
+            packages: [
+                {
+                    name: '@nestjs/common',
+                    ecosystem: 'npm',
+                    sourceFile: 'package.json',
+                },
+            ],
+            manifestFiles: ['package.json'],
+        });
+
+        plannerService.planDocumentationByFile.mockResolvedValue({
+            'src/a.ts': {
+                relevantPackages: ['@nestjs/common'],
+                queries: ['find docs'],
+            },
+        });
+
+        searchService.searchByFilePlan.mockResolvedValue({
+            'src/a.ts': [
+                {
+                    query: 'find docs',
+                    title: 'doc',
+                    url: 'https://example.com',
+                    snippet: 'snippet',
+                    source: 'exa-search',
+                },
+            ],
+        });
+
+        await stage.execute(context);
+
+        expect(plannerService.planDocumentationByFile).toHaveBeenCalledTimes(1);
+        expect(plannerService.planDocumentationByFile).toHaveBeenCalledWith(
+            expect.objectContaining({
+                changedFiles: [
+                    expect.objectContaining({
+                        filename: 'src/a.ts',
+                    }),
+                ],
+            }),
+        );
+    });
+
     it('should fail open when an internal service throws', async () => {
         discoveryService.discoverPackages.mockRejectedValue(new Error('boom'));
 
@@ -257,10 +355,16 @@ describe('GatherDocumentationContextStage', () => {
         expect(result).toBe(baseContext);
     });
 
-    it('should run independent flow with real Exa search', async () => {
-        if (!process.env.API_EXA_KEY) {
+    it('should run independent flow with real planner prompt and real Exa search', async () => {
+        const hasPromptKeys = Boolean(
+            process.env.API_OPEN_AI_API_KEY &&
+            (process.env.API_GROQ_API_KEY ||
+                process.env.API_LLM_PROVIDER_MODEL),
+        );
+
+        if (!process.env.API_EXA_KEY || !hasPromptKeys) {
             console.warn(
-                'Skipping independent flow test for GatherDocumentationContextStage because API_EXA_KEY is not set',
+                'Skipping independent flow test for GatherDocumentationContextStage because API_EXA_KEY and prompt provider keys are required',
             );
             return;
         }
@@ -282,7 +386,7 @@ describe('GatherDocumentationContextStage', () => {
             );
 
         const independentPlannerService = new DocumentationLLMPlannerService(
-            buildPromptRunnerServiceMock(),
+            buildRealPromptRunnerService(),
         );
 
         const independentSearchService = new DocumentationSearchExaService(
@@ -321,10 +425,11 @@ describe('GatherDocumentationContextStage', () => {
                 'apps/api/src/example.controller.ts'
             ];
 
-        expect(planForController.relevantPackages).toEqual(
-            expect.arrayContaining(['@nestjs/common']),
-        );
-        expect(planForController.queries[0]).toContain('official');
+        expect(result.documentationQueryPlanByFile['package.json']).toBeFalsy();
+        expect(result.documentationByFile['package.json']).toBeFalsy();
+
+        expect(planForController.relevantPackages.length).toBeGreaterThan(0);
+        expect(planForController.queries.length).toBeGreaterThan(0);
 
         expect(
             result.documentationByFile['apps/api/src/example.controller.ts'],
