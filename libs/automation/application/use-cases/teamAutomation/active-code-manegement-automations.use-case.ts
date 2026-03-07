@@ -49,7 +49,7 @@ export class ActiveCodeManagementTeamAutomationsUseCase implements IUseCase {
         const automations = await this.automationService.find({
             status: true,
             level: AutomationLevel.TEAM,
-        });
+        }) || [];
 
         const automationsFiltered = automations.filter((automation) =>
             codeManagementAutomations.includes(automation.automationType),
