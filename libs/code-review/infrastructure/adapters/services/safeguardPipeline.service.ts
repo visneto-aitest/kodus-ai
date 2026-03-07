@@ -683,6 +683,13 @@ Evidence field in ${params.languageResultPrompt}.`;
                     return await builder
                         .setTemperature(0)
                         .addCallbacks(callbacks)
+                        .addMetadata({
+                            organizationId:
+                                organizationAndTeamData?.organizationId,
+                            teamId: organizationAndTeamData?.teamId,
+                            pullRequestId: prNumber,
+                            runName,
+                        })
                         .setRunName(`${runName}_turn${turn}`)
                         .execute();
                 },
