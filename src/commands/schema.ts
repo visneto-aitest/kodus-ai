@@ -3,6 +3,7 @@ import chalk from 'chalk';
 import {
     buildCommandSchema,
     findCommandByPath,
+    getCommandPath,
 } from '../utils/command-schema.js';
 import { createCommandContext } from '../utils/command-context.js';
 import {
@@ -47,7 +48,16 @@ export function createSchemaCommand(getProgram: () => Command): Command {
                         );
                     }
 
-                    const schema = buildCommandSchema(target);
+                    const schema = buildCommandSchema(
+                        target,
+                        (() => {
+                            const fullPath = getCommandPath(target);
+                            const lastSpace = fullPath.lastIndexOf(' ');
+                            return lastSpace === -1
+                                ? ''
+                                : fullPath.slice(0, lastSpace);
+                        })(),
+                    );
 
                     if (ctx.isAgent) {
                         await emitAgentEnvelope(

@@ -216,6 +216,108 @@ export function buildDefaultSkillSyncTargets(
             activationPath: path.join(homeDir, '.config', 'agents'),
             baseDir: path.join(homeDir, '.config', 'agents', 'skills'),
         },
+        {
+            label: 'OpenCode project skills',
+            type: 'skill',
+            activationPath: path.join(cwd, '.opencode'),
+            baseDir: path.join(cwd, '.opencode', 'skill'),
+        },
+        {
+            label: 'OpenCode user commands',
+            type: 'command',
+            activationPath: path.join(homeDir, '.config', 'opencode'),
+            baseDir: path.join(homeDir, '.config', 'opencode', 'command'),
+        },
+        {
+            label: 'AiderDesk project commands',
+            type: 'command',
+            activationPath: path.join(cwd, '.aider-desk'),
+            baseDir: path.join(cwd, '.aider-desk', 'commands'),
+        },
+        {
+            label: 'AiderDesk user commands',
+            type: 'command',
+            activationPath: path.join(homeDir, '.aider-desk'),
+            baseDir: path.join(homeDir, '.aider-desk', 'commands'),
+        },
+        {
+            label: 'Kilo Code project skills',
+            type: 'skill',
+            activationPath: path.join(cwd, '.kilocode'),
+            baseDir: path.join(cwd, '.kilocode', 'skills'),
+        },
+        {
+            label: 'Kilo Code user skills',
+            type: 'skill',
+            activationPath: path.join(homeDir, '.kilocode'),
+            baseDir: path.join(homeDir, '.kilocode', 'skills'),
+        },
+        {
+            label: 'Roo Code project skills',
+            type: 'skill',
+            activationPath: path.join(cwd, '.roo'),
+            baseDir: path.join(cwd, '.roo', 'skills'),
+        },
+        {
+            label: 'Roo Code user skills',
+            type: 'skill',
+            activationPath: path.join(homeDir, '.roo'),
+            baseDir: path.join(homeDir, '.roo', 'skills'),
+        },
+        {
+            label: 'Goose project skills',
+            type: 'skill',
+            activationPath: path.join(cwd, '.goose'),
+            baseDir: path.join(cwd, '.goose', 'skills'),
+        },
+        {
+            label: 'Goose user skills',
+            type: 'skill',
+            activationPath: path.join(homeDir, '.config', 'goose'),
+            baseDir: path.join(homeDir, '.config', 'goose', 'skills'),
+        },
+        {
+            label: 'Antigravity project skills',
+            type: 'skill',
+            activationPath: path.join(cwd, '.agent'),
+            baseDir: path.join(cwd, '.agent', 'skills'),
+        },
+        {
+            label: 'Antigravity user skills',
+            type: 'skill',
+            activationPath: path.join(homeDir, '.gemini', 'antigravity'),
+            baseDir: path.join(homeDir, '.gemini', 'antigravity', 'skills'),
+        },
+        {
+            label: 'Droid project skills',
+            type: 'skill',
+            activationPath: path.join(cwd, '.factory'),
+            baseDir: path.join(cwd, '.factory', 'skills'),
+        },
+        {
+            label: 'Droid user skills',
+            type: 'skill',
+            activationPath: path.join(homeDir, '.factory'),
+            baseDir: path.join(homeDir, '.factory', 'skills'),
+        },
+        {
+            label: 'Windsurf project skills',
+            type: 'skill',
+            activationPath: path.join(cwd, '.windsurf'),
+            baseDir: path.join(cwd, '.windsurf', 'skills'),
+        },
+        {
+            label: 'Windsurf user skills',
+            type: 'skill',
+            activationPath: path.join(homeDir, '.codeium', 'windsurf'),
+            baseDir: path.join(homeDir, '.codeium', 'windsurf', 'skills'),
+        },
+        {
+            label: 'Gemini project skills',
+            type: 'skill',
+            activationPath: path.join(cwd, '.gemini'),
+            baseDir: path.join(cwd, '.gemini', 'skills'),
+        },
     ];
 }
 

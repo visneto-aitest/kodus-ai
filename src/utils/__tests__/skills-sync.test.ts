@@ -48,6 +48,24 @@ describe('skills-sync utilities', () => {
             activationPath: '/users/demo/.claude',
             baseDir: '/users/demo/.claude/commands',
         });
+        expect(targets).toContainEqual({
+            label: 'OpenCode project skills',
+            type: 'skill',
+            activationPath: '/repo/workspace/.opencode',
+            baseDir: '/repo/workspace/.opencode/skill',
+        });
+        expect(targets).toContainEqual({
+            label: 'AiderDesk user commands',
+            type: 'command',
+            activationPath: '/users/demo/.aider-desk',
+            baseDir: '/users/demo/.aider-desk/commands',
+        });
+        expect(targets).toContainEqual({
+            label: 'Windsurf user skills',
+            type: 'skill',
+            activationPath: '/users/demo/.codeium/windsurf',
+            baseDir: '/users/demo/.codeium/windsurf/skills',
+        });
     });
 
     it('syncs skill and command targets and removes legacy entries', async () => {

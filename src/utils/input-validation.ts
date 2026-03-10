@@ -10,7 +10,12 @@ export function parseOptionalNumber(
     }
 
     const value = Number(raw);
-    if (!Number.isFinite(value) || Number.isNaN(value)) {
+    if (
+        !Number.isFinite(value) ||
+        Number.isNaN(value) ||
+        !Number.isInteger(value) ||
+        value <= 0
+    ) {
         throw new CommandError('INVALID_INPUT', `Invalid ${flag} value`, 1, {
             flag,
             raw,

@@ -18,6 +18,18 @@ describe('input validation', () => {
         );
     });
 
+    it('throws on non-integer or non-positive number', () => {
+        expect(() => parseOptionalNumber('1.2', '--pr-number')).toThrow(
+            'Invalid --pr-number value',
+        );
+        expect(() => parseOptionalNumber('0', '--pr-number')).toThrow(
+            'Invalid --pr-number value',
+        );
+        expect(() => parseOptionalNumber('-2', '--pr-number')).toThrow(
+            'Invalid --pr-number value',
+        );
+    });
+
     it('validates csv enum list', () => {
         const result = parseCsvEnumList('error,warning', '--severity', [
             'info',

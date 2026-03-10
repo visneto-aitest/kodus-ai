@@ -13,7 +13,7 @@ const SKILLS_REFRESH_HINT = chalk.dim(
     '\nTo refresh agent skills and integrations, run: curl -fsSL https://raw.githubusercontent.com/kodustech/cli/main/install.sh | bash\n',
 );
 const SKILLS_CLI_FALLBACK = chalk.dim(
-    'CLI fallback (advanced/local-only): kodus skills install | kodus skills resync\n',
+    'CLI fallback for common local agent roots: kodus skills install | kodus skills resync\n',
 );
 
 export interface InstallInstruction {

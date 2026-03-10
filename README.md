@@ -203,7 +203,7 @@ For end users, the recommended way to refresh skills and agent integrations is:
 curl -fsSL https://raw.githubusercontent.com/kodustech/cli/main/install.sh | bash
 ```
 
-Advanced/local-only fallback via CLI:
+Fallback via CLI for common local agent roots:
 
 ```bash
 kodus skills install        # install into detected local agent roots

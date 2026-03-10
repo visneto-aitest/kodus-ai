@@ -79,7 +79,7 @@ export interface IMemoryApi {
 }
 
 export interface ISessionsApi {
-  sendEvent(event: SessionApiEvent, repoRoot: string): Promise<void>;
+    sendEvent(event: SessionApiEvent, repoRoot: string): Promise<void>;
 }
 
 export interface IKodusApi {

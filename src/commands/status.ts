@@ -95,7 +95,6 @@ async function getDecisionHooksStatus(
         } catch {
             // Not configured.
         }
-
     }
 
     try {

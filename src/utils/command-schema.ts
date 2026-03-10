@@ -88,6 +88,27 @@ export function buildCommandSchema(
     };
 }
 
+function getParentCommand(command: Command): Command | undefined {
+    return (command as unknown as { parent?: Command }).parent;
+}
+
+export function getCommandPath(command: Command): string {
+    const segments: string[] = [];
+    let current: Command | undefined = command;
+
+    while (current) {
+        const parent = getParentCommand(current);
+        if (!parent) {
+            break;
+        }
+
+        segments.unshift(current.name());
+        current = parent;
+    }
+
+    return segments.join(' ');
+}
+
 function findDirectChildBySegment(
     command: Command,
     segment: string,

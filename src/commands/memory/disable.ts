@@ -67,7 +67,11 @@ export async function disableAction(
     const sessionRemoved = sessionResult.removed;
 
     cliInfo(chalk.green('\u2713 Decision hooks removed.'));
-    cliInfo(`  Decision capture hooks: ${captureRemoved ? 'removed' : 'not found'}`);
-    cliInfo(`  Session tracking hooks: ${sessionRemoved ? 'removed' : 'not found'}`);
+    cliInfo(
+        `  Decision capture hooks: ${captureRemoved ? 'removed' : 'not found'}`,
+    );
+    cliInfo(
+        `  Session tracking hooks: ${sessionRemoved ? 'removed' : 'not found'}`,
+    );
     cliInfo(`  Codex notify: ${codexResult.removed ? 'removed' : 'not found'}`);
 }

@@ -278,7 +278,9 @@ prCommand
 
             try {
                 if (options.taskUrl && options.taskId) {
-                    throw new Error('Provide only one of --task-url or --task-id.');
+                    throw new Error(
+                        'Provide only one of --task-url or --task-id.',
+                    );
                 }
 
                 const normalizedPrUrl = options.prUrl
@@ -297,7 +299,9 @@ prCommand
                     !!options.branch;
 
                 if (normalizedPrUrl && prNumber !== undefined) {
-                    throw new Error('Provide only one of --pr-url or --pr-number.');
+                    throw new Error(
+                        'Provide only one of --pr-url or --pr-number.',
+                    );
                 }
 
                 if (
@@ -345,7 +349,8 @@ prCommand
                 }
 
                 const payload = {
-                    prUrl: mode === 'pull_request' ? normalizedPrUrl : undefined,
+                    prUrl:
+                        mode === 'pull_request' ? normalizedPrUrl : undefined,
                     prNumber: mode === 'pull_request' ? prNumber : undefined,
                     repositoryId: options.repoId,
                     repository,
@@ -397,7 +402,9 @@ prCommand
                         ),
                     );
                 } else if (response.repositoryName) {
-                    cliInfo(chalk.dim(`Repository: ${response.repositoryName}`));
+                    cliInfo(
+                        chalk.dim(`Repository: ${response.repositoryName}`),
+                    );
                 }
                 if (response.taskReference) {
                     cliInfo(chalk.dim(`Task: ${response.taskReference}`));

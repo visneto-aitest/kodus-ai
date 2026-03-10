@@ -499,6 +499,20 @@ describe('schema integration', () => {
         expect(json.commands.some((c: any) => c.name === 'review')).toBe(true);
         expect(json.commands.some((c: any) => c.name === 'pr')).toBe(true);
     });
+
+    it('preserves full command path for nested command schema', async () => {
+        const { stdout, exitCode } = await runCli([
+            'schema',
+            '--command',
+            'pr suggestions',
+            '--agent',
+        ]);
+        expect(exitCode).toBe(0);
+
+        const json = parseFirstJsonObject(stdout);
+        expect(json.data.path).toBe('pr suggestions');
+        expect(json.data.name).toBe('suggestions');
+    });
 });
 
 // ---------------------------------------------------------------------------

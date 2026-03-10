@@ -417,4 +417,3 @@ export async function removeCodexNotify(
 
     return { configPath, removed: true };
 }
-
