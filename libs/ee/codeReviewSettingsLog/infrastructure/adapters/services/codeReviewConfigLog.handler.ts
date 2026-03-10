@@ -244,7 +244,7 @@ export class CodeReviewConfigLogHandler {
 
     private resolveWithDefaults(deltaConfig: any): any {
         const defaults = getDefaultKodusConfigFile();
-        return this.deepMerge(defaults, deltaConfig);
+        return this.deepMerge(defaults, deltaConfig || {});
     }
 
     private deepMerge(target: any, source: any): any {
