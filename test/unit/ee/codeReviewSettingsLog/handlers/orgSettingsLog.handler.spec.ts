@@ -7,7 +7,7 @@ import {
     createMockUnifiedLogHandler,
     createBaseParams,
     extractChangedData,
-} from './__helpers__/shared-mocks';
+} from './helpers/shared-mocks';
 
 describe('OrgSettingsLogHandler', () => {
     let handler: OrgSettingsLogHandler;

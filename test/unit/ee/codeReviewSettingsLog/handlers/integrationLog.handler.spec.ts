@@ -6,7 +6,7 @@ import {
 import {
     createMockUnifiedLogHandler,
     createBaseParams,
-} from './__helpers__/shared-mocks';
+} from './helpers/shared-mocks';
 
 describe('IntegrationLogHandler', () => {
     let handler: IntegrationLogHandler;

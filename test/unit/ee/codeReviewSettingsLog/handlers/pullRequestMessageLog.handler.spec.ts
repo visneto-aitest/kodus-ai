@@ -4,7 +4,7 @@ import {
     createMockUnifiedLogHandler,
     createBaseParams,
     extractChangedData,
-} from './__helpers__/shared-mocks';
+} from './helpers/shared-mocks';
 
 const MOCK_DEFAULT_MESSAGES = {
     customMessages: {
