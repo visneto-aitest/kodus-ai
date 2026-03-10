@@ -8,6 +8,7 @@ import {
     RepositoryConfigRemovalParams,
 } from '../../infrastructure/adapters/services/repositoriesLog.handler';
 import { UserStatusLogParams } from '../../infrastructure/adapters/services/userStatusLog.handler';
+import { UserInviteLogParams } from '../../infrastructure/adapters/services/userInviteLog.handler';
 import { ICodeReviewSettingsLogRepository } from './codeReviewSettingsLog.repository.contract';
 
 export const CODE_REVIEW_SETTINGS_LOG_SERVICE_TOKEN = Symbol(
@@ -31,4 +32,5 @@ export interface ICodeReviewSettingsLogService extends ICodeReviewSettingsLogRep
     registerPullRequestMessagesLog(
         params: PullRequestMessagesLogParams,
     ): Promise<void>;
+    registerUserInviteLog(params: UserInviteLogParams): Promise<void>;
 }

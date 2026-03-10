@@ -24,6 +24,10 @@ import {
     PullRequestMessagesLogHandler,
     PullRequestMessagesLogParams,
 } from './pullRequestMessageLog.handler';
+import {
+    UserInviteLogHandler,
+    UserInviteLogParams,
+} from './userInviteLog.handler';
 import { ICodeReviewSettingsLogService } from '@libs/ee/codeReviewSettingsLog/domain/contracts/codeReviewSettingsLog.service.contract';
 import {
     CODE_REVIEW_SETTINGS_LOG_REPOSITORY_TOKEN,
@@ -47,6 +51,7 @@ export class CodeReviewSettingsLogService implements ICodeReviewSettingsLogServi
         private readonly integrationLogHandler: IntegrationLogHandler,
         private readonly userStatusLogHandler: UserStatusLogHandler,
         private readonly pullRequestMessagesLogHandler: PullRequestMessagesLogHandler,
+        private readonly userInviteLogHandler: UserInviteLogHandler,
     ) {}
 
     /**
@@ -196,5 +201,19 @@ export class CodeReviewSettingsLogService implements ICodeReviewSettingsLogServi
         await this.pullRequestMessagesLogHandler.logPullRequestMessagesAction(
             params,
         );
+    }
+
+    // User Invite
+    public async registerUserInviteLog(
+        params: UserInviteLogParams,
+    ): Promise<void> {
+        const canAudit = await this.shouldAllowAuditLogs(
+            params.organizationAndTeamData,
+        );
+        if (!canAudit) {
+            return;
+        }
+
+        await this.userInviteLogHandler.logUserInviteAction(params);
     }
 }

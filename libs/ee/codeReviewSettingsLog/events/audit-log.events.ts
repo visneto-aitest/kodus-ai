@@ -7,4 +7,5 @@ export const AuditLogEvents = {
     INTEGRATION: 'audit.integration',
     USER_STATUS: 'audit.userStatus',
     PR_MESSAGES: 'audit.pullRequestMessages',
+    USER_INVITE: 'audit.userInvite',
 } as const;

@@ -17,6 +17,7 @@ import {
 import { IntegrationLogParams } from '../infrastructure/adapters/services/integrationLog.handler';
 import { UserStatusLogParams } from '../infrastructure/adapters/services/userStatusLog.handler';
 import { PullRequestMessagesLogParams } from '../infrastructure/adapters/services/pullRequestMessageLog.handler';
+import { UserInviteLogParams } from '../infrastructure/adapters/services/userInviteLog.handler';
 
 @Injectable()
 export class AuditLogListener {
@@ -110,6 +111,17 @@ export class AuditLogListener {
             );
         } catch (error) {
             this.logError('pull request messages', error, params);
+        }
+    }
+
+    @OnEvent(AuditLogEvents.USER_INVITE)
+    async handleUserInvite(params: UserInviteLogParams) {
+        try {
+            await this.codeReviewSettingsLogService.registerUserInviteLog(
+                params,
+            );
+        } catch (error) {
+            this.logError('user invite', error, params);
         }
     }
 
