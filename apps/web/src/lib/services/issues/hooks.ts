@@ -21,8 +21,6 @@ export const useIssues = () => {
             placeholderData: (prev) => {
                 return prev;
             },
-            refetchOnMount: true,
-            refetchOnWindowFocus: true,
         },
     );
 
@@ -40,8 +38,6 @@ export const useIssue = (
         {
             ...params,
             placeholderData: (prev) => prev,
-            refetchOnMount: true,
-            refetchOnWindowFocus: true,
         },
     );
 };

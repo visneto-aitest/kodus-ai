@@ -13,6 +13,7 @@ import { TEAM_CLI_KEY_SERVICE_TOKEN } from '@libs/organization/domain/team-cli-k
 import { AUTOMATION_EXECUTION_SERVICE_TOKEN } from '@libs/automation/domain/automationExecution/contracts/automation-execution.service';
 import { AUTH_SERVICE_TOKEN } from '@libs/identity/domain/auth/contracts/auth.service.contracts';
 import { CLI_DEVICE_SERVICE_TOKEN } from '@libs/organization/domain/cli-device/contracts/cli-device.service.contract';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PolicyGuard } from '@libs/identity/infrastructure/adapters/services/permissions/policy.guard';
 import { STATUS } from '@libs/core/infrastructure/config/types/database/status.type';
 import { DeliveryStatus } from '@libs/platformData/domain/pullRequests/enums/deliveryStatus.enum';
@@ -162,6 +163,10 @@ describe('PullRequestController', () => {
                 },
                 { provide: JwtService, useValue: mockJwtService },
                 { provide: ConfigService, useValue: mockConfigService },
+                {
+                    provide: EventEmitter2,
+                    useValue: { emit: jest.fn() },
+                },
             ],
         })
             .overrideGuard(PolicyGuard)

@@ -93,9 +93,14 @@ const TimeAgoDisplay = ({
     }, [dateString]);
 
     return (
-        <>
-            {displayedTime} · {formatDateTime(dateString, timezone)}
-        </>
+        <Tooltip>
+            <TooltipTrigger asChild>
+                <span className="cursor-default">{displayedTime}</span>
+            </TooltipTrigger>
+            <TooltipContent className="text-xs">
+                {formatDateTime(dateString, timezone)}
+            </TooltipContent>
+        </Tooltip>
     );
 };
 
@@ -438,7 +443,10 @@ export const PrListItem = ({ group }: PrListItemProps) => {
                     </span>
                 </TableCell>
                 <TableCell className="w-20 text-center">
-                    <div className="flex justify-center gap-1.5">
+                    <NextLink
+                        href={`/pull-requests/${latest.repositoryId}/${latest.prNumber}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="flex justify-center gap-1.5 rounded-md px-1 py-0.5 transition-colors hover:bg-card-lv3/50">
                         <Tooltip>
                             <TooltipTrigger asChild>
                                 <span className="bg-success/10 text-success inline-flex min-w-7 items-center justify-center rounded-md px-2 py-0.5 text-xs font-medium tabular-nums">
@@ -446,7 +454,7 @@ export const PrListItem = ({ group }: PrListItemProps) => {
                                 </span>
                             </TooltipTrigger>
                             <TooltipContent className="text-xs">
-                                Suggestions sent for this PR
+                                View review details
                             </TooltipContent>
                         </Tooltip>
                         <Tooltip>
@@ -459,7 +467,7 @@ export const PrListItem = ({ group }: PrListItemProps) => {
                                 Suggestions filtered out by your configuration
                             </TooltipContent>
                         </Tooltip>
-                    </div>
+                    </NextLink>
                 </TableCell>
                 <TableCell className="w-32 text-center">
                     {getStatusBadge(

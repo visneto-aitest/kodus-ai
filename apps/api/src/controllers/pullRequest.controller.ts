@@ -12,21 +12,28 @@ import {
     ResourceType,
 } from '@libs/identity/domain/permissions/enums/permissions.enum';
 import {
+    BadRequestException,
     Body,
     Controller,
     Get,
     Headers,
     Inject,
     NotFoundException,
+    OnApplicationShutdown,
     Post,
     Query,
     Res,
+    Sse,
     UnauthorizedException,
     UseGuards,
 } from '@nestjs/common';
 import { REQUEST } from '@nestjs/core';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
+import { fromEvent, interval, merge, Subject } from 'rxjs';
+import { filter, map, takeUntil } from 'rxjs/operators';
+import { PR_EXECUTION_UPDATED_EVENT } from '@libs/automation/infrastructure/adapters/services/automationExecution.service';
 import { BackfillPRsDto } from '../dtos/backfill-prs.dto';
 import { EnrichedPullRequestsQueryDto } from '@libs/code-review/dtos/dashboard/enriched-pull-requests-query.dto';
 import { PaginatedEnrichedPullRequestsResponse } from '@libs/code-review/dtos/dashboard/paginated-enriched-pull-requests.dto';
@@ -48,6 +55,7 @@ import {
     ApiHeader,
     ApiOkResponse,
     ApiOperation,
+    ApiProduces,
     ApiTags,
     ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
@@ -76,8 +84,9 @@ import {
 @ApiTags('Pull Requests')
 @ApiStandardResponses()
 @Controller('pull-requests')
-export class PullRequestController {
+export class PullRequestController implements OnApplicationShutdown {
     private readonly jwtConfig: JWT;
+    private readonly shutdown$ = new Subject<void>();
 
     constructor(
         private readonly getEnrichedPullRequestsUseCase: GetEnrichedPullRequestsUseCase,
@@ -97,8 +106,14 @@ export class PullRequestController {
         private readonly cliDeviceService: ICliDeviceService,
         private readonly jwtService: JwtService,
         private readonly configService: ConfigService,
+        private readonly eventEmitter: EventEmitter2,
     ) {
         this.jwtConfig = this.configService.get<JWT>('jwtConfig');
+    }
+
+    onApplicationShutdown() {
+        this.shutdown$.next();
+        this.shutdown$.complete();
     }
 
     @Get('/executions')
@@ -119,6 +134,53 @@ export class PullRequestController {
         @Query() query: EnrichedPullRequestsQueryDto,
     ): Promise<PaginatedEnrichedPullRequestsResponse> {
         return await this.getEnrichedPullRequestsUseCase.execute(query);
+    }
+
+    @Sse('/executions/events')
+    @ApiBearerAuth('jwt')
+    @UseGuards(PolicyGuard)
+    @CheckPolicies(
+        checkPermissions({
+            action: Action.Read,
+            resource: ResourceType.PullRequests,
+        }),
+    )
+    @ApiOperation({
+        summary: 'Stream PR execution events',
+        description:
+            'Server-sent events for real-time updates when PR review executions change status.',
+    })
+    @ApiProduces('text/event-stream')
+    executionEvents() {
+        const organizationId = this.request.user?.organization?.uuid;
+        if (!organizationId) {
+            throw new BadRequestException(
+                'Organization UUID is missing in the request',
+            );
+        }
+
+        const events$ = fromEvent(
+            this.eventEmitter,
+            PR_EXECUTION_UPDATED_EVENT,
+        ).pipe(
+            filter(
+                (event: any) => event?.organizationId === organizationId,
+            ),
+            map((event: any) => ({
+                data: {
+                    type: 'execution_updated',
+                    executionUuid: event.executionUuid,
+                    status: event.status,
+                    timestamp: event.timestamp,
+                },
+            })),
+        );
+
+        const heartbeat$ = interval(15000).pipe(
+            map(() => ({ data: { type: 'ping' } })),
+        );
+
+        return merge(events$, heartbeat$).pipe(takeUntil(this.shutdown$));
     }
 
     @Get('/suggestions')
@@ -577,6 +639,74 @@ ${'```'}`,
         }
 
         return payload;
+    }
+
+    @Get('/files')
+    @ApiBearerAuth('jwt')
+    @UseGuards(PolicyGuard)
+    @CheckPolicies(
+        checkPermissions({
+            action: Action.Read,
+            resource: ResourceType.PullRequests,
+        }),
+    )
+    @ApiOperation({
+        summary: 'Get PR changed files with patches',
+        description:
+            'Returns changed files with unified diff patches from the Git provider.',
+    })
+    public async getPullRequestFiles(
+        @Query('repositoryId') repositoryId: string,
+        @Query('prNumber') prNumber: string,
+        @Query('teamId') teamId: string,
+        @Query('repositoryName') repositoryName?: string,
+    ) {
+        const organizationId = this.request.user?.organization?.uuid;
+        if (!organizationId || !repositoryId || !prNumber || !teamId) {
+            throw new NotFoundException('Missing required parameters');
+        }
+
+        const organizationAndTeamData = { organizationId, teamId };
+
+        let repoName = repositoryName;
+
+        if (!repoName) {
+            const repositories =
+                await this.codeManagementService.getRepositories({
+                    organizationAndTeamData,
+                });
+
+            const repo = (repositories || []).find(
+                (r: any) => r?.id === repositoryId,
+            );
+
+            if (!repo) {
+                throw new NotFoundException(
+                    `Repository not found (id: ${repositoryId})`,
+                );
+            }
+
+            repoName = repo.name;
+        }
+
+        const files =
+            await this.codeManagementService.getFilesByPullRequestId({
+                organizationAndTeamData,
+                repository: { name: repoName, id: repositoryId },
+                prNumber: parseInt(prNumber, 10),
+            });
+
+        return {
+            files: (files || []).map((f: any) => ({
+                filename: f.filename,
+                status: f.status,
+                additions: f.additions,
+                deletions: f.deletions,
+                changes: f.changes,
+                patch: f.patch,
+                previous_filename: f.previous_filename,
+            })),
+        };
     }
 
     @Get('/onboarding-signals')
