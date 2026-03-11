@@ -174,6 +174,32 @@ export class ValidatePrerequisitesStage extends BasePipelineStage<CodeReviewPipe
             });
         }
 
+        // If auto-review is disabled and this is not a command-triggered review,
+        // skip silently without posting notifications (e.g. BYOK required).
+        try {
+            if (context.origin !== 'command') {
+                const autoReviewEnabled =
+                    await this.isAutomatedReviewActive(context);
+                if (!autoReviewEnabled) {
+                    return this.updateContext(context, (draft) => {
+                        applyShowStatusFeedbackMetadata(draft);
+                        draft.statusInfo = {
+                            status: AutomationStatus.SKIPPED,
+                            message:
+                                AutomationMessage.VALIDATION_FAILED,
+                        };
+                    });
+                }
+            }
+        } catch (error) {
+            this.logger.warn({
+                message:
+                    'Error checking automatedReviewActive, proceeding with notification',
+                context: this.stageName,
+                error,
+            });
+        }
+
         // Validation failed
         const failureHandled = await this.handleValidationFailure(
             context,
@@ -547,6 +573,48 @@ export class ValidatePrerequisitesStage extends BasePipelineStage<CodeReviewPipe
             'Please configure your API keys in [Settings > BYOK Configuration](https://app.kodus.io/organization/byok).\n\n' +
             '<!-- kody-codereview -->'
         );
+    }
+
+    private async isAutomatedReviewActive(
+        context: CodeReviewPipelineContext,
+    ): Promise<boolean> {
+        try {
+            const parameter = await this.parametersService.findByKey(
+                ParametersKey.CODE_REVIEW_CONFIG,
+                context.organizationAndTeamData,
+            );
+
+            const parameterConfig = parameter?.configValue as any;
+            const repositoryConfig = parameterConfig?.repositories?.find(
+                (repo: any) => repo?.id === context.repository?.id,
+            );
+
+            if (
+                typeof repositoryConfig?.configs?.automatedReviewActive ===
+                'boolean'
+            ) {
+                return repositoryConfig.configs.automatedReviewActive;
+            }
+
+            if (
+                typeof parameterConfig?.configs?.automatedReviewActive ===
+                'boolean'
+            ) {
+                return parameterConfig.configs.automatedReviewActive;
+            }
+        } catch (error) {
+            this.logger.warn({
+                message: 'Error resolving automatedReviewActive config',
+                context: this.stageName,
+                error,
+                metadata: {
+                    organizationAndTeamData: context.organizationAndTeamData,
+                    repositoryId: context.repository?.id,
+                },
+            });
+        }
+
+        return true;
     }
 
     private validatePrerequisites(

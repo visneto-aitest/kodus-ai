@@ -81,6 +81,8 @@ import { LicenseModule } from '@libs/ee/license/license.module';
         ExecuteCliReviewUseCase,
         SubmitCliSessionCaptureUseCase,
         IngestSessionEventUseCase,
+        ClassifySessionUseCase,
+        SessionEventRepository,
         TrialRateLimiterService,
         AuthenticatedRateLimiterService,
     ],
