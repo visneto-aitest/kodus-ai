@@ -264,6 +264,121 @@ describe('RealApi review.getPullRequestSuggestions', () => {
     });
 });
 
+describe('RealApi config repository methods', () => {
+    let fetchMock: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+        _resetConfigCache();
+        configMocks.loadConfig.mockResolvedValue(null);
+        fetchMock = vi.fn();
+        vi.stubGlobal('fetch', fetchMock as any);
+        deviceMocks.getDeviceIdentity.mockResolvedValue({
+            deviceId: '11111111-1111-4111-8111-111111111111',
+        });
+        deviceMocks.updateDeviceToken.mockResolvedValue(undefined);
+    });
+
+    afterEach(() => {
+        vi.unstubAllGlobals();
+        vi.restoreAllMocks();
+    });
+
+    it('sends X-Team-Key when listing available repositories', async () => {
+        fetchMock.mockResolvedValue(
+            new Response(
+                JSON.stringify({
+                    data: [
+                        {
+                            id: 'repo-1',
+                            name: 'cli',
+                            full_name: 'kodustech/cli',
+                            organizationName: 'kodustech',
+                            selected: false,
+                        },
+                    ],
+                }),
+                {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                },
+            ),
+        );
+
+        const api = new RealApi();
+        await api.config.getAvailableRepositories('kodus_team_key');
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const [url, options] = fetchMock.mock.calls[0];
+        expect(url).toContain('/cli/config/repositories/available');
+        expect(url).not.toContain('teamId=');
+        expect(options.headers['X-Team-Key']).toBe('kodus_team_key');
+        expect(options.headers.Authorization).toBeUndefined();
+    });
+
+    it('sends X-Team-Key when adding repositories', async () => {
+        fetchMock.mockResolvedValue(
+            new Response(
+                JSON.stringify({
+                    data: {
+                        status: true,
+                        addedRepositoryIds: ['repo-1'],
+                        totalSelected: 1,
+                    },
+                }),
+                {
+                    status: 201,
+                    headers: { 'Content-Type': 'application/json' },
+                },
+            ),
+        );
+
+        const api = new RealApi();
+        await api.config.addRepositories('kodus_team_key', ['repo-1']);
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const [url, options] = fetchMock.mock.calls[0];
+        expect(url).toContain('/cli/config/repositories');
+        expect(options.method).toBe('POST');
+        expect(options.headers['X-Team-Key']).toBe('kodus_team_key');
+        expect(options.body).toBe(
+            JSON.stringify({
+                repositoryIds: ['repo-1'],
+            }),
+        );
+    });
+
+    it('sends X-Team-Key when listing selected repositories', async () => {
+        fetchMock.mockResolvedValue(
+            new Response(
+                JSON.stringify({
+                    data: [
+                        {
+                            id: 'repo-1',
+                            name: 'cli',
+                            full_name: 'kodustech/cli',
+                            organizationName: 'kodustech',
+                            selected: true,
+                        },
+                    ],
+                }),
+                {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                },
+            ),
+        );
+
+        const api = new RealApi();
+        await api.config.getSelectedRepositories('kodus_team_key');
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const [url, options] = fetchMock.mock.calls[0];
+        expect(url).toContain('/cli/config/repositories/selected');
+        expect(url).not.toContain('teamId=');
+        expect(options.headers['X-Team-Key']).toBe('kodus_team_key');
+    });
+});
+
 describe('RealApi review.analyze auth mode', () => {
     let fetchMock: ReturnType<typeof vi.fn>;
 

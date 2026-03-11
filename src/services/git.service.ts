@@ -318,7 +318,10 @@ class GitService {
                 const parts = trimmed.split('\t');
                 const statusChar = parts[0];
                 // For renames (R) or copies (C), the new file is the last part.
-                const fileName = statusChar.startsWith('R') || statusChar.startsWith('C') ? parts[parts.length - 1] : parts[1];
+                const fileName =
+                    statusChar.startsWith('R') || statusChar.startsWith('C')
+                        ? parts[parts.length - 1]
+                        : parts[1];
                 if (fileName) {
                     filesToRead.push(fileName);
                     fileStatusMap.set(
@@ -343,7 +346,10 @@ class GitService {
                 const parts = trimmed.split('\t');
                 const statusChar = parts[0];
                 // For renames (R) or copies (C), the new file is the last part.
-                const fileName = statusChar.startsWith('R') || statusChar.startsWith('C') ? parts[parts.length - 1] : parts[1];
+                const fileName =
+                    statusChar.startsWith('R') || statusChar.startsWith('C')
+                        ? parts[parts.length - 1]
+                        : parts[1];
                 if (fileName) {
                     filesToRead.push(fileName);
                     fileStatusMap.set(

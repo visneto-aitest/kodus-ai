@@ -121,14 +121,29 @@ export interface PullRequestSuggestionsResponse {
 
 export interface BusinessValidationResponse {
     accepted: boolean;
-    mode: 'pull_request' | 'local_diff';
+    mode: 'local_diff';
     command: string;
-    prNumber?: number;
-    prUrl?: string;
-    repositoryId?: string;
     repositoryName?: string;
     taskReference?: string;
     result: string;
+}
+
+export interface ConfigRepository {
+    id: string;
+    name: string;
+    full_name?: string;
+    http_url?: string;
+    organizationName: string;
+    selected?: boolean;
+    lastActivityAt?: string;
+}
+
+export interface ConfigAddRepositoriesResponse {
+    status: boolean;
+    addedRepositoryIds: string[];
+    alreadyAddedRepositoryIds?: string[];
+    totalSelected: number;
+    message?: string;
 }
 
 export interface TrialReviewResult extends ReviewResult {
@@ -181,6 +196,7 @@ export interface GlobalOptions {
     output?: string;
     verbose: boolean;
     quiet: boolean;
+    agent?: boolean;
     interactive?: boolean;
     promptOnly?: boolean;
     fix?: boolean;

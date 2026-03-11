@@ -3,6 +3,7 @@ import { enableAction } from './enable.js';
 import { disableAction } from './disable.js';
 import { captureAction } from './capture.js';
 import { sessionHooksCommand } from './session-hooks/index.js';
+import type { GlobalOptions } from '../../types/index.js';
 
 export const decisionsCommand = new Command('decisions').description(
     'Session tracking, decision capture, and structured logging',
@@ -27,16 +28,31 @@ decisionsCommand
 decisionsCommand
     .command('disable')
     .description('Remove all hooks')
-    .action(disableAction);
+    .action((options, command) =>
+        disableAction(options, command.optsWithGlobals() as GlobalOptions),
+    );
 
 decisionsCommand
     .command('capture')
     .description('Internal hook command to submit decision capture to API')
     .argument('[payload]', 'Optional payload JSON (used by Codex notify)')
-    .requiredOption(
-        '--agent <agent>',
+    .option('--agent <agent>', 'Legacy alias for --capture-agent')
+    .option(
+        '--capture-agent <agent>',
         'Agent name: claude-compatible, claude-code, cursor, codex',
     )
     .requiredOption('--event <event>', 'Hook event name')
     .option('--summary <text>', 'Optional summary text')
-    .action(captureAction);
+    .action((payload: string | undefined, options, command) => {
+        const agent = options.captureAgent ?? options.agent;
+        if (!agent) {
+            command.error(
+                "required option '--capture-agent <agent>' not specified",
+            );
+        }
+
+        return captureAction(payload, {
+            ...options,
+            agent,
+        });
+    });

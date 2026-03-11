@@ -12,15 +12,17 @@ const DECISIONS_CAPTURE_COMMAND_PREFIX = 'kodus decisions capture';
 
 export const CLAUDE_CAPTURE_COMMANDS = {
     userPromptSubmit:
-        'kodus decisions capture --agent claude-compatible --event user-prompt-submit',
-    stop: 'kodus decisions capture --agent claude-compatible --event stop',
+        'kodus decisions capture --capture-agent claude-compatible --event user-prompt-submit',
+    stop: 'kodus decisions capture --capture-agent claude-compatible --event stop',
     postToolUseWrite:
-        'kodus decisions capture --agent claude-compatible --event post-tool-use-write',
+        'kodus decisions capture --capture-agent claude-compatible --event post-tool-use-write',
     postToolUseEdit:
-        'kodus decisions capture --agent claude-compatible --event post-tool-use-edit',
+        'kodus decisions capture --capture-agent claude-compatible --event post-tool-use-edit',
 };
 
 export const CODEX_NOTIFY_LINE =
+    'notify = ["kodus", "decisions", "capture", "--capture-agent", "codex", "--event", "stop"]';
+export const CODEX_NOTIFY_LINE_STOP_LEGACY =
     'notify = ["kodus", "decisions", "capture", "--agent", "codex", "--event", "stop"]';
 export const CODEX_NOTIFY_LINE_LEGACY =
     'notify = ["kodus", "decisions", "capture", "--agent", "codex", "--event", "agent-turn-complete"]';
@@ -262,6 +264,15 @@ export async function installCodexNotify(configPath: string): Promise<{
         return { configPath, changed: true, skipped: false, reason: '' };
     }
 
+    if (content.includes(CODEX_NOTIFY_LINE_STOP_LEGACY)) {
+        const nextContent = content.replace(
+            CODEX_NOTIFY_LINE_STOP_LEGACY,
+            CODEX_NOTIFY_LINE,
+        );
+        await fs.writeFile(configPath, nextContent, 'utf-8');
+        return { configPath, changed: true, skipped: false, reason: '' };
+    }
+
     if (notifyLinePattern.test(content)) {
         return {
             configPath,
@@ -379,6 +390,7 @@ export async function removeCodexNotify(
 
     if (
         !content.includes(CODEX_NOTIFY_LINE) &&
+        !content.includes(CODEX_NOTIFY_LINE_STOP_LEGACY) &&
         !content.includes(CODEX_NOTIFY_LINE_LEGACY)
     ) {
         return { configPath, removed: false };
@@ -389,6 +401,7 @@ export async function removeCodexNotify(
         .filter(
             (line) =>
                 line.trim() !== CODEX_NOTIFY_LINE &&
+                line.trim() !== CODEX_NOTIFY_LINE_STOP_LEGACY &&
                 line.trim() !== CODEX_NOTIFY_LINE_LEGACY,
         )
         .join('\n')
@@ -404,4 +417,3 @@ export async function removeCodexNotify(
 
     return { configPath, removed: true };
 }
-

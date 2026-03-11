@@ -39,9 +39,14 @@ vi.mock('../../services/api/index.js', () => ({
     },
 }));
 
+vi.mock('../../utils/stream-input.js', () => ({
+    readStreamPayload: vi.fn().mockResolvedValue('{"stdin":true}'),
+}));
+
 import { captureAction } from '../memory/capture.js';
 import { authService } from '../../services/auth.service.js';
 import { api } from '../../services/api/index.js';
+import { readStreamPayload } from '../../utils/stream-input.js';
 
 beforeEach(() => {
     vi.clearAllMocks();
@@ -98,6 +103,17 @@ describe('capture API submission', () => {
         await new Promise((resolve) => setTimeout(resolve, 50));
 
         expect(api.memory.submitCapture).not.toHaveBeenCalled();
+    });
+
+    it('does not read stdin when running in a tty', async () => {
+        vi.mocked(authService.isAuthenticated).mockResolvedValue(true);
+
+        await captureAction(undefined, { agent: 'claude-code', event: 'stop' });
+
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
+        expect(readStreamPayload).not.toHaveBeenCalled();
+        expect(api.memory.submitCapture).toHaveBeenCalledTimes(1);
     });
 
     it('does NOT throw if API call fails (fail-open)', async () => {

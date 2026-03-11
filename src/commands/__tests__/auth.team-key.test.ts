@@ -61,8 +61,8 @@ describe('auth team-key command', () => {
             new Response(
                 JSON.stringify({
                     data: {
-                        team: { name: 'Platform Team' },
-                        organization: { name: 'Kodus' },
+                        team: { uuid: 'team-1', name: 'Platform Team' },
+                        organization: { uuid: 'org-1', name: 'Kodus' },
                     },
                 }),
                 {

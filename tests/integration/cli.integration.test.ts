@@ -172,6 +172,7 @@ describe('CLI smoke', () => {
         expect(exitCode).toBe(0);
         expect(stdout).toContain('review');
         expect(stdout).toContain('auth');
+        expect(stdout).toContain('schema');
     });
 
     it('prints review subcommand help', async () => {
@@ -199,11 +200,21 @@ describe('utility commands', () => {
         expect(output).toContain('Decision hooks:');
     });
 
-    it('returns error for removed skills command', async () => {
+    it('lists bundled skills via skills list', async () => {
         const { stdout, stderr, exitCode } = await runCli(['skills', 'list']);
-        expect(exitCode).toBe(1);
+        expect(exitCode).toBe(0);
         const output = stdout + stderr;
-        expect(output).toContain("unknown command 'skills'");
+        expect(output).toContain('Available bundled skills');
+        expect(output).toContain('kodus-review');
+    });
+
+    it('exposes full skill lifecycle commands', async () => {
+        const { stdout, exitCode } = await runCli(['skills', '--help']);
+        expect(exitCode).toBe(0);
+        expect(stdout).toContain('install');
+        expect(stdout).toContain('uninstall');
+        expect(stdout).toContain('sync');
+        expect(stdout).toContain('resync');
     });
 });
 
@@ -211,6 +222,43 @@ describe('utility commands', () => {
 // Review command — full round-trip through mock server
 // ---------------------------------------------------------------------------
 describe('review integration', () => {
+    it('returns agent envelope in review agent mode', async () => {
+        const { stdout, exitCode } = await runCli([
+            'review',
+            '--fast',
+            '--agent',
+        ]);
+        expect(exitCode).toBe(0);
+
+        const json = parseFirstJsonObject(stdout);
+        expect(json.ok).toBe(true);
+        expect(json.command).toBe('review');
+        expect(json.error).toBeNull();
+        expect(json.meta.mode).toBe('agent');
+        expect(json.meta.schemaVersion).toBe('1.0');
+        expect(json.data).toHaveProperty('summary');
+        expect(json.data).toHaveProperty('issues');
+    });
+
+    it('supports --fields projection for review in agent mode', async () => {
+        const { stdout, exitCode } = await runCli([
+            'review',
+            '--fast',
+            '--agent',
+            '--fields',
+            'summary,issues.file,issues.line',
+        ]);
+        expect(exitCode).toBe(0);
+
+        const json = parseFirstJsonObject(stdout);
+        expect(json.ok).toBe(true);
+        expect(json.data.summary).toBeTruthy();
+        expect(Array.isArray(json.data.issues)).toBe(true);
+        expect(json.data.issues[0]).toHaveProperty('file');
+        expect(json.data.issues[0]).toHaveProperty('line');
+        expect(json.data.issues[0]).not.toHaveProperty('severity');
+    });
+
     it('returns JSON review result', async () => {
         const { stdout, exitCode } = await runCli([
             'review',
@@ -302,6 +350,27 @@ describe('review integration', () => {
         }
     });
 
+    it('returns NO_CHANGES envelope in review agent mode when repo is clean', async () => {
+        const cleanRepo = await createTempGitRepo();
+        await fs.writeFile(path.join(cleanRepo, 'file.ts'), 'const x = 1;\n');
+        await execFileAsync('git', ['add', '.'], { cwd: cleanRepo });
+        await execFileAsync('git', ['commit', '-m', 'init'], {
+            cwd: cleanRepo,
+        });
+
+        try {
+            const { stdout, exitCode } = await runCli(['review', '--agent'], {
+                cwd: cleanRepo,
+            });
+            expect(exitCode).toBe(0);
+            const json = parseFirstJsonObject(stdout);
+            expect(json.ok).toBe(false);
+            expect(json.error.code).toBe('NO_CHANGES');
+        } finally {
+            await fs.rm(cleanRepo, { recursive: true, force: true });
+        }
+    });
+
     it('respects --staged flag (only staged diff)', async () => {
         await fs.writeFile(
             path.join(gitRepoDir, 'staged.ts'),
@@ -360,6 +429,135 @@ describe('review integration', () => {
         expect(stderr).not.toContain('Fetching pull request suggestions');
         expect(stderr).not.toContain('Suggestions fetched');
     });
+
+    it('returns agent envelope for pr suggestions', async () => {
+        const { stdout, exitCode } = await runCli([
+            '--agent',
+            'pr',
+            'suggestions',
+            '--pr-url',
+            'https://github.com/org/repo/pull/42',
+        ]);
+
+        expect(exitCode).toBe(0);
+        const json = parseFirstJsonObject(stdout);
+        expect(json.ok).toBe(true);
+        expect(json.command).toBe('pr suggestions');
+        expect(json.data).toHaveProperty('issues');
+    });
+
+    it('returns INVALID_INPUT for invalid pr-number in agent mode', async () => {
+        const { stdout, exitCode } = await runCli([
+            '--agent',
+            'pr',
+            'suggestions',
+            '--pr-number',
+            'abc',
+            '--repo-id',
+            'repo-1',
+        ]);
+
+        expect(exitCode).toBe(1);
+        const json = parseFirstJsonObject(stdout);
+        expect(json.ok).toBe(false);
+        expect(json.error.code).toBe('INVALID_INPUT');
+    });
+
+    it('supports --fields projection for pr suggestions in agent mode', async () => {
+        const { stdout, exitCode } = await runCli([
+            '--agent',
+            'pr',
+            'suggestions',
+            '--pr-url',
+            'https://github.com/org/repo/pull/42',
+            '--fields',
+            'summary,issues.file,issues.line',
+        ]);
+
+        expect(exitCode).toBe(0);
+        const json = parseFirstJsonObject(stdout);
+        expect(json.ok).toBe(true);
+        expect(json.data.summary).toBeTruthy();
+        expect(json.data.issues[0]).toHaveProperty('file');
+        expect(json.data.issues[0]).toHaveProperty('line');
+        expect(json.data.issues[0]).not.toHaveProperty('severity');
+    });
+});
+
+describe('schema integration', () => {
+    it('outputs top-level command schema in JSON format', async () => {
+        const { stdout, exitCode } = await runCli([
+            'schema',
+            '--format',
+            'json',
+        ]);
+        expect(exitCode).toBe(0);
+
+        const json = parseFirstJsonObject(stdout);
+        expect(json).toHaveProperty('name', 'kodus');
+        expect(Array.isArray(json.commands)).toBe(true);
+        expect(json.commands.some((c: any) => c.name === 'review')).toBe(true);
+        expect(json.commands.some((c: any) => c.name === 'pr')).toBe(true);
+    });
+
+    it('preserves full command path for nested command schema', async () => {
+        const { stdout, exitCode } = await runCli([
+            'schema',
+            '--command',
+            'pr suggestions',
+            '--agent',
+        ]);
+        expect(exitCode).toBe(0);
+
+        const json = parseFirstJsonObject(stdout);
+        expect(json.data.path).toBe('pr suggestions');
+        expect(json.data.name).toBe('suggestions');
+    });
+});
+
+describe('business validation integration', () => {
+    it('does not advertise remote PR flags in help', async () => {
+        const { stdout, exitCode } = await runCli([
+            'pr',
+            'business-validation',
+            '--help',
+        ]);
+
+        expect(exitCode).toBe(0);
+        expect(stdout).not.toContain('--pr-url');
+        expect(stdout).not.toContain('--pr-number');
+        expect(stdout).toContain('--staged');
+        expect(stdout).toContain('--branch');
+    });
+
+    it('rejects removed remote PR flags', async () => {
+        const { stderr, exitCode } = await runCli([
+            'pr',
+            'business-validation',
+            '--pr-url',
+            'https://github.com/org/repo/pull/42',
+        ]);
+
+        expect(exitCode).toBe(1);
+        expect(stderr).toContain("unknown option '--pr-url'");
+    });
+
+    it('supports dry-run for local business validation payload', async () => {
+        const { stdout, exitCode } = await runCli([
+            'pr',
+            'business-validation',
+            '--task-id',
+            'KC-1441',
+            '--dry-run',
+        ]);
+
+        expect(exitCode).toBe(0);
+        expect(stdout).toContain('/cli/business-validation');
+        expect(stdout).toContain('"taskId": "KC-1441"');
+        expect(stdout).toContain('"diff":');
+        expect(stdout).not.toContain('"prUrl"');
+        expect(stdout).not.toContain('"prNumber"');
+    });
 });
 
 // ---------------------------------------------------------------------------
@@ -401,6 +599,44 @@ describe('auth status integration', () => {
 // Hook commands — install, status, uninstall
 // ---------------------------------------------------------------------------
 describe('hook integration', () => {
+    it('kodus hook install --agent returns structured error outside git repo', async () => {
+        const nonRepoDir = await fs.mkdtemp(
+            path.join(os.tmpdir(), 'kodus-non-repo-'),
+        );
+
+        try {
+            const { stdout, exitCode } = await runCli(
+                ['hook', 'install', '--agent'],
+                { cwd: nonRepoDir },
+            );
+
+            expect(exitCode).toBe(1);
+            const json = parseFirstJsonObject(stdout);
+            expect(json.ok).toBe(false);
+            expect(json.command).toBe('hook install');
+            expect(json.error.code).toBe('NOT_IN_GIT_REPO');
+        } finally {
+            await fs.rm(nonRepoDir, { recursive: true, force: true });
+        }
+    });
+
+    it('kodus hook install --dry-run does not create pre-push hook', async () => {
+        const hookPath = path.join(gitRepoDir, '.git', 'hooks', 'pre-push');
+        await fs.unlink(hookPath).catch(() => {});
+
+        const { stdout, stderr, exitCode } = await runCli([
+            'hook',
+            'install',
+            '--dry-run',
+            '--force',
+        ]);
+
+        expect(exitCode).toBe(0);
+        const output = stdout + stderr;
+        expect(output.toLowerCase()).toContain('dry run');
+        await expect(fs.access(hookPath)).rejects.toThrow();
+    });
+
     it('kodus hook install creates pre-push hook', async () => {
         const { stdout, stderr, exitCode } = await runCli([
             'hook',
@@ -443,6 +679,27 @@ describe('hook integration', () => {
         const hookPath = path.join(gitRepoDir, '.git', 'hooks', 'pre-push');
         await expect(fs.access(hookPath)).rejects.toThrow();
     });
+
+    it('kodus hook uninstall --agent returns structured error outside git repo', async () => {
+        const nonRepoDir = await fs.mkdtemp(
+            path.join(os.tmpdir(), 'kodus-non-repo-'),
+        );
+
+        try {
+            const { stdout, exitCode } = await runCli(
+                ['hook', 'uninstall', '--agent'],
+                { cwd: nonRepoDir },
+            );
+
+            expect(exitCode).toBe(1);
+            const json = parseFirstJsonObject(stdout);
+            expect(json.ok).toBe(false);
+            expect(json.command).toBe('hook uninstall');
+            expect(json.error.code).toBe('NOT_IN_GIT_REPO');
+        } finally {
+            await fs.rm(nonRepoDir, { recursive: true, force: true });
+        }
+    });
 });
 
 // ---------------------------------------------------------------------------
@@ -478,16 +735,16 @@ describe('decisions integration', () => {
         );
         const stopJson = JSON.stringify(claudeSettings.hooks.Stop);
         expect(userPromptSubmitJson).toContain(
-            'kodus decisions capture --agent claude-compatible --event user-prompt-submit',
+            'kodus decisions capture --capture-agent claude-compatible --event user-prompt-submit',
         );
         expect(stopJson).toContain(
-            'kodus decisions capture --agent claude-compatible --event stop',
+            'kodus decisions capture --capture-agent claude-compatible --event stop',
         );
 
         const codexConfigPath = path.join(tmpHome, '.codex', 'config.toml');
         const codexConfig = await fs.readFile(codexConfigPath, 'utf-8');
         expect(codexConfig).toContain(
-            'notify = ["kodus", "decisions", "capture", "--agent", "codex", "--event", "stop"]',
+            'notify = ["kodus", "decisions", "capture", "--capture-agent", "codex", "--event", "stop"]',
         );
     });
 
@@ -544,6 +801,27 @@ describe('decisions integration', () => {
         // No local file should be created — capture only sends to API on stop
         const memoryDir = path.join(gitRepoDir, '.kody', 'pr');
         await expect(fs.access(memoryDir)).rejects.toThrow();
+    });
+
+    it('kodus decisions disable --agent returns structured error outside git repo', async () => {
+        const nonRepoDir = await fs.mkdtemp(
+            path.join(os.tmpdir(), 'kodus-non-repo-'),
+        );
+
+        try {
+            const { stdout, exitCode } = await runCli(
+                ['decisions', 'disable', '--agent'],
+                { cwd: nonRepoDir },
+            );
+
+            expect(exitCode).toBe(1);
+            const json = parseFirstJsonObject(stdout);
+            expect(json.ok).toBe(false);
+            expect(json.command).toBe('decisions disable');
+            expect(json.error.code).toBe('NOT_IN_GIT_REPO');
+        } finally {
+            await fs.rm(nonRepoDir, { recursive: true, force: true });
+        }
     });
 });
 

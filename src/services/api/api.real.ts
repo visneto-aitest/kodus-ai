@@ -1,5 +1,7 @@
 import type {
     AuthResponse,
+    ConfigAddRepositoriesResponse,
+    ConfigRepository,
     ReviewConfig,
     ReviewResult,
     PullRequestSuggestionsResponse,
@@ -20,6 +22,7 @@ import type {
     IMemoryApi,
     ISessionsApi,
     GitMetrics,
+    IConfigApi,
 } from './api.interface.js';
 import { RealSessionsApi } from './sessions.api.js';
 import { loadConfig, type CliConfig } from '../../utils/config.js';
@@ -48,6 +51,7 @@ export function _resetConfigCache(): void {
  */
 function validateApiUrl(customUrl: string): string | null {
     const defaultUrl = 'https://api.kodus.io';
+
     try {
         const url = new URL(customUrl);
 
@@ -201,10 +205,11 @@ function normalizeApiErrorMessage(
     }
 
     // Keep auth/permission/server errors deterministic and always in CLI English.
+    // 404 is excluded: the backend may return meaningful "not found" details
+    // (e.g. "Pull request not found") that are more useful than the generic message.
     if (
         statusCode === 401 ||
         statusCode === 403 ||
-        statusCode === 404 ||
         statusCode === 429 ||
         statusCode >= 500
     ) {
@@ -640,9 +645,6 @@ class RealReviewApi implements IReviewApi {
     async triggerBusinessValidation(
         accessToken: string,
         params: {
-            prUrl?: string;
-            prNumber?: number;
-            repositoryId?: string;
             repository?: string;
             taskUrl?: string;
             taskId?: string;
@@ -652,15 +654,6 @@ class RealReviewApi implements IReviewApi {
         const isTeamKey = accessToken.startsWith('kodus_');
         const body: Record<string, unknown> = {};
 
-        if (params.prUrl) {
-            body.prUrl = params.prUrl;
-        }
-        if (params.prNumber !== undefined) {
-            body.prNumber = params.prNumber;
-        }
-        if (params.repositoryId) {
-            body.repositoryId = params.repositoryId;
-        }
         if (params.repository) {
             body.repository = params.repository;
         }
@@ -733,8 +726,61 @@ class RealMemoryApi implements IMemoryApi {
     }
 }
 
+class RealConfigApi implements IConfigApi {
+    async getAvailableRepositories(
+        accessToken: string,
+    ): Promise<ConfigRepository[]> {
+        return requestWithRetry<ConfigRepository[]>(
+            '/cli/config/repositories/available',
+            {
+                headers: {
+                    ...(accessToken.startsWith('kodus_')
+                        ? { 'X-Team-Key': accessToken }
+                        : { Authorization: `Bearer ${accessToken}` }),
+                },
+            },
+        );
+    }
+
+    async getSelectedRepositories(
+        accessToken: string,
+    ): Promise<ConfigRepository[]> {
+        return requestWithRetry<ConfigRepository[]>(
+            '/cli/config/repositories/selected',
+            {
+                headers: {
+                    ...(accessToken.startsWith('kodus_')
+                        ? { 'X-Team-Key': accessToken }
+                        : { Authorization: `Bearer ${accessToken}` }),
+                },
+            },
+        );
+    }
+
+    async addRepositories(
+        accessToken: string,
+        repositoryIds: string[],
+    ): Promise<ConfigAddRepositoriesResponse> {
+        return requestWithRetry<ConfigAddRepositoriesResponse>(
+            '/cli/config/repositories',
+            {
+                method: 'POST',
+                headers: {
+                    ...(accessToken.startsWith('kodus_')
+                        ? { 'X-Team-Key': accessToken }
+                        : { Authorization: `Bearer ${accessToken}` }),
+                },
+                body: JSON.stringify({
+                    repositoryIds,
+                }),
+            },
+        );
+    }
+}
+
 export class RealApi implements IKodusApi {
     auth: IAuthApi = new RealAuthApi();
+    config: IConfigApi = new RealConfigApi();
     review: IReviewApi = new RealReviewApi();
     trial: ITrialApi = new RealTrialApi();
     memory: IMemoryApi = new RealMemoryApi();

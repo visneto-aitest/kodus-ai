@@ -5,10 +5,21 @@ import latestVersion from 'latest-version';
 import { createRequire } from 'node:module';
 import { execa } from 'execa';
 import { cliError, cliInfo } from '../utils/logger.js';
+import { resolveRemoteInstallInstructions } from '../utils/install-instructions.js';
 
 const require = createRequire(import.meta.url);
 const pkg = require('../../package.json');
 const PACKAGE_NAME = '@kodus/cli';
+const remoteInstall = resolveRemoteInstallInstructions();
+const SKILLS_REFRESH_HINT = chalk.dim(
+    `\nTo refresh agent skills and integrations, run: ${remoteInstall.primary}\n`,
+);
+const SKILLS_CLI_FALLBACK = chalk.dim(
+    'CLI fallback for common local agent roots: kodus skills install | kodus skills resync\n',
+);
+const SKILLS_REFRESH_FALLBACK = remoteInstall.fallback
+    ? chalk.dim(`Installer fallback: ${remoteInstall.fallback}\n`)
+    : null;
 
 export interface InstallInstruction {
     command: string;
@@ -73,11 +84,11 @@ export const updateCommand = new Command('update')
                         `You are already on the latest version (${current})`,
                     ),
                 );
-                cliInfo(
-                    chalk.dim(
-                        '\nTo refresh agent skills, run: curl -fsSL https://review-skill.com/install | bash\n',
-                    ),
-                );
+                cliInfo(SKILLS_REFRESH_HINT);
+                if (SKILLS_REFRESH_FALLBACK) {
+                    cliInfo(SKILLS_REFRESH_FALLBACK);
+                }
+                cliInfo(SKILLS_CLI_FALLBACK);
                 return;
             }
 
@@ -103,11 +114,11 @@ export const updateCommand = new Command('update')
                     '\nYou may need to restart your terminal for changes to take effect.\n',
                 ),
             );
-            cliInfo(
-                chalk.dim(
-                    'To refresh agent skills, run: curl -fsSL https://review-skill.com/install | bash\n',
-                ),
-            );
+            cliInfo(SKILLS_REFRESH_HINT);
+            if (SKILLS_REFRESH_FALLBACK) {
+                cliInfo(SKILLS_REFRESH_FALLBACK);
+            }
+            cliInfo(SKILLS_CLI_FALLBACK);
         } catch (error) {
             spinner.fail(chalk.red('Update failed'));
 

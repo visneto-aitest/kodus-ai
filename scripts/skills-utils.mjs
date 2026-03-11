@@ -4,6 +4,22 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 
+export function assertSafeChildName(value, label = 'path') {
+    const trimmed = String(value ?? '').trim();
+    if (
+        !trimmed ||
+        trimmed === '.' ||
+        trimmed === '..' ||
+        trimmed.includes('/') ||
+        trimmed.includes('\\') ||
+        path.basename(trimmed) !== trimmed
+    ) {
+        throw new Error(`Invalid ${label}: ${value}`);
+    }
+
+    return trimmed;
+}
+
 export async function exists(targetPath) {
     try {
         await fs.access(targetPath);

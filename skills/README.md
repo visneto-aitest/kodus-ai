@@ -8,8 +8,8 @@ This directory contains the agent skills shipped with the Kodus CLI repository.
     - Run local Kodus code review for workspace changes with the installed CLI.
 - `kodus-review-dev`
     - Run the local Kodus CLI build against a dev/localhost API using `scripts/run-local-cli.sh` (explicit dev request only).
-- `business-rules-validation`
-    - Run business rules validation from local diff scope with `kodus pr business-validation`.
+- `kodus-business-rules-validation`
+    - Canonical skill name for business rules validation in installers and multi-agent integrations.
 - `kodus-pr-suggestions-resolver`
     - Fetch PR suggestions and apply fixes with judgment.
 
@@ -20,10 +20,12 @@ This directory contains the agent skills shipped with the Kodus CLI repository.
     - If the request is delivery action (commit/push/merge) and no fresh review ran, ask to run Kodus review first.
 - User explicitly mentions local/dev CLI execution (`node dist/index.js`, `localhost:3001`, `KODUS_API_URL`, dev API/QA API)
     - Use `kodus-review-dev` instead of `kodus-review`.
-- User mentions `business validation`, `acceptance criteria`, `local diff vs task`, `kodus pr business-validation`
-    - Use `business-rules-validation`.
+- User mentions `business validation`, `acceptance criteria`, `local diff vs task`, `implementation vs task`, `kodus pr business-validation`
+    - Use `kodus-business-rules-validation`.
 - User asks to apply Kodus PR suggestions
     - Use `kodus-pr-suggestions-resolver`.
+- User asks to validate local implementation against a task, acceptance criteria, or business rules
+    - Use `kodus-business-rules-validation`.
 
 ## Notes
 
@@ -31,12 +33,17 @@ This directory contains the agent skills shipped with the Kodus CLI repository.
 - Some skills include helper scripts in `skills/<skill-name>/scripts/`.
 - Packaging these files in the npm artifact makes them available to external installers and local integration tooling.
 - Shipping the files here does not, by itself, install them into Claude Code, Cursor, Codex, or other agents. That installation step still depends on the integration tooling you use.
-- `kodus update` upgrades the CLI package only. Skill sync/deployment should be done via the installer tooling (for example `curl -fsSL https://review-skill.com/install | bash`).
+- `kodus skills install` installs bundled skills in detected local agent roots.
+- `kodus skills resync` re-syncs bundled skills in detected local agent directories.
+- `kodus skills uninstall` removes bundled managed skills from detected local agent directories.
+- For full multi-agent bootstrap/setup, use the platform installer tooling (`install.sh` for macOS/Linux, `install.ps1` for Windows PowerShell).
 
 ## For Integrators
 
 - Validate skill structure and metadata:
     - `npm run skills:validate`
+- Sync legacy alias folders from canonical skills:
+    - `npm run skills:sync`
 - Generate prompt metadata as XML (`<available_skills>`):
     - `npm run skills:prompt`
 - Generate prompt metadata as JSON:

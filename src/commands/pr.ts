@@ -10,11 +10,31 @@ import { markdownFormatter } from '../formatters/markdown.js';
 import { promptFormatter } from '../formatters/prompt.js';
 import type {
     GlobalOptions,
+    IssueCategory,
     OutputFormat,
     ReviewResult,
+    Severity,
 } from '../types/index.js';
 import { exitWithCode } from '../utils/cli-exit.js';
 import { cliDebug, cliError, cliInfo } from '../utils/logger.js';
+import { createCommandContext } from '../utils/command-context.js';
+import {
+    buildAgentErrorEnvelope,
+    buildAgentSuccessEnvelope,
+    emitAgentEnvelope,
+} from '../utils/command-output.js';
+import {
+    CommandError,
+    normalizeCommandError,
+} from '../utils/command-errors.js';
+import {
+    assertStructuredOutputForFields,
+    parseCsvEnumList,
+    parseFieldList,
+    parseOptionalNumber,
+    validateHttpUrl,
+} from '../utils/input-validation.js';
+import { applyFieldMask } from '../utils/field-mask.js';
 
 export const prCommand = new Command('pr').description('Pull request commands');
 
@@ -26,6 +46,10 @@ prCommand
     .option('--repo-id <id>', 'Repository ID for the pull request')
     .option('--severity <list>', 'Comma-separated severities to include')
     .option('--category <list>', 'Comma-separated categories to include')
+    .option(
+        '--fields <csv>',
+        'Select response fields (JSON/agent mode only), e.g. summary,issues.file',
+    )
     .action(
         async (
             options: {
@@ -34,36 +58,83 @@ prCommand
                 repoId?: string;
                 severity?: string;
                 category?: string;
+                fields?: string;
             },
             cmd: Command,
         ) => {
             const globalOpts = cmd.optsWithGlobals() as GlobalOptions;
+            const ctx = createCommandContext('pr suggestions', globalOpts);
             const spinner = ora();
 
             try {
-                const prNumber =
-                    options.prNumber !== undefined
-                        ? Number(options.prNumber)
-                        : undefined;
+                assertStructuredOutputForFields({
+                    fields: options.fields,
+                    format: globalOpts.format,
+                    isAgent: ctx.isAgent,
+                });
 
-                if (options.prNumber !== undefined && Number.isNaN(prNumber)) {
-                    throw new Error('Invalid --pr-number value');
-                }
+                const prNumber = parseOptionalNumber(
+                    options.prNumber,
+                    '--pr-number',
+                );
 
-                if (!options.prUrl && !(prNumber && options.repoId)) {
-                    cliError(
-                        chalk.red(
-                            'Provide --pr-url or both --pr-number and --repo-id.',
-                        ),
+                const normalizedPrUrl = options.prUrl
+                    ? validateHttpUrl(options.prUrl, '--pr-url')
+                    : undefined;
+
+                const allowedSeverities: readonly (
+                    | Severity
+                    | 'high'
+                    | 'medium'
+                    | 'low'
+                )[] = [
+                    'info',
+                    'warning',
+                    'error',
+                    'critical',
+                    'high',
+                    'medium',
+                    'low',
+                ];
+                const allowedCategories: readonly (
+                    | IssueCategory
+                    | 'documentation'
+                )[] = [
+                    'security_vulnerability',
+                    'performance',
+                    'code_quality',
+                    'best_practices',
+                    'style',
+                    'bug',
+                    'complexity',
+                    'maintainability',
+                    'documentation',
+                ];
+                const severityFilter = parseCsvEnumList(
+                    options.severity,
+                    '--severity',
+                    allowedSeverities,
+                );
+                const categoryFilter = parseCsvEnumList(
+                    options.category,
+                    '--category',
+                    allowedCategories,
+                );
+                const fields = parseFieldList(options.fields);
+
+                if (!normalizedPrUrl && !(prNumber && options.repoId)) {
+                    throw new CommandError(
+                        'INVALID_INPUT',
+                        'Provide --pr-url or both --pr-number and --repo-id.',
                     );
-                    exitWithCode(1);
                 }
 
                 const shouldRequestMarkdown =
-                    globalOpts.format === 'prompt' ||
-                    globalOpts.format === 'markdown';
+                    !ctx.isAgent &&
+                    (globalOpts.format === 'prompt' ||
+                        globalOpts.format === 'markdown');
 
-                if (!globalOpts.quiet) {
+                if (!globalOpts.quiet && !ctx.isAgent) {
                     spinner.start(
                         chalk.cyan('Fetching pull request suggestions...'),
                     );
@@ -71,22 +142,41 @@ prCommand
 
                 const { result, markdown } =
                     await reviewService.getPullRequestSuggestions({
-                        prUrl: options.prUrl,
+                        prUrl: normalizedPrUrl,
                         prNumber,
                         repositoryId: options.repoId,
                         format: shouldRequestMarkdown ? 'markdown' : undefined,
-                        severity: options.severity,
-                        category: options.category,
+                        severity: severityFilter?.join(','),
+                        category: categoryFilter?.join(','),
                     });
 
-                if (!globalOpts.quiet) {
+                if (!globalOpts.quiet && !ctx.isAgent) {
                     spinner.succeed(chalk.green('Suggestions fetched'));
+                }
+
+                const selectedResult = fields
+                    ? applyFieldMask(result, fields)
+                    : result;
+
+                if (ctx.isAgent) {
+                    await emitAgentEnvelope(
+                        buildAgentSuccessEnvelope(
+                            ctx.command,
+                            selectedResult,
+                            ctx.startedAt,
+                        ),
+                        ctx.outputFile,
+                    );
+                    return;
                 }
 
                 const output =
                     markdown && shouldRequestMarkdown
                         ? markdown
-                        : formatOutput(result, globalOpts.format);
+                        : formatOutput(
+                              selectedResult as ReviewResult,
+                              globalOpts.format,
+                          );
 
                 if (globalOpts.output) {
                     await fs.writeFile(globalOpts.output, output, 'utf-8');
@@ -97,6 +187,28 @@ prCommand
                     cliInfo(output);
                 }
             } catch (error) {
+                const normalized = normalizeCommandError(error);
+
+                if (ctx.isAgent) {
+                    await emitAgentEnvelope(
+                        buildAgentErrorEnvelope(
+                            ctx.command,
+                            {
+                                code: normalized.code,
+                                message: normalized.message,
+                                details: normalized.details,
+                            },
+                            ctx.startedAt,
+                        ),
+                        ctx.outputFile,
+                    );
+
+                    if (normalized.exitCode > 0) {
+                        exitWithCode(normalized.exitCode);
+                    }
+                    return;
+                }
+
                 if (!globalOpts.quiet) {
                     spinner.fail(
                         chalk.red('Failed to fetch pull request suggestions'),
@@ -107,19 +219,15 @@ prCommand
                     cliError(chalk.red(error.message));
                 }
 
-                exitWithCode(1);
+                exitWithCode(normalized.exitCode);
             }
         },
     );
 
 prCommand
     .command('business-validation')
-    .alias('business-rules-validation')
-    .description('Run business rules validation for local diff')
-    .argument(
-        '[files...]',
-        'Specific files to include in local diff mode',
-    )
+    .description('Run business rules validation for local diff only')
+    .argument('[files...]', 'Specific files to include in local diff mode')
     .option('--task-url <url>', 'Task URL to append to the validation command')
     .option('--task-id <id>', 'Task ID or issue key (e.g. KC-1441) to append')
     .option(
@@ -153,7 +261,9 @@ prCommand
 
             try {
                 if (options.taskUrl && options.taskId) {
-                    throw new Error('Provide only one of --task-url or --task-id.');
+                    throw new Error(
+                        'Provide only one of --task-url or --task-id.',
+                    );
                 }
 
                 const diff = await getLocalDiffForBusinessValidation(
@@ -205,6 +315,7 @@ prCommand
                     );
                 }
                 cliInfo(chalk.dim('Mode: local diff'));
+
                 if (response.repositoryName) {
                     cliInfo(
                         chalk.dim(`Repository: ${response.repositoryName}`),

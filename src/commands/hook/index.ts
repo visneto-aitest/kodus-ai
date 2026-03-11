@@ -18,12 +18,14 @@ hookCommand
     .option('--fast', 'Use fast mode for review (default: true)', true)
     .option('--no-fast', 'Disable fast mode for review')
     .option('--force', 'Overwrite existing hook without prompting')
-    .action(installAction);
+    .option('--dry-run', 'Print planned changes without writing files', false)
+    .action((options, cmd) => installAction(options, cmd.optsWithGlobals()));
 
 hookCommand
     .command('uninstall')
     .description('Remove pre-push hook installed by kodus')
-    .action(uninstallAction);
+    .option('--dry-run', 'Print planned changes without writing files', false)
+    .action((options, cmd) => uninstallAction(options, cmd.optsWithGlobals()));
 
 hookCommand
     .command('status')

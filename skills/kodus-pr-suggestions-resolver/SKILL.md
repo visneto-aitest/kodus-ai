@@ -1,6 +1,6 @@
 ---
 name: kodus-pr-suggestions-resolver
-description: Use when asked to fetch `kodus pr suggestions` for a PR URL/number/repo-id, analyze each suggestion against PR intent, implement reasonable fixes, run build/tests when available, and report what was done or skipped. Not for generic local `kodus review`.
+description: Use when the user wants to fetch, triage, or implement Kodus suggestions for an existing remote pull request via `kodus pr suggestions`, `--pr-url`, or `--pr-number`.
 ---
 
 # Kodus PR Suggestions Resolver
@@ -14,8 +14,8 @@ Fetch PR suggestions via Kodus CLI, triage each suggestion against the PR goal, 
 ### 1) Collect the PR target
 
 - If the user did not provide a target, ask for one of:
-  - `--pr-url <url>`
-  - `--pr-number <number>` with `--repo-id <id>`
+    - `--pr-url <url>`
+    - `--pr-number <number>` with `--repo-id <id>`
 - If multiple are provided, prefer `--pr-url`.
 
 ### 2) Run Kodus suggestions
@@ -36,9 +36,9 @@ kodus pr suggestions --pr-number <number> --repo-id <id>
 
 - Extract or confirm the PR goal from the user or PR context.
 - For each suggestion:
-  - Verify it does not conflict with the PR objective.
-  - Prefer small, low-risk changes that improve the PR without changing scope.
-  - Skip suggestions that are irrelevant, risky, or scope-expanding; note why.
+    - Verify it does not conflict with the PR objective.
+    - Prefer small, low-risk changes that improve the PR without changing scope.
+    - Skip suggestions that are irrelevant, risky, or scope-expanding; note why.
 
 ### 4) Apply fixes one by one
 

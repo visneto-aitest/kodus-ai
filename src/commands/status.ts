@@ -16,6 +16,8 @@ const pkg = require('../../package.json') as { version: string };
 const KODUS_HOOK_MARKER = '# kodus-hook';
 const DECISIONS_CAPTURE_COMMAND_PREFIX = 'kodus decisions capture';
 const CODEX_NOTIFY_LINE =
+    'notify = ["kodus", "decisions", "capture", "--capture-agent", "codex", "--event", "stop"]';
+const CODEX_NOTIFY_LINE_STOP_LEGACY =
     'notify = ["kodus", "decisions", "capture", "--agent", "codex", "--event", "stop"]';
 const CODEX_NOTIFY_LINE_LEGACY =
     'notify = ["kodus", "decisions", "capture", "--agent", "codex", "--event", "agent-turn-complete"]';
@@ -93,7 +95,6 @@ async function getDecisionHooksStatus(
         } catch {
             // Not configured.
         }
-
     }
 
     try {
@@ -103,6 +104,7 @@ async function getDecisionHooksStatus(
         );
         if (
             codexConfig.includes(CODEX_NOTIFY_LINE) ||
+            codexConfig.includes(CODEX_NOTIFY_LINE_STOP_LEGACY) ||
             codexConfig.includes(CODEX_NOTIFY_LINE_LEGACY)
         ) {
             configured.push('codex');

@@ -8,22 +8,22 @@ import type { ClaudeCodeHookEvent } from '../../../types/session.js';
  */
 
 const VALID_HOOKS: Set<ClaudeCodeHookEvent> = new Set([
-  'session-start',
-  'session-end',
-  'stop',
-  'user-prompt-submit',
-  'pre-task',
-  'post-task',
-  'post-todo',
+    'session-start',
+    'session-end',
+    'stop',
+    'user-prompt-submit',
+    'pre-task',
+    'post-task',
+    'post-todo',
 ]);
 
 export async function cursorHookAction(hookName: string): Promise<void> {
-  if (!VALID_HOOKS.has(hookName as ClaudeCodeHookEvent)) {
-    if (process.env.KODUS_VERBOSE === 'true') {
-      console.error(`[decisions] unknown Cursor hook: ${hookName}`);
+    if (!VALID_HOOKS.has(hookName as ClaudeCodeHookEvent)) {
+        if (process.env.KODUS_VERBOSE === 'true') {
+            console.error(`[decisions] unknown Cursor hook: ${hookName}`);
+        }
+        return;
     }
-    return;
-  }
 
-  await handleHook(claudeCodeAgent, hookName);
+    await handleHook(claudeCodeAgent, hookName);
 }

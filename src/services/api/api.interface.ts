@@ -1,5 +1,7 @@
 import type {
     AuthResponse,
+    ConfigAddRepositoriesResponse,
+    ConfigRepository,
     ReviewConfig,
     ReviewResult,
     PullRequestSuggestionsResponse,
@@ -55,9 +57,6 @@ export interface IReviewApi {
     triggerBusinessValidation(
         accessToken: string,
         params: {
-            prUrl?: string;
-            prNumber?: number;
-            repositoryId?: string;
             repository?: string;
             taskUrl?: string;
             taskId?: string;
@@ -78,12 +77,22 @@ export interface IMemoryApi {
     ): Promise<MemoryCaptureApiResponse>;
 }
 
+export interface IConfigApi {
+    getAvailableRepositories(accessToken: string): Promise<ConfigRepository[]>;
+    getSelectedRepositories(accessToken: string): Promise<ConfigRepository[]>;
+    addRepositories(
+        accessToken: string,
+        repositoryIds: string[],
+    ): Promise<ConfigAddRepositoriesResponse>;
+}
+
 export interface ISessionsApi {
-  sendEvent(event: SessionApiEvent, repoRoot: string): Promise<void>;
+    sendEvent(event: SessionApiEvent, repoRoot: string): Promise<void>;
 }
 
 export interface IKodusApi {
     auth: IAuthApi;
+    config: IConfigApi;
     review: IReviewApi;
     trial: ITrialApi;
     memory: IMemoryApi;

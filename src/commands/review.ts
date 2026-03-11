@@ -13,6 +13,18 @@ import { interactiveUI } from '../ui/interactive.js';
 import { showTrialLimitPrompt, checkTrialStatus } from '../utils/rate-limit.js';
 import { exitWithCode } from '../utils/cli-exit.js';
 import { cliDebug, cliError, cliInfo } from '../utils/logger.js';
+import { createCommandContext } from '../utils/command-context.js';
+import {
+    buildAgentErrorEnvelope,
+    buildAgentSuccessEnvelope,
+    emitAgentEnvelope,
+} from '../utils/command-output.js';
+import { normalizeCommandError } from '../utils/command-errors.js';
+import {
+    assertStructuredOutputForFields,
+    parseFieldList,
+} from '../utils/input-validation.js';
+import { applyFieldMask } from '../utils/field-mask.js';
 import type {
     GlobalOptions,
     OutputFormat,
@@ -46,6 +58,10 @@ export const reviewCommand = new Command('review')
         'Exit with code 1 if issues meet or exceed severity (info, warning, error, critical)',
     )
     .option('--context <file>', 'Custom context file to include in review')
+    .option(
+        '--fields <csv>',
+        'Select response fields (JSON/agent mode only), e.g. summary,issues.file',
+    )
     .action(
         async (
             files: string[],
@@ -60,6 +76,7 @@ export const reviewCommand = new Command('review')
                 promptOnly?: boolean;
                 context?: string;
                 failOn?: string;
+                fields?: string;
             },
             cmd: Command,
         ) => {
@@ -67,23 +84,32 @@ export const reviewCommand = new Command('review')
                 staged?: boolean;
                 commit?: string;
             };
+            const ctx = createCommandContext('review', globalOpts);
             const spinner = ora();
+            const fields = parseFieldList(options.fields);
 
             try {
-                const isAuthenticated = await authService.isAuthenticated();
+                assertStructuredOutputForFields({
+                    fields: options.fields,
+                    format: globalOpts.format,
+                    isAgent: ctx.isAgent,
+                });
+
                 // Override format if --prompt-only is set
-                if (options.promptOnly) {
+                if (options.promptOnly && !ctx.isAgent) {
                     globalOpts.format = 'prompt';
                 }
 
-                if (!globalOpts.quiet) {
+                const isAuthenticated = await authService.isAuthenticated();
+
+                if (!globalOpts.quiet && !ctx.isAgent) {
                     spinner.start(chalk.cyan('Checking authentication...'));
                 }
 
                 let result: ReviewResult | TrialReviewResult;
 
                 if (isAuthenticated) {
-                    if (!globalOpts.quiet) {
+                    if (!globalOpts.quiet && !ctx.isAgent) {
                         spinner.text = chalk.cyan('Getting file changes...');
                     }
 
@@ -94,6 +120,21 @@ export const reviewCommand = new Command('review')
                     );
 
                     if (!diff) {
+                        if (ctx.isAgent) {
+                            await emitAgentEnvelope(
+                                buildAgentErrorEnvelope(
+                                    ctx.command,
+                                    {
+                                        code: 'NO_CHANGES',
+                                        message: 'No changes to review',
+                                    },
+                                    ctx.startedAt,
+                                ),
+                                ctx.outputFile,
+                            );
+                            return;
+                        }
+
                         if (!globalOpts.quiet) {
                             spinner.fail(chalk.yellow('No changes to review'));
                         }
@@ -129,7 +170,7 @@ export const reviewCommand = new Command('review')
                     }
 
                     // Enrich with project context
-                    if (!globalOpts.quiet) {
+                    if (!globalOpts.quiet && !ctx.isAgent) {
                         spinner.text = chalk.cyan('Reading project context...');
                     }
 
@@ -147,7 +188,7 @@ export const reviewCommand = new Command('review')
                         globalOpts.verbose,
                     );
 
-                    if (!globalOpts.quiet) {
+                    if (!globalOpts.quiet && !ctx.isAgent) {
                         spinner.text = chalk.cyan('Analyzing code...');
                     }
 
@@ -169,13 +210,13 @@ export const reviewCommand = new Command('review')
                         },
                     );
                     const modeLabel = options.fast ? ' (fast mode)' : '';
-                    if (!globalOpts.quiet) {
+                    if (!globalOpts.quiet && !ctx.isAgent) {
                         spinner.succeed(
                             chalk.green(`Review complete!${modeLabel}`),
                         );
                     }
                 } else {
-                    if (!globalOpts.quiet) {
+                    if (!globalOpts.quiet && !ctx.isAgent) {
                         spinner.text = chalk.cyan('Running in trial mode...');
                     }
 
@@ -187,7 +228,7 @@ export const reviewCommand = new Command('review')
                         return;
                     }
 
-                    if (!globalOpts.quiet) {
+                    if (!globalOpts.quiet && !ctx.isAgent) {
                         spinner.text = chalk.cyan('Getting file changes...');
                     }
 
@@ -198,6 +239,21 @@ export const reviewCommand = new Command('review')
                     );
 
                     if (!diff) {
+                        if (ctx.isAgent) {
+                            await emitAgentEnvelope(
+                                buildAgentErrorEnvelope(
+                                    ctx.command,
+                                    {
+                                        code: 'NO_CHANGES',
+                                        message: 'No changes to review',
+                                    },
+                                    ctx.startedAt,
+                                ),
+                                ctx.outputFile,
+                            );
+                            return;
+                        }
+
                         if (!globalOpts.quiet) {
                             spinner.fail(chalk.yellow('No changes to review'));
                         }
@@ -233,7 +289,7 @@ export const reviewCommand = new Command('review')
                     }
 
                     // Enrich with project context
-                    if (!globalOpts.quiet) {
+                    if (!globalOpts.quiet && !ctx.isAgent) {
                         spinner.text = chalk.cyan('Reading project context...');
                     }
 
@@ -251,7 +307,7 @@ export const reviewCommand = new Command('review')
                         globalOpts.verbose,
                     );
 
-                    if (!globalOpts.quiet) {
+                    if (!globalOpts.quiet && !ctx.isAgent) {
                         spinner.text = chalk.cyan(
                             'Analyzing code (trial mode)...',
                         );
@@ -263,7 +319,7 @@ export const reviewCommand = new Command('review')
 
                     const trialResult = await reviewService.trialAnalyze(diff);
                     result = trialResult;
-                    if (!globalOpts.quiet) {
+                    if (!globalOpts.quiet && !ctx.isAgent) {
                         spinner.succeed(
                             chalk.green(
                                 formatTrialCompletionMessage(trialResult),
@@ -275,31 +331,64 @@ export const reviewCommand = new Command('review')
                 // Handle fix mode
                 if (options.fix) {
                     await interactiveUI.runQuickFix(result);
+
+                    if (ctx.isAgent) {
+                        await emitAgentEnvelope(
+                            buildAgentSuccessEnvelope(
+                                ctx.command,
+                                { fixedIssues: true },
+                                ctx.startedAt,
+                            ),
+                            ctx.outputFile,
+                        );
+                    }
                     return;
                 }
 
+                const selectedResult = fields
+                    ? applyFieldMask(result, fields)
+                    : result;
+
                 // Handle interactive mode (now default if no output format specified)
                 const shouldUseInteractive =
-                    options.interactive ||
-                    (!globalOpts.output && globalOpts.format === 'terminal');
+                    (!ctx.isAgent && options.interactive) ||
+                    (!ctx.isAgent &&
+                        !globalOpts.output &&
+                        globalOpts.format === 'terminal');
 
                 if (shouldUseInteractive) {
                     await interactiveUI.run(result);
                     return;
                 }
 
-                // Regular output (only when --format or --output is specified)
-                const output = formatOutput(result, globalOpts.format);
-
-                if (globalOpts.output) {
-                    await fs.writeFile(globalOpts.output, output, 'utf-8');
-                    cliInfo(
-                        chalk.green(`\nOutput saved to ${globalOpts.output}`),
+                if (ctx.isAgent) {
+                    await emitAgentEnvelope(
+                        buildAgentSuccessEnvelope(
+                            ctx.command,
+                            selectedResult,
+                            ctx.startedAt,
+                        ),
+                        ctx.outputFile,
                     );
-                } else if (globalOpts.format === 'terminal') {
-                    cliInfo(output);
                 } else {
-                    cliInfo(output);
+                    // Regular output (only when --format or --output is specified)
+                    const output = formatOutput(
+                        selectedResult as ReviewResult,
+                        globalOpts.format,
+                    );
+
+                    if (globalOpts.output) {
+                        await fs.writeFile(globalOpts.output, output, 'utf-8');
+                        cliInfo(
+                            chalk.green(
+                                `\nOutput saved to ${globalOpts.output}`,
+                            ),
+                        );
+                    } else if (globalOpts.format === 'terminal') {
+                        cliInfo(output);
+                    } else {
+                        cliInfo(output);
+                    }
                 }
 
                 // Check --fail-on after output
@@ -319,6 +408,28 @@ export const reviewCommand = new Command('review')
                     }
                 }
             } catch (error) {
+                const normalized = normalizeCommandError(error);
+
+                if (ctx.isAgent) {
+                    await emitAgentEnvelope(
+                        buildAgentErrorEnvelope(
+                            ctx.command,
+                            {
+                                code: normalized.code,
+                                message: normalized.message,
+                                details: normalized.details,
+                            },
+                            ctx.startedAt,
+                        ),
+                        ctx.outputFile,
+                    );
+
+                    if (normalized.exitCode > 0) {
+                        exitWithCode(normalized.exitCode);
+                    }
+                    return;
+                }
+
                 if (!globalOpts.quiet) {
                     spinner.fail(chalk.red('Review failed'));
                 }
@@ -334,7 +445,7 @@ export const reviewCommand = new Command('review')
                         cliError(error);
                     }
                 }
-                exitWithCode(1);
+                exitWithCode(normalized.exitCode);
             }
         },
     );

@@ -8,6 +8,9 @@ import { prCommand } from './commands/pr.js';
 import { hookCommand } from './commands/hook/index.js';
 import { decisionsCommand } from './commands/memory/index.js';
 import { statusCommand } from './commands/status.js';
+import { skillsCommand } from './commands/skills.js';
+import { createSchemaCommand } from './commands/schema.js';
+import { configCommand } from './commands/config.js';
 import { checkForUpdates } from './utils/update-check.js';
 import { setCliOutputMode } from './utils/logger.js';
 import { recordRecentActivity } from './utils/recent-activity.js';
@@ -29,7 +32,8 @@ program
     )
     .option('-o, --output <file>', 'Output file (for json/markdown)')
     .option('-v, --verbose', 'Verbose output', false)
-    .option('-q, --quiet', 'Quiet mode (errors only)', false);
+    .option('-q, --quiet', 'Quiet mode (errors only)', false)
+    .option('--agent', 'Agent mode: deterministic machine-readable output');
 
 program.addCommand(reviewCommand);
 program.addCommand(authCommand);
@@ -39,6 +43,9 @@ program.addCommand(prCommand);
 program.addCommand(hookCommand);
 program.addCommand(decisionsCommand);
 program.addCommand(statusCommand);
+program.addCommand(skillsCommand);
+program.addCommand(configCommand);
+program.addCommand(createSchemaCommand(() => program));
 
 program.hook('preAction', (_thisCommand, actionCommand) => {
     const opts = actionCommand.optsWithGlobals() as {
