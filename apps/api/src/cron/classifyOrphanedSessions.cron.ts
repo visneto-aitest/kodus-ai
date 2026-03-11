@@ -28,47 +28,83 @@ export class ClassifyOrphanedSessionsCronProvider {
     })
     async handleCron() {
         try {
+            let succeeded = 0;
+            let failed = 0;
+
+            // 1. Recover synthetic session_end events that were created in a
+            //    previous run but never classified (e.g. crash between insert
+            //    and classify).
+            const stuckEnds =
+                await this.sessionEventRepository.findUnclassifiedSyntheticEnds(
+                    BATCH_LIMIT,
+                );
+
+            if (stuckEnds.length) {
+                this.logger.log({
+                    message: `Recovering ${stuckEnds.length} unclassified synthetic session_end(s)`,
+                    context: ClassifyOrphanedSessionsCronProvider.name,
+                });
+
+                for (const evt of stuckEnds) {
+                    try {
+                        await this.classifySessionUseCase.execute(evt.uuid);
+                        succeeded++;
+                    } catch (error) {
+                        failed++;
+                        this.logger.error({
+                            message:
+                                'Failed to recover classification for synthetic session_end',
+                            context:
+                                ClassifyOrphanedSessionsCronProvider.name,
+                            error,
+                            metadata: { uuid: evt.uuid, sessionId: evt.sessionId },
+                        });
+                    }
+                }
+            }
+
+            // 2. Find new orphaned sessions (no session_end at all).
             const orphaned =
                 await this.sessionEventRepository.findOrphanedSessions(
                     INACTIVITY_THRESHOLD_MINUTES,
                     BATCH_LIMIT,
                 );
 
-            if (!orphaned.length) {
+            if (!orphaned.length && !stuckEnds.length) {
                 return;
             }
 
-            this.logger.log({
-                message: `Found ${orphaned.length} orphaned session(s) to classify`,
-                context: ClassifyOrphanedSessionsCronProvider.name,
-                metadata: {
-                    sessionIds: orphaned.map((s) => s.sessionId),
-                },
-            });
+            if (orphaned.length) {
+                this.logger.log({
+                    message: `Found ${orphaned.length} orphaned session(s) to classify`,
+                    context: ClassifyOrphanedSessionsCronProvider.name,
+                    metadata: {
+                        sessionIds: orphaned.map((s) => s.sessionId),
+                    },
+                });
 
-            let succeeded = 0;
-            let failed = 0;
+                // Process in chunks to balance throughput vs memory
+                for (let i = 0; i < orphaned.length; i += CONCURRENCY) {
+                    const chunk = orphaned.slice(i, i + CONCURRENCY);
+                    const results = await Promise.allSettled(
+                        chunk.map((session) =>
+                            this.classifyOrphanedSession(session),
+                        ),
+                    );
 
-            // Process in chunks to balance throughput vs memory
-            for (let i = 0; i < orphaned.length; i += CONCURRENCY) {
-                const chunk = orphaned.slice(i, i + CONCURRENCY);
-                const results = await Promise.allSettled(
-                    chunk.map((session) =>
-                        this.classifyOrphanedSession(session),
-                    ),
-                );
-
-                for (const result of results) {
-                    if (result.status === 'fulfilled') {
-                        succeeded++;
-                    } else {
-                        failed++;
-                        this.logger.error({
-                            message: 'Failed to classify orphaned session',
-                            context:
-                                ClassifyOrphanedSessionsCronProvider.name,
-                            error: result.reason,
-                        });
+                    for (const result of results) {
+                        if (result.status === 'fulfilled') {
+                            succeeded++;
+                        } else {
+                            failed++;
+                            this.logger.error({
+                                message:
+                                    'Failed to classify orphaned session',
+                                context:
+                                    ClassifyOrphanedSessionsCronProvider.name,
+                                error: result.reason,
+                            });
+                        }
                     }
                 }
             }
@@ -77,7 +113,7 @@ export class ClassifyOrphanedSessionsCronProvider {
                 message: 'Orphaned sessions classification completed',
                 context: ClassifyOrphanedSessionsCronProvider.name,
                 metadata: {
-                    total: orphaned.length,
+                    total: orphaned.length + stuckEnds.length,
                     succeeded,
                     failed,
                 },

@@ -28,6 +28,7 @@ describe('ClassifyOrphanedSessionsCronProvider', () => {
     beforeEach(() => {
         repo = {
             findOrphanedSessions: jest.fn().mockResolvedValue([]),
+            findUnclassifiedSyntheticEnds: jest.fn().mockResolvedValue([]),
             create: jest.fn(),
         } as any;
 
@@ -117,5 +118,36 @@ describe('ClassifyOrphanedSessionsCronProvider', () => {
 
         // Should not throw
         await expect(cron.handleCron()).resolves.not.toThrow();
+    });
+
+    it('recovers unclassified synthetic session_end events from previous crashes', async () => {
+        const stuckEvent = {
+            uuid: 'stuck-end-1',
+            sessionId: 'sess-stuck',
+            type: 'session_end',
+            payload: { synthetic: true },
+        };
+        repo.findUnclassifiedSyntheticEnds.mockResolvedValue([stuckEvent]);
+
+        await cron.handleCron();
+
+        expect(repo.findUnclassifiedSyntheticEnds).toHaveBeenCalledWith(10);
+        expect(classifyUseCase.execute).toHaveBeenCalledWith('stuck-end-1');
+    });
+
+    it('handles both recovery and new orphans in the same run', async () => {
+        const stuckEvent = { uuid: 'stuck-1', sessionId: 'sess-stuck' };
+        repo.findUnclassifiedSyntheticEnds.mockResolvedValue([stuckEvent]);
+
+        const orphaned = makeOrphanedSession('sess-new');
+        repo.findOrphanedSessions.mockResolvedValue([orphaned]);
+        repo.create.mockResolvedValue({ uuid: 'synth-new' } as any);
+
+        await cron.handleCron();
+
+        // Recovery + new orphan classification
+        expect(classifyUseCase.execute).toHaveBeenCalledWith('stuck-1');
+        expect(classifyUseCase.execute).toHaveBeenCalledWith('synth-new');
+        expect(classifyUseCase.execute).toHaveBeenCalledTimes(2);
     });
 });
