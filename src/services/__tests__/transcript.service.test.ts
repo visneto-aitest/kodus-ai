@@ -305,6 +305,22 @@ describe('TranscriptService.parse', () => {
         expect(result.prompts).toEqual(['second prompt']);
     });
 
+    it('skips the partial line when fromOffset starts mid-line', async () => {
+        const line1 = writeLine({
+            message: { role: 'human', content: 'first prompt' },
+        });
+        const line2 = writeLine({
+            message: { role: 'human', content: 'second prompt' },
+        });
+        const filePath = await writeTranscript([line1, line2]);
+
+        const offset = Math.floor(line1.length / 2);
+        const result = await transcriptService.parse(filePath, offset);
+
+        expect(result.prompts).toEqual(['second prompt']);
+        expect(result.entryCount).toBe(1);
+    });
+
     it('skips malformed JSON lines', async () => {
         const filePath = await writeTranscript([
             'not json at all',

@@ -49,4 +49,15 @@ describe('field mask', () => {
             applyFieldMask({ summary: 'ok' }, ['issues.file']),
         ).toThrow('Unknown field path');
     });
+
+    it('throws when a nested array path is missing in any item', () => {
+        expect(() =>
+            applyFieldMask(
+                {
+                    issues: [{ file: 'a.ts', line: 10 }, { line: 20 }],
+                },
+                ['issues.file'],
+            ),
+        ).toThrow('Unknown field path');
+    });
 });

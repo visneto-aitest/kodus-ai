@@ -57,9 +57,10 @@ async function appendPending(
     repoRoot: string,
     event: SessionApiEvent,
 ): Promise<void> {
-    const lines = await readPending(repoRoot);
-    lines.push(JSON.stringify(event));
-    await writePending(repoRoot, lines);
+    const filePath = await pendingPath(repoRoot);
+    const dir = path.dirname(filePath);
+    await fs.mkdir(dir, { recursive: true });
+    await fs.appendFile(filePath, `${JSON.stringify(event)}\n`, 'utf-8');
 }
 
 async function postEvent(event: SessionApiEvent, token: string): Promise<void> {

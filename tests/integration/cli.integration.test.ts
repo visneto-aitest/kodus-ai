@@ -599,6 +599,27 @@ describe('auth status integration', () => {
 // Hook commands — install, status, uninstall
 // ---------------------------------------------------------------------------
 describe('hook integration', () => {
+    it('kodus hook install --agent returns structured error outside git repo', async () => {
+        const nonRepoDir = await fs.mkdtemp(
+            path.join(os.tmpdir(), 'kodus-non-repo-'),
+        );
+
+        try {
+            const { stdout, exitCode } = await runCli(
+                ['hook', 'install', '--agent'],
+                { cwd: nonRepoDir },
+            );
+
+            expect(exitCode).toBe(1);
+            const json = parseFirstJsonObject(stdout);
+            expect(json.ok).toBe(false);
+            expect(json.command).toBe('hook install');
+            expect(json.error.code).toBe('NOT_IN_GIT_REPO');
+        } finally {
+            await fs.rm(nonRepoDir, { recursive: true, force: true });
+        }
+    });
+
     it('kodus hook install --dry-run does not create pre-push hook', async () => {
         const hookPath = path.join(gitRepoDir, '.git', 'hooks', 'pre-push');
         await fs.unlink(hookPath).catch(() => {});
@@ -657,6 +678,27 @@ describe('hook integration', () => {
 
         const hookPath = path.join(gitRepoDir, '.git', 'hooks', 'pre-push');
         await expect(fs.access(hookPath)).rejects.toThrow();
+    });
+
+    it('kodus hook uninstall --agent returns structured error outside git repo', async () => {
+        const nonRepoDir = await fs.mkdtemp(
+            path.join(os.tmpdir(), 'kodus-non-repo-'),
+        );
+
+        try {
+            const { stdout, exitCode } = await runCli(
+                ['hook', 'uninstall', '--agent'],
+                { cwd: nonRepoDir },
+            );
+
+            expect(exitCode).toBe(1);
+            const json = parseFirstJsonObject(stdout);
+            expect(json.ok).toBe(false);
+            expect(json.command).toBe('hook uninstall');
+            expect(json.error.code).toBe('NOT_IN_GIT_REPO');
+        } finally {
+            await fs.rm(nonRepoDir, { recursive: true, force: true });
+        }
     });
 });
 
@@ -759,6 +801,27 @@ describe('decisions integration', () => {
         // No local file should be created — capture only sends to API on stop
         const memoryDir = path.join(gitRepoDir, '.kody', 'pr');
         await expect(fs.access(memoryDir)).rejects.toThrow();
+    });
+
+    it('kodus decisions disable --agent returns structured error outside git repo', async () => {
+        const nonRepoDir = await fs.mkdtemp(
+            path.join(os.tmpdir(), 'kodus-non-repo-'),
+        );
+
+        try {
+            const { stdout, exitCode } = await runCli(
+                ['decisions', 'disable', '--agent'],
+                { cwd: nonRepoDir },
+            );
+
+            expect(exitCode).toBe(1);
+            const json = parseFirstJsonObject(stdout);
+            expect(json.ok).toBe(false);
+            expect(json.command).toBe('decisions disable');
+            expect(json.error.code).toBe('NOT_IN_GIT_REPO');
+        } finally {
+            await fs.rm(nonRepoDir, { recursive: true, force: true });
+        }
     });
 });
 

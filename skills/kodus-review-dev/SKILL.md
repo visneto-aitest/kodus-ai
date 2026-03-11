@@ -26,7 +26,7 @@ If the request is to validate local changes against business rules, task require
 
 2. Ensure authentication if required.
 
-- If the review fails with auth, run the same command with `auth login` (interactive) and retry.
+- If the review fails with auth, ask the human to authenticate with `kodus auth login` in their terminal, then retry after they confirm.
 - For team keys, use `auth team-key --key <key>` with the same helper script when provided by the user.
 
 3. Run review using prompt-only output.

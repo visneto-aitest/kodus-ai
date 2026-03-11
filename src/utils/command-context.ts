@@ -15,12 +15,15 @@ export function createCommandContext(
     globalOpts: GlobalOptions,
 ): CommandContext {
     const isAgent = !!globalOpts.agent;
+    const outputFormat: OutputFormat = isAgent
+        ? 'json'
+        : (globalOpts.format ?? 'terminal');
 
     return {
         command,
         mode: isAgent ? 'agent' : 'human',
         isAgent,
-        outputFormat: isAgent ? 'json' : globalOpts.format,
+        outputFormat,
         startedAt: Date.now(),
         outputFile: globalOpts.output,
     };

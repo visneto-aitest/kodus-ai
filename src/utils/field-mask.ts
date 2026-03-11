@@ -42,7 +42,14 @@ function projectAtPath(value: unknown, segments: string[]): unknown {
     }
 
     if (Array.isArray(value)) {
-        return value.map((item) => projectAtPath(item, segments));
+        const projectedItems = value.map((item) =>
+            projectAtPath(item, segments),
+        );
+        if (projectedItems.some((item) => item === undefined)) {
+            return undefined;
+        }
+
+        return projectedItems;
     }
 
     if (!isRecord(value)) {

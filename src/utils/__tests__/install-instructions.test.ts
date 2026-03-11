@@ -16,6 +16,7 @@ describe('install instructions', () => {
         expect(instructions.primary).toContain('install.ps1');
         expect(instructions.primary).toContain('Invoke-RestMethod');
         expect(instructions.fallback).toContain('Invoke-WebRequest');
-        expect(instructions.fallback).toContain('.\\install.ps1');
+        expect(instructions.fallback).toContain('Invoke-Expression');
+        expect(instructions.fallback).not.toContain('&&');
     });
 });

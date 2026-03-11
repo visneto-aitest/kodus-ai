@@ -8,6 +8,7 @@ import type {
     MemoryCaptureApiRequest,
 } from '../../types/memory.js';
 import { cliError, cliInfo, isCliVerboseMode } from '../../utils/logger.js';
+import { readStreamPayload } from '../../utils/stream-input.js';
 
 interface CaptureOptions {
     agent: string;
@@ -84,52 +85,8 @@ function resolveAgent(rawAgent: string): string {
 }
 
 async function readStdinIfAvailable(): Promise<string | undefined> {
-    if (process.stdin.isTTY) {
-        return undefined;
-    }
-
-    return new Promise<string>((resolve, reject) => {
-        let data = '';
-        let settled = false;
-        const noDataTimer = setTimeout(() => {
-            finish(undefined);
-        }, 750);
-        const brokenStreamTimer = setTimeout(() => {
-            finish(data.length > 0 ? data : undefined);
-        }, 5000);
-
-        const finish = (value: string | undefined): void => {
-            if (settled) {
-                return;
-            }
-            settled = true;
-            clearTimeout(noDataTimer);
-            clearTimeout(brokenStreamTimer);
-            process.stdin.removeAllListeners('data');
-            process.stdin.removeAllListeners('end');
-            process.stdin.removeAllListeners('error');
-            resolve(value ?? '');
-        };
-
-        process.stdin.setEncoding('utf-8');
-
-        process.stdin.on('data', (chunk: string) => {
-            data += chunk;
-            clearTimeout(noDataTimer);
-        });
-
-        process.stdin.on('end', () => {
-            finish(data);
-        });
-
-        process.stdin.on('error', (error) => {
-            clearTimeout(noDataTimer);
-            clearTimeout(brokenStreamTimer);
-            reject(error);
-        });
-
-        process.stdin.resume();
-    });
+    const payload = await readStreamPayload(process.stdin);
+    return payload || undefined;
 }
 
 function parsePayload(rawPayload: string): unknown {

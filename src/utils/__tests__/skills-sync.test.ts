@@ -264,4 +264,28 @@ describe('skills-sync utilities', () => {
             await exists(path.join(baseDir, 'business-rules-validation')),
         ).toBe(false);
     });
+
+    it('rejects skill names that escape the target directory', async () => {
+        const tempRoot = await makeTempDir('kodus-skills-invalid-');
+        tempDirs.push(tempRoot);
+
+        const baseDir = path.join(tempRoot, '.codex', 'skills');
+        await fs.mkdir(baseDir, { recursive: true });
+
+        await expect(
+            syncSkillsToTargets(
+                [
+                    {
+                        label: 'Codex invalid',
+                        type: 'skill',
+                        activationPath: path.join(tempRoot, '.codex'),
+                        baseDir,
+                    },
+                ],
+                {
+                    skills: [{ name: '../evil', content: 'bad' }],
+                },
+            ),
+        ).rejects.toThrow('Invalid skill name');
+    });
 });

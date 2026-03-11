@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { renderAliasSkillContent, SKILL_ALIASES } from './skills-aliases.mjs';
+import { assertSafeChildName } from './skills-utils.mjs';
 
 async function syncAlias(canonicalDir, aliasDir) {
     const canonicalFile = path.join(canonicalDir, 'SKILL.md');
@@ -38,8 +39,14 @@ async function main() {
     let unchanged = 0;
 
     for (const entry of SKILL_ALIASES) {
-        const canonicalDir = path.join(skillsRoot, entry.canonical);
-        const aliasDir = path.join(skillsRoot, entry.alias);
+        const canonicalDir = path.join(
+            skillsRoot,
+            assertSafeChildName(entry.canonical, 'canonical skill name'),
+        );
+        const aliasDir = path.join(
+            skillsRoot,
+            assertSafeChildName(entry.alias, 'alias skill name'),
+        );
         const status = await syncAlias(canonicalDir, aliasDir);
         if (status === 'created') {
             created += 1;

@@ -8,9 +8,14 @@ import { cliError, cliInfo } from '../../utils/logger.js';
 import type { GlobalOptions } from '../../types/index.js';
 import { createCommandContext } from '../../utils/command-context.js';
 import {
+    buildAgentErrorEnvelope,
     buildAgentSuccessEnvelope,
     emitAgentEnvelope,
 } from '../../utils/command-output.js';
+import {
+    CommandError,
+    normalizeCommandError,
+} from '../../utils/command-errors.js';
 
 const KODUS_MARKER = '# kodus-hook';
 
@@ -91,80 +96,97 @@ export async function installAction(
     const failOn = options.failOn ?? 'critical';
     const fast = options.fast !== false; // default true
 
-    const isRepo = await gitService.isGitRepository();
-    if (!isRepo) {
-        cliError(chalk.red('Error: Not a git repository.'));
-        exitWithCode(1);
-    }
-
-    const gitRoot = await gitService.getGitRoot();
-    const hooksDir = path.join(gitRoot.trim(), '.git', 'hooks');
-    const hookPath = path.join(hooksDir, 'pre-push');
-
-    // Check if hook already exists
-    let existingContent: string | null = null;
     try {
-        existingContent = await fs.readFile(hookPath, 'utf-8');
-    } catch {
-        // File doesn't exist
-    }
+        const isRepo = await gitService.isGitRepository();
+        if (!isRepo) {
+            throw new CommandError('NOT_IN_GIT_REPO', 'Not a git repository.');
+        }
 
-    const isKodusHook = existingContent
-        ? existingContent.includes(KODUS_MARKER)
-        : false;
+        const gitRoot = await gitService.getGitRoot();
+        const hooksDir = path.join(gitRoot.trim(), '.git', 'hooks');
+        const hookPath = path.join(hooksDir, 'pre-push');
 
-    if (options.dryRun) {
-        const payload = {
-            action: 'hook install',
-            path: hookPath,
-            failOn,
-            fast,
-            hasExistingHook: !!existingContent,
-            wouldPromptForOverwrite:
-                !!existingContent && !isKodusHook && !options.force,
-        };
+        // Check if hook already exists
+        let existingContent: string | null = null;
+        try {
+            existingContent = await fs.readFile(hookPath, 'utf-8');
+        } catch {
+            // File doesn't exist
+        }
 
-        if (ctx.isAgent) {
-            await emitAgentEnvelope(
-                buildAgentSuccessEnvelope(ctx.command, payload, ctx.startedAt),
-                ctx.outputFile,
-            );
+        const isKodusHook = existingContent
+            ? existingContent.includes(KODUS_MARKER)
+            : false;
+
+        if (options.dryRun) {
+            const payload = {
+                action: 'hook install',
+                path: hookPath,
+                failOn,
+                fast,
+                hasExistingHook: !!existingContent,
+                wouldPromptForOverwrite:
+                    !!existingContent && !isKodusHook && !options.force,
+            };
+
+            if (ctx.isAgent) {
+                await emitAgentEnvelope(
+                    buildAgentSuccessEnvelope(
+                        ctx.command,
+                        payload,
+                        ctx.startedAt,
+                    ),
+                    ctx.outputFile,
+                );
+                return;
+            }
+
+            cliInfo(chalk.cyan('Dry run: no changes were made.'));
+            cliInfo(JSON.stringify(payload, null, 2));
             return;
         }
 
-        cliInfo(chalk.cyan('Dry run: no changes were made.'));
-        cliInfo(JSON.stringify(payload, null, 2));
-        return;
-    }
+        if (existingContent) {
+            if (!isKodusHook && !options.force) {
+                const overwrite = await confirm({
+                    message: 'A pre-push hook already exists. Overwrite it?',
+                    default: false,
+                });
 
-    if (existingContent) {
-        if (!isKodusHook && !options.force) {
-            const overwrite = await confirm({
-                message: 'A pre-push hook already exists. Overwrite it?',
-                default: false,
-            });
-
-            if (!overwrite) {
-                cliInfo(chalk.yellow('Installation cancelled.'));
-                return;
+                if (!overwrite) {
+                    cliInfo(chalk.yellow('Installation cancelled.'));
+                    return;
+                }
             }
         }
+
+        // Ensure hooks directory exists
+        await fs.mkdir(hooksDir, { recursive: true });
+
+        // Write hook script
+        const script = generateHookScript(failOn, fast);
+        await fs.writeFile(hookPath, script, { mode: 0o755 });
+
+        cliInfo(chalk.green('✓ Pre-push hook installed successfully!'));
+        cliInfo(chalk.dim(`  Path: ${hookPath}`));
+        cliInfo(chalk.dim(`  Fail on: ${failOn}`));
+        cliInfo(chalk.dim(`  Fast mode: ${fast ? 'yes' : 'no'}`));
+        cliInfo('');
+        cliInfo(chalk.dim('Skip with: KODUS_SKIP_HOOK=1 git push'));
+        cliInfo(chalk.dim('Remove with: kodus hook uninstall'));
+    } catch (error) {
+        const normalized = normalizeCommandError(error);
+        if (ctx.isAgent) {
+            await emitAgentEnvelope(
+                buildAgentErrorEnvelope(ctx.command, normalized, ctx.startedAt),
+                ctx.outputFile,
+            );
+            exitWithCode(normalized.exitCode);
+        }
+
+        cliError(chalk.red(`Error: ${normalized.message}`));
+        exitWithCode(normalized.exitCode);
     }
-
-    // Ensure hooks directory exists
-    await fs.mkdir(hooksDir, { recursive: true });
-
-    // Write hook script
-    const script = generateHookScript(failOn, fast);
-    await fs.writeFile(hookPath, script, { mode: 0o755 });
-
-    cliInfo(chalk.green('✓ Pre-push hook installed successfully!'));
-    cliInfo(chalk.dim(`  Path: ${hookPath}`));
-    cliInfo(chalk.dim(`  Fail on: ${failOn}`));
-    cliInfo(chalk.dim(`  Fast mode: ${fast ? 'yes' : 'no'}`));
-    cliInfo('');
-    cliInfo(chalk.dim('Skip with: KODUS_SKIP_HOOK=1 git push'));
-    cliInfo(chalk.dim('Remove with: kodus hook uninstall'));
 }
 
 export { KODUS_MARKER, generateHookScript };

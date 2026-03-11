@@ -14,10 +14,7 @@ export function resolveRemoteInstallInstructions(
     if (platform === 'win32') {
         return {
             primary: `powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-RestMethod ${WINDOWS_INSTALLER_URL} | Invoke-Expression"`,
-            fallback: [
-                `powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest ${WINDOWS_INSTALLER_URL} -OutFile install.ps1"`,
-                'powershell -NoProfile -ExecutionPolicy Bypass -File .\\install.ps1',
-            ].join(' && '),
+            fallback: `powershell -NoProfile -ExecutionPolicy Bypass -Command "$response = Invoke-WebRequest ${WINDOWS_INSTALLER_URL}; Invoke-Expression $response.Content"`,
         };
     }
 

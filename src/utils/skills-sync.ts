@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { type BundledSkillDocument, readBundledSkills } from './skills.js';
+import { assertValidSkillName } from './skills.js';
 
 export const DEFAULT_SYNC_SKILL_NAMES = [
     'kodus-review',
@@ -69,6 +70,54 @@ async function isFile(targetPath: string): Promise<boolean> {
 }
 
 type WriteStatus = 'created' | 'updated' | 'unchanged';
+
+function resolveManagedSkillPath(
+    target: SkillSyncTarget,
+    skillName: string,
+): string {
+    const safeSkillName = assertValidSkillName(skillName);
+    const filePath =
+        target.type === 'skill'
+            ? path.join(target.baseDir, safeSkillName, 'SKILL.md')
+            : path.join(target.baseDir, `${safeSkillName}.md`);
+
+    const resolvedBaseDir = path.resolve(target.baseDir);
+    const resolvedPath = path.resolve(filePath);
+    const expectedPrefix = `${resolvedBaseDir}${path.sep}`;
+
+    if (
+        resolvedPath !== resolvedBaseDir &&
+        !resolvedPath.startsWith(expectedPrefix)
+    ) {
+        throw new Error(`Invalid skill name: ${skillName}`);
+    }
+
+    return resolvedPath;
+}
+
+function resolveManagedSkillEntryPath(
+    target: SkillSyncTarget,
+    skillName: string,
+): string {
+    const safeSkillName = assertValidSkillName(skillName);
+    const filePath =
+        target.type === 'skill'
+            ? path.join(target.baseDir, safeSkillName)
+            : path.join(target.baseDir, `${safeSkillName}.md`);
+
+    const resolvedBaseDir = path.resolve(target.baseDir);
+    const resolvedPath = path.resolve(filePath);
+    const expectedPrefix = `${resolvedBaseDir}${path.sep}`;
+
+    if (
+        resolvedPath !== resolvedBaseDir &&
+        !resolvedPath.startsWith(expectedPrefix)
+    ) {
+        throw new Error(`Invalid skill name: ${skillName}`);
+    }
+
+    return resolvedPath;
+}
 
 async function writeIfChanged(
     filePath: string,
@@ -374,10 +423,10 @@ export async function syncSkillsToTargets(
 
         if (mode === 'uninstall') {
             for (const skill of skills) {
-                const filePath =
-                    target.type === 'skill'
-                        ? path.join(target.baseDir, skill.name)
-                        : path.join(target.baseDir, `${skill.name}.md`);
+                const filePath = resolveManagedSkillEntryPath(
+                    target,
+                    skill.name,
+                );
                 if (await removePathIfExists(filePath, dryRun)) {
                     targetResult.removedManaged += 1;
                 } else {
@@ -386,10 +435,7 @@ export async function syncSkillsToTargets(
             }
         } else {
             for (const skill of skills) {
-                const filePath =
-                    target.type === 'skill'
-                        ? path.join(target.baseDir, skill.name, 'SKILL.md')
-                        : path.join(target.baseDir, `${skill.name}.md`);
+                const filePath = resolveManagedSkillPath(target, skill.name);
                 const writeStatus = await writeIfChanged(
                     filePath,
                     skill.content,

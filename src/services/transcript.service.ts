@@ -48,7 +48,8 @@ class TranscriptService {
             throw error;
         }
 
-        const lines = content.slice(fromOffset).split('\n');
+        const normalizedOffset = normalizeOffset(content, fromOffset);
+        const lines = content.slice(normalizedOffset).split('\n');
 
         for (const line of lines) {
             const trimmed = line.trim();
@@ -284,6 +285,27 @@ class TranscriptService {
             }
         }
     }
+}
+
+function normalizeOffset(content: string, fromOffset: number): number {
+    if (fromOffset <= 0) {
+        return 0;
+    }
+
+    if (fromOffset >= content.length) {
+        return content.length;
+    }
+
+    if (content[fromOffset - 1] === '\n') {
+        return fromOffset;
+    }
+
+    const nextNewline = content.indexOf('\n', fromOffset);
+    if (nextNewline === -1) {
+        return content.length;
+    }
+
+    return nextNewline + 1;
 }
 
 // ---------------------------------------------------------------------------

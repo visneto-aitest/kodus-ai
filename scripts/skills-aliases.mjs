@@ -13,7 +13,7 @@ export function renderAliasSkillContent(canonicalContent, aliasName) {
     }
 
     const aliasYamlBlock = parsed.yamlBlock.replace(
-        /^\s*name:\s*.+$/m,
+        /^\s*name:\s*.+$/gm,
         `name: ${aliasName}`,
     );
     const normalizedBody = (parsed.body ?? '').replace(/^\n+/, '');

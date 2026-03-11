@@ -7,6 +7,22 @@ export interface BundledSkillDocument {
     content: string;
 }
 
+export function assertValidSkillName(name: string): string {
+    const trimmed = name.trim();
+    if (
+        !trimmed ||
+        trimmed === '.' ||
+        trimmed === '..' ||
+        trimmed.includes('/') ||
+        trimmed.includes('\\') ||
+        path.basename(trimmed) !== trimmed
+    ) {
+        throw new Error(`Invalid skill name: ${name}`);
+    }
+
+    return trimmed;
+}
+
 function resolveSkillsCandidates(): string[] {
     const here = path.dirname(fileURLToPath(import.meta.url));
     return [
@@ -67,7 +83,8 @@ export async function readBundledSkills(
     }
 
     const documents = await Promise.all(
-        skillNames.map(async (name) => {
+        skillNames.map(async (rawName) => {
+            const name = assertValidSkillName(rawName);
             const filePath = path.join(root, name, 'SKILL.md');
             const content = await fs.readFile(filePath, 'utf8');
             return { name, content };
