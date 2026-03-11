@@ -13,6 +13,7 @@ import { PullRequestMessagesModelInstance } from '../infrastructure/adapters/rep
 import { CreateOrUpdatePullRequestMessagesUseCase } from '../application/use-cases/pullRequestMessages/create-or-update-pull-request-messages.use-case';
 import { FindByRepositoryOrDirectoryIdPullRequestMessagesUseCase } from '../application/use-cases/pullRequestMessages/find-by-repo-or-directory.use-case';
 import { PermissionsModule } from '@libs/identity/modules/permissions.module';
+import { ContextResolutionModule } from '@libs/core/context-resolution/context-resolution.module';
 
 @Module({
     imports: [
@@ -21,6 +22,7 @@ import { PermissionsModule } from '@libs/identity/modules/permissions.module';
         forwardRef(() => IntegrationConfigCoreModule),
         forwardRef(() => ParametersModule),
         forwardRef(() => PermissionsModule),
+        forwardRef(() => ContextResolutionModule),
     ],
     providers: [
         CreateOrUpdatePullRequestMessagesUseCase,
