@@ -37,8 +37,14 @@ export interface CodeReviewTimelineItem {
                         path?: string;
                         file?: string;
                         message?: string;
+                        isTimeout?: boolean;
                     }
               > | null;
+              fileTimings?: Array<{
+                  file: string;
+                  durationMs: number;
+                  status: 'success' | 'error' | 'timeout';
+              }> | null;
               cta?: {
                   label: string;
                   href: string;

@@ -143,6 +143,7 @@ describe('ProcessFilesReview', () => {
                 }),
                 metadata: {
                     filename: 'test-file.ts',
+                    isTimeout: false,
                 },
             }),
         );

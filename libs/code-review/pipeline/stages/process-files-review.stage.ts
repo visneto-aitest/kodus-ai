@@ -58,6 +58,8 @@ interface FileProcessingResult {
     error?: PipelineError;
     reviewMode?: any;
     codeReviewModelUsed?: any;
+    durationMs?: number;
+    isTimeout?: boolean;
 }
 
 @Injectable()
@@ -535,6 +537,9 @@ export class ProcessFilesReview extends BasePipelineStage<CodeReviewPipelineCont
             fileMetadata.set(fileProcessingResult.filename, {
                 reviewMode: fileProcessingResult.reviewMode,
                 codeReviewModelUsed: fileProcessingResult.codeReviewModelUsed,
+                durationMs: fileProcessingResult.durationMs,
+                isTimeout: fileProcessingResult.isTimeout,
+                hasError: !!fileProcessingResult.error,
             });
         }
     }
@@ -722,6 +727,8 @@ export class ProcessFilesReview extends BasePipelineStage<CodeReviewPipelineCont
         const { file, relevantContent, patchWithLinesStr, hasRelevantContent } =
             baseContext.fileChangeContext;
 
+        const startMs = Date.now();
+
         try {
             const context: AnalysisContext = {
                 ...baseContext,
@@ -823,6 +830,7 @@ export class ProcessFilesReview extends BasePipelineStage<CodeReviewPipelineCont
                     reviewMode: lastReviewMode,
                     codeReviewModelUsed: lastCodeReviewModelUsed,
                     filename: file.filename,
+                    durationMs: Date.now() - startMs,
                 };
             }
 
@@ -846,7 +854,7 @@ export class ProcessFilesReview extends BasePipelineStage<CodeReviewPipelineCont
                 context,
             );
 
-            return { ...finalResult, filename: file.filename };
+            return { ...finalResult, filename: file.filename, durationMs: Date.now() - startMs };
         } catch (error) {
             this.logger.error({
                 message: `Error analyzing file ${file.filename}`,
@@ -863,20 +871,26 @@ export class ProcessFilesReview extends BasePipelineStage<CodeReviewPipelineCont
 
             const errorMessage =
                 error instanceof Error ? error.message : String(error);
+            const isTimeout = /timeout|timed out|ETIMEDOUT|abort/i.test(errorMessage);
             const enrichedError = new Error(
-                `File analysis failed: ${errorMessage} (Check model config)`,
+                isTimeout
+                    ? `File analysis timed out after ${Math.round((Date.now() - startMs) / 1000)}s`
+                    : `File analysis failed: ${errorMessage} (Check model config)`,
             );
 
             return {
                 validSuggestionsToAnalyze: [],
                 discardedSuggestionsBySafeGuard: [],
                 filename: file.filename,
+                durationMs: Date.now() - startMs,
+                isTimeout,
                 error: {
                     stage: this.stageName,
                     substage: file.filename,
                     error: enrichedError,
                     metadata: {
                         filename: file.filename,
+                        isTimeout,
                     },
                 },
             };

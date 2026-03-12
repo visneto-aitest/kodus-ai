@@ -106,6 +106,7 @@ export const useInfinitePullRequestExecutions = (
             return allPages.length + 1;
         },
         retry: false,
+        refetchInterval: 30_000,
     });
 
     const items = useMemo(() => {
