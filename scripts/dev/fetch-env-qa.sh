@@ -128,6 +128,8 @@ KEYS=(
     "/qa/kodus-orchestrator/API_BETTERSTACK_HEARTBEAT_REVIEW_MONITOR_URL"
     "/qa/kodus-orchestrator/API_BETTERSTACK_HEARTBEAT_OUTBOX_URL"
     "/qa/kodus-orchestrator/API_BETTERSTACK_HEARTBEAT_WEBHOOK_URL"
+
+    "/qa/kodus-orchestrator/API_EXA_KEY"
 )
 
 # Lista de todas as chaves que você precisa
