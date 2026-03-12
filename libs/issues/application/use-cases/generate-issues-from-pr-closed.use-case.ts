@@ -44,10 +44,31 @@ export class GenerateIssuesFromPrClosedUseCase implements IUseCase {
         const normalizedPayload = await this.normalizePayload(params);
 
         if (!normalizedPayload) {
+            this.logger.warn({
+                message: 'Skipping issue generation: failed to normalize webhook payload',
+                context: GenerateIssuesFromPrClosedUseCase.name,
+                metadata: {
+                    platformType: params?.platformType,
+                },
+            });
             return;
         }
 
         const prData = await this.fillProperties(normalizedPayload);
+
+        if (!prData.context.organizationAndTeamData) {
+            this.logger.warn({
+                message: `Skipping issue generation: organizationAndTeamData not found for repository ${prData.context.repository.name}`,
+                context: GenerateIssuesFromPrClosedUseCase.name,
+                metadata: {
+                    prNumber: prData.context.pullRequest?.number,
+                    repositoryId: prData.context.repository?.id,
+                    repositoryName: prData.context.repository?.name,
+                    platformType: params?.platformType,
+                },
+            });
+            return;
+        }
 
         try {
             if (params?.platformType === PlatformType.AZURE_REPOS) {
@@ -68,12 +89,36 @@ export class GenerateIssuesFromPrClosedUseCase implements IUseCase {
                 );
 
             if (!pr) {
+                this.logger.warn({
+                    message: `Skipping issue generation: PR #${prData.context.pullRequest.number} not found in database for repository ${prData.context.repository.name}`,
+                    context: GenerateIssuesFromPrClosedUseCase.name,
+                    metadata: {
+                        prNumber: prData.context.pullRequest.number,
+                        repositoryId: prData.context.repository.id,
+                        repositoryName: prData.context.repository.name,
+                        organizationId:
+                            prData.context.organizationAndTeamData
+                                .organizationId,
+                    },
+                });
                 return;
             }
 
             const prFiles = pr.files;
 
             if (prFiles.length === 0) {
+                this.logger.warn({
+                    message: `Skipping issue generation: PR #${prData.context.pullRequest.number} has no files in database for repository ${prData.context.repository.name}`,
+                    context: GenerateIssuesFromPrClosedUseCase.name,
+                    metadata: {
+                        prNumber: prData.context.pullRequest.number,
+                        repositoryId: prData.context.repository.id,
+                        repositoryName: prData.context.repository.name,
+                        organizationId:
+                            prData.context.organizationAndTeamData
+                                .organizationId,
+                    },
+                });
                 return;
             }
 
@@ -118,6 +163,11 @@ export class GenerateIssuesFromPrClosedUseCase implements IUseCase {
         const mappedPlatform = getMappedPlatform(platformType);
 
         if (!mappedPlatform) {
+            this.logger.warn({
+                message: `Skipping issue generation: no mapped platform found for type ${platformType}`,
+                context: GenerateIssuesFromPrClosedUseCase.name,
+                metadata: { platformType },
+            });
             return;
         }
 
@@ -126,11 +176,22 @@ export class GenerateIssuesFromPrClosedUseCase implements IUseCase {
         });
 
         if (
-            !pullRequest &&
-            !pullRequest?.number &&
-            !pullRequest?.repository &&
+            !pullRequest ||
+            !pullRequest?.number ||
+            !pullRequest?.repository ||
             !pullRequest?.user
         ) {
+            this.logger.warn({
+                message: 'Skipping issue generation: invalid or incomplete pull request data from webhook payload',
+                context: GenerateIssuesFromPrClosedUseCase.name,
+                metadata: {
+                    platformType,
+                    hasPullRequest: !!pullRequest,
+                    hasNumber: !!pullRequest?.number,
+                    hasRepository: !!pullRequest?.repository,
+                    hasUser: !!pullRequest?.user,
+                },
+            });
             return;
         }
 
@@ -138,7 +199,17 @@ export class GenerateIssuesFromPrClosedUseCase implements IUseCase {
             payload: sanitizedPayload,
         });
 
-        if (!repository && !repository?.id && !repository?.name) {
+        if (!repository || !repository?.id || !repository?.name) {
+            this.logger.warn({
+                message: 'Skipping issue generation: invalid or incomplete repository data from webhook payload',
+                context: GenerateIssuesFromPrClosedUseCase.name,
+                metadata: {
+                    platformType,
+                    hasRepository: !!repository,
+                    hasId: !!repository?.id,
+                    hasName: !!repository?.name,
+                },
+            });
             return;
         }
 
