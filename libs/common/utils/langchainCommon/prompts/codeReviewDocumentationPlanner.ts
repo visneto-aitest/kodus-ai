@@ -79,5 +79,11 @@ ${fileContentPreview || '(empty)'}
 Target diff excerpt (YOUR SOLE FOCUS):
 ${diffPreview || '(empty)'}
 
-Output instructions: Return queryTasks only. Each queryTask must include packageName and documentation-oriented query, explicitly paired in the same item. Base your queryTasks *exclusively* on the additions and modifications shown in the target diff excerpt. Avoid generic package documentation searches.`;
+Output instructions: Return queryTasks only. Each queryTask must include packageName and documentation-oriented query, explicitly paired in the same item. Base your queryTasks *exclusively* on the additions and modifications shown in the target diff excerpt. Avoid generic package documentation searches. 
+
+Even if there's no queryTasks to return, respond with an empty array for queryTasks, not an empty object or null.
+
+Output JSON schema:
+${DocumentationPlannerSchema.toString()}
+`;
 };
