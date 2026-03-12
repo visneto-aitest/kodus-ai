@@ -969,10 +969,9 @@ Evidence field in ${params.languageResultPrompt}.`;
         }
 
         const excerpts = documentationContext
-            .slice(0, 3)
             .map(
                 (item, index) =>
-                    `${index + 1}. ${item.title || 'Documentation'} (${item.url || 'unknown'})\nQuery: ${item.query}\nSnippet: ${(item.snippet || '').slice(0, 280)}`,
+                    `${index + 1}. ${item.title || 'Documentation'} (${item.url || 'unknown'})\nQuery: ${item.query}\nSnippet: ${item.snippet || ''}`,
             )
             .join('\n\n');
 

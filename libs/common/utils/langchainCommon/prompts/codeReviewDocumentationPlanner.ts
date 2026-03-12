@@ -43,7 +43,7 @@ Focus strictly on finding practical implementation guidance for the specific syn
 export const prompt_code_review_documentation_planner_user = (
     payload: DocumentationPlannerPayload,
 ) => {
-    const packagesPreview = payload.packages
+    const packagesPreview = (payload.packages || [])
         .map(
             (pkg) =>
                 `- ${pkg.name}${pkg.version ? `@${pkg.version}` : ''} (${pkg.ecosystem}) from ${pkg.sourceFile}`,

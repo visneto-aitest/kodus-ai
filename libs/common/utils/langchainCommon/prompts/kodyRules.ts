@@ -474,10 +474,9 @@ export const prompt_kodyrules_suggestiongeneration_user = (payload: any) => {
 
     const documentationContextSection = Array.isArray(documentationContext)
         ? documentationContext
-              .slice(0, 10)
               .map(
                   (doc: any, index: number) =>
-                      `${index + 1}. ${doc?.title || 'Documentation'}\n   URL: ${doc?.url || 'unknown'}\n   Query: ${doc?.query || ''}\n   Snippet: ${(doc?.snippet || '').slice(0, 320)}`,
+                      `${index + 1}. ${sanitizePromptText(doc?.title || 'Documentation')}\n   URL: ${sanitizePromptText(doc?.url || 'unknown')}\n   Query: ${sanitizePromptText(doc?.query || '')}\n   Snippet: ${sanitizePromptText(doc?.snippet || '')}`,
               )
               .join('\n\n')
         : '';

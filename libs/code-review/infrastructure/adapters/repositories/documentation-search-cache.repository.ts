@@ -4,6 +4,11 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { DocumentationSearchCacheModel } from './schemas/mongoose/documentationSearchCache.model';
 
+type DocumentationSearchCacheLeanResult = Pick<
+    DocumentationSearchCacheModel,
+    'documentationItem'
+>;
+
 @Injectable()
 export class DocumentationSearchCacheRepository {
     constructor(
@@ -16,7 +21,7 @@ export class DocumentationSearchCacheRepository {
         packageNameNormalized: string;
         queryNormalized: string;
         now: Date;
-    }): Promise<DocumentationSearchCacheModel | null> {
+    }): Promise<DocumentationSearchCacheLeanResult | null> {
         const { provider, packageNameNormalized, queryNormalized, now } =
             params;
 
@@ -27,6 +32,8 @@ export class DocumentationSearchCacheRepository {
                 queryNormalized,
                 expiresAt: { $gt: now },
             })
+            .select({ documentationItem: 1, _id: 0 })
+            .lean<DocumentationSearchCacheLeanResult>()
             .exec();
     }
 
@@ -56,6 +63,11 @@ export class DocumentationSearchCacheRepository {
                     $set: {
                         documentationItem,
                         expiresAt,
+                    },
+                    $setOnInsert: {
+                        provider,
+                        packageNameNormalized,
+                        queryNormalized,
                     },
                 },
                 {

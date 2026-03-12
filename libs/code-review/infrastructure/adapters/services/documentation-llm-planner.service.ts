@@ -48,8 +48,8 @@ export class DocumentationLLMPlannerService {
             return {};
         }
 
-        const provider = LLMModelProvider.GEMINI_3_FLASH_PREVIEW;
-        const fallbackProvider = LLMModelProvider.GEMINI_2_5_FLASH;
+        const provider = LLMModelProvider.GEMINI_3_1_FLASH_LITE_PREVIEW;
+        const fallbackProvider = LLMModelProvider.GEMINI_3_FLASH_PREVIEW;
         const runName = 'documentationPlanner';
 
         const promptRunner = new BYOKPromptRunnerService(

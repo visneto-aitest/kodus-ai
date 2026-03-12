@@ -8,6 +8,7 @@ import { SUPPORTED_LANGUAGES } from '@libs/code-review/domain/contracts/Supporte
 import { DocumentationLLMPlannerService } from '@libs/code-review/infrastructure/adapters/services/documentation-llm-planner.service';
 import { DocumentationPackageDiscoveryService } from '@libs/code-review/infrastructure/adapters/services/documentation-package-discovery.service';
 import { DocumentationSearchExaService } from '@libs/code-review/infrastructure/adapters/services/documentation-search-exa.service';
+import posthog, { FEATURE_FLAGS } from '@libs/common/utils/posthog';
 import { PlatformType } from '@libs/core/domain/enums';
 import { BasePipelineStage } from '@libs/core/infrastructure/pipeline/abstracts/base-stage.abstract';
 import { StageVisibility } from '@libs/core/infrastructure/pipeline/enums/stage-visibility.enum';
@@ -62,6 +63,28 @@ export class GatherDocumentationContextStage extends BasePipelineStage<CodeRevie
     protected async executeStage(
         context: CodeReviewPipelineContext,
     ): Promise<CodeReviewPipelineContext> {
+        const shouldRunDocumentationContext =
+            await this.shouldRunDocumentationContext(context);
+
+        if (!shouldRunDocumentationContext) {
+            this.logger.log({
+                message:
+                    'Documentation context stage disabled by feature flag; skipping',
+                context: this.stageName,
+                metadata: {
+                    prNumber: context.pullRequest.number,
+                    repository: context.repository.name,
+                    organizationAndTeamData: context.organizationAndTeamData,
+                },
+            });
+
+            return this.updateContext(context, (draft) => {
+                draft.discoveredPackages = [];
+                draft.documentationQueryPlanByFile = {};
+                draft.documentationByFile = {};
+            });
+        }
+
         if (!context.changedFiles?.length) {
             return context;
         }
@@ -192,6 +215,7 @@ export class GatherDocumentationContextStage extends BasePipelineStage<CodeRevie
                         organizationAndTeamData:
                             context.organizationAndTeamData,
                         prNumber: context.pullRequest.number,
+                        byokConfig: context.codeReviewConfig?.byokConfig,
                     },
                 );
 
@@ -260,6 +284,21 @@ export class GatherDocumentationContextStage extends BasePipelineStage<CodeRevie
 
         return Object.values(SUPPORTED_LANGUAGES).some((lang) =>
             lang.extensions.includes(extension),
+        );
+    }
+
+    private async shouldRunDocumentationContext(
+        context: CodeReviewPipelineContext,
+    ): Promise<boolean> {
+        const featureIdentifier =
+            context.organizationAndTeamData?.organizationId ||
+            context.organizationAndTeamData?.teamId ||
+            'unknown';
+
+        return posthog.isFeatureEnabled(
+            FEATURE_FLAGS.documentationContext,
+            featureIdentifier,
+            context.organizationAndTeamData,
         );
     }
 

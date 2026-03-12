@@ -81,10 +81,10 @@ Your output must be surrounded by \`\`\`json\`\`\` tags.
 export const prompt_KodyRulesGeneratorUser = (payload: {
     comments: UncategorizedComment[];
     rules: LibraryKodyRule[];
-        memories?: Array<{
-            title?: string;
-            rule?: string;
-        }>;
+    memories?: Array<{
+        title?: string;
+        rule?: string;
+    }>;
     documentationContext?: Array<{
         query: string;
         title: string;
@@ -92,25 +92,25 @@ export const prompt_KodyRulesGeneratorUser = (payload: {
         snippet: string;
         source: string;
     }>;
-    }) => {
-        const formattedMemories = (payload.memories || [])
-            .map((memory) => {
-                const title = getTextOrDefault(memory?.title, '').trim();
-                const rule = getTextOrDefault(memory?.rule, '').trim();
+}) => {
+    const formattedMemories = (payload.memories || [])
+        .map((memory) => {
+            const title = getTextOrDefault(memory?.title, '').trim();
+            const rule = getTextOrDefault(memory?.rule, '').trim();
 
-                if (!title || !rule) {
-                    return null;
-                }
+            if (!title || !rule) {
+                return null;
+            }
 
-                return `- Title: ${sanitizePromptText(title)}\n  Rule: ${sanitizePromptText(rule)}`;
-            })
-            .filter((entry): entry is string => Boolean(entry));
+            return `- Title: ${sanitizePromptText(title)}\n  Rule: ${sanitizePromptText(rule)}`;
+        })
+        .filter((entry): entry is string => Boolean(entry));
 
-        const memoriesSection = formattedMemories.length
-            ? `\nmemories:\n\n${formattedMemories.join('\n\n')}\n`
-            : '';
+    const memoriesSection = formattedMemories.length
+        ? `\nmemories:\n\n${formattedMemories.join('\n\n')}\n`
+        : '';
 
-        return `
+    return `
 comments:
 
 [
@@ -165,11 +165,11 @@ ${(payload.documentationContext || [])
     .map(
         (doc) => `
     {
-        "query": "${doc.query}",
-        "title": "${doc.title}",
-        "url": "${doc.url}",
-        "snippet": "${doc.snippet}",
-        "source": "${doc.source}"
+        "query": "${sanitizePromptText(doc.query)}",
+        "title": "${sanitizePromptText(doc.title)}",
+        "url": "${sanitizePromptText(doc.url)}",
+        "snippet": "${sanitizePromptText(doc.snippet)}",
+        "source": "${sanitizePromptText(doc.source)}"
     },
 `,
     )

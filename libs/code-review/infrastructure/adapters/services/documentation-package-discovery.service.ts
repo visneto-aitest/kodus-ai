@@ -179,21 +179,33 @@ export class DocumentationPackageDiscoveryService {
         const discovered = new Set<string>();
 
         try {
-            for (const manifestFile of ROOT_MANIFEST_FILES) {
-                let rgOutput: string;
-                try {
-                    rgOutput = await remoteCommands.grep(
+            const settledResults = await Promise.allSettled(
+                ROOT_MANIFEST_FILES.map(async (manifestFile) => {
+                    const rgOutput = await remoteCommands.grep(
                         '.',
                         '.',
                         `**/${manifestFile}`,
                     );
-                } catch (error) {
-                    if (error.exitCode === 1) {
+
+                    return { manifestFile, rgOutput };
+                }),
+            );
+
+            for (const settledResult of settledResults) {
+                if (settledResult.status === 'rejected') {
+                    const error = settledResult.reason as {
+                        exitCode?: number;
+                    };
+
+                    if (error?.exitCode === 1) {
                         // No matches found, not an error in this context
                         continue;
                     }
-                    throw error;
+
+                    throw settledResult.reason;
                 }
+
+                const { manifestFile, rgOutput } = settledResult.value;
 
                 for (const pathFromLine of this.extractPathsFromRipgrepOutput(
                     rgOutput,

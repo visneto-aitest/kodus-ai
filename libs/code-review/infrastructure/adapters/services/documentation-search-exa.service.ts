@@ -1,5 +1,6 @@
 import { createLogger } from '@kodus/flow';
 import {
+    BYOKConfig,
     LLMModelProvider,
     ParserType,
     PromptRole,
@@ -12,6 +13,7 @@ import {
     DocumentationQueryTask,
 } from '@libs/code-review/pipeline/context/code-review-pipeline.context';
 import { OrganizationAndTeamData } from '@libs/core/infrastructure/config/types/general/organizationAndTeamData';
+import { BYOKPromptRunnerService } from '@libs/core/infrastructure/services/tokenTracking/byokPromptRunner.service';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Exa from 'exa-js';
@@ -57,6 +59,7 @@ export class DocumentationSearchExaService {
         options?: {
             organizationAndTeamData?: OrganizationAndTeamData;
             prNumber?: number;
+            byokConfig?: BYOKConfig;
         },
     ): Promise<Record<string, DocumentationItem[]>> {
         if (!this.exaClient) {
@@ -89,6 +92,7 @@ export class DocumentationSearchExaService {
         options?: {
             organizationAndTeamData?: OrganizationAndTeamData;
             prNumber?: number;
+            byokConfig?: BYOKConfig;
         },
     ): Promise<DocumentationItem[]> {
         const queryTasks = this.normalizeQueryTasks(plan.queryTasks);
@@ -120,6 +124,7 @@ export class DocumentationSearchExaService {
         options?: {
             organizationAndTeamData?: OrganizationAndTeamData;
             prNumber?: number;
+            byokConfig?: BYOKConfig;
         },
     ): Promise<DocumentationItem | null> {
         const queryNormalized = this.normalizeCacheSegment(task.query);
@@ -159,6 +164,7 @@ export class DocumentationSearchExaService {
         options?: {
             organizationAndTeamData?: OrganizationAndTeamData;
             prNumber?: number;
+            byokConfig?: BYOKConfig;
         },
     ): Promise<DocumentationItem | null> {
         if (!this.exaClient) {
@@ -203,6 +209,7 @@ export class DocumentationSearchExaService {
                 rawSearchContent: this.buildRawSearchContent(response),
                 organizationAndTeamData: options?.organizationAndTeamData,
                 prNumber: options?.prNumber,
+                byokConfig: options?.byokConfig,
             });
 
             const item: DocumentationItem = {
@@ -384,18 +391,22 @@ export class DocumentationSearchExaService {
         rawSearchContent: string;
         organizationAndTeamData?: OrganizationAndTeamData;
         prNumber?: number;
+        byokConfig?: BYOKConfig;
     }): Promise<string> {
         if (!params.rawSearchContent.trim()) {
             return '';
         }
 
         try {
-            const response = await this.promptRunnerService
+            const promptRunner = new BYOKPromptRunnerService(
+                this.promptRunnerService,
+                LLMModelProvider.GEMINI_3_FLASH_PREVIEW,
+                LLMModelProvider.GEMINI_3_FLASH_PREVIEW,
+                params.byokConfig,
+            );
+
+            const response = await promptRunner
                 .builder()
-                .setProviders({
-                    main: LLMModelProvider.GEMINI_3_FLASH_PREVIEW,
-                    fallback: LLMModelProvider.GEMINI_2_5_FLASH,
-                })
                 .setParser(ParserType.STRING)
                 .setPayload(params)
                 .addPrompt({
@@ -414,6 +425,7 @@ export class DocumentationSearchExaService {
                         packageName: params.packageName,
                         query: params.query,
                         rawSearchContentLength: params.rawSearchContent.length,
+                        hasByokConfig: Boolean(params.byokConfig),
                         organizationAndTeamData: params.organizationAndTeamData,
                         prNumber: params.prNumber,
                     },
