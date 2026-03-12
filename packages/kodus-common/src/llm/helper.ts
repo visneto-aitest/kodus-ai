@@ -2,10 +2,10 @@ import { ChatAnthropic } from '@langchain/anthropic';
 import { ChatNovitaAI } from '@langchain/community/chat_models/novita';
 import { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { Runnable } from '@langchain/core/runnables';
+import { ChatGoogle } from '@langchain/google-gauth';
 import { ChatVertexAI } from '@langchain/google-vertexai';
 import { ChatOpenAI } from '@langchain/openai';
-import { LLM_TIMEOUT_MS, LLM_MAX_RETRIES } from './providerAdapters/types';
-import { ChatGoogle } from '@langchain/google-gauth';
+import { LLM_MAX_RETRIES, LLM_TIMEOUT_MS } from './providerAdapters/types';
 
 type ChatAnthropicOptions = ConstructorParameters<typeof ChatAnthropic>[0] & {
     // Anthropic marks these as nullable which is incompatible with the others
@@ -334,6 +334,7 @@ export enum LLMModelProvider {
     GEMINI_2_5_FLASH = 'google:gemini-2.5-flash',
     GEMINI_3_PRO_PREVIEW = 'google:gemini-3-pro-preview',
     GEMINI_3_FLASH_PREVIEW = 'google:gemini-3-flash-preview',
+    GEMINI_3_1_FLASH_LITE_PREVIEW = 'google:gemini-3.1-flash-lite-preview',
     VERTEX_GEMINI_2_0_FLASH = 'vertex:gemini-2.0-flash',
     VERTEX_GEMINI_2_5_PRO = 'vertex:gemini-2.5-pro',
     VERTEX_GEMINI_2_5_FLASH = 'vertex:gemini-2.5-flash',
@@ -441,6 +442,14 @@ export const MODEL_STRATEGIES: Record<LLMModelProvider, ModelStrategy> = {
         factory: getChatGemini,
         modelName: 'gemini-3-flash-preview',
         defaultMaxTokens: 60000,
+        maxReasoningTokens: 15000,
+    },
+    [LLMModelProvider.GEMINI_3_1_FLASH_LITE_PREVIEW]: {
+        provider: 'google',
+        factory: getChatGemini,
+        modelName: 'gemini-3.1-flash-lite-preview',
+        defaultMaxTokens: 65536,
+        inputMaxTokens: 1048576,
         maxReasoningTokens: 15000,
     },
     // Vertex AI

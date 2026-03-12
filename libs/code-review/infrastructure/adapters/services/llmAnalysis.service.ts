@@ -6,7 +6,7 @@ import {
     PromptRole,
     PromptRunnerService,
 } from '@kodus/kodus-common/llm';
-import { Inject, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { z } from 'zod';
 
 import {
@@ -16,18 +16,12 @@ import {
 import { ContextAugmentationsMap } from '@libs/ai-engine/infrastructure/adapters/services/context/interfaces/code-review-context-pack.interface';
 import { LLMResponseProcessor } from '@libs/ai-engine/infrastructure/adapters/services/llmResponseProcessor.transform';
 import { IAIAnalysisService } from '@libs/code-review/domain/contracts/AIAnalysisService.contract';
+import { CreateSandboxParams } from '@libs/code-review/domain/contracts/sandbox.provider';
 import {
     CrossFileContextSnippet,
     RemoteCommands,
 } from '@libs/code-review/infrastructure/adapters/services/collectCrossFileContexts.service';
-import {
-    CreateSandboxParams,
-    ISandboxProvider,
-    SANDBOX_PROVIDER_TOKEN,
-} from '@libs/code-review/domain/contracts/sandbox.provider';
-import {
-    prompt_validateImplementedSuggestions,
-} from '@libs/common/utils/langchainCommon/prompts';
+import { prompt_validateImplementedSuggestions } from '@libs/common/utils/langchainCommon/prompts';
 import {
     prompt_codereview_system_gemini,
     prompt_codereview_system_gemini_v2,
@@ -39,6 +33,7 @@ import {
     AIAnalysisResult,
     AnalysisContext,
     CodeSuggestion,
+    DocumentationContextItem,
     FileChange,
     FileChangeContext,
     ISafeguardResponse,
@@ -46,9 +41,9 @@ import {
 } from '@libs/core/infrastructure/config/types/general/codeReview.type';
 import { OrganizationAndTeamData } from '@libs/core/infrastructure/config/types/general/organizationAndTeamData';
 import { BYOKPromptRunnerService } from '@libs/core/infrastructure/services/tokenTracking/byokPromptRunner.service';
-import { SafeguardPipelineService } from './safeguardPipeline.service';
 import { ObservabilityService } from '@libs/core/log/observability.service';
 import { IKodyRule } from '@libs/kodyRules/domain/interfaces/kodyRules.interface';
+import { SafeguardPipelineService } from './safeguardPipeline.service';
 
 export const LLM_ANALYSIS_SERVICE_TOKEN = Symbol.for('LLMAnalysisService');
 
@@ -56,20 +51,13 @@ export const LLM_ANALYSIS_SERVICE_TOKEN = Symbol.for('LLMAnalysisService');
 export class LLMAnalysisService implements IAIAnalysisService {
     private readonly logger = createLogger(LLMAnalysisService.name);
     private readonly llmResponseProcessor: LLMResponseProcessor;
-    private readonly safeguardPipeline: SafeguardPipelineService;
 
     constructor(
         private readonly promptRunnerService: PromptRunnerService,
         private readonly observability: ObservabilityService,
-        @Inject(SANDBOX_PROVIDER_TOKEN)
-        private readonly sandboxProvider: ISandboxProvider,
+        private readonly safeguardPipeline: SafeguardPipelineService,
     ) {
         this.llmResponseProcessor = new LLMResponseProcessor();
-        this.safeguardPipeline = new SafeguardPipelineService(
-            promptRunnerService,
-            observability,
-            sandboxProvider,
-        );
     }
 
     //#region Helper Functions
@@ -372,6 +360,7 @@ export class LLMAnalysisService implements IAIAnalysisService {
             contextPack: context?.sharedContextPack as ContextPack | undefined,
             crossFileSnippets: context?.crossFileSnippets,
             memories: context?.codeReviewConfig?.kodyMemoryRules || [],
+            documentationContext: context?.documentationContext || [],
         };
 
         return baseContext;
@@ -590,6 +579,7 @@ export class LLMAnalysisService implements IAIAnalysisService {
         externalReferences?: unknown[],
         externalReferenceErrors?: unknown[] | string,
         sandboxCloneParams?: CreateSandboxParams,
+        documentationContext?: DocumentationContextItem[],
     ): Promise<ISafeguardResponse> {
         suggestions?.forEach((suggestion) => {
             if (
@@ -620,6 +610,7 @@ export class LLMAnalysisService implements IAIAnalysisService {
                 externalReferences,
                 externalReferenceErrors,
                 sandboxCloneParams,
+                documentationContext,
             });
         } catch (error) {
             this.logger.error({

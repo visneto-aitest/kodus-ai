@@ -686,6 +686,8 @@ export class ProcessFilesReview extends BasePipelineStage<CodeReviewPipelineCont
                     fileAugmentations:
                         context.augmentationsByFile?.[file.filename] ?? {},
                     crossFileSnippets: filteredSnippets,
+                    documentationContext:
+                        context.documentationByFile?.[file.filename] || [],
                 };
 
                 return this.fileReviewContextPreparation.prepareFileContext(
@@ -1285,6 +1287,7 @@ export class ProcessFilesReview extends BasePipelineStage<CodeReviewPipelineCont
                 context?.externalPromptContext?.generation?.main?.references,
                 context?.externalPromptContext?.generation?.main?.error,
                 context?.sandboxCloneParams,
+                context?.documentationContext,
             );
 
         const safeguardLLMProvider =
@@ -1348,6 +1351,7 @@ export class ProcessFilesReview extends BasePipelineStage<CodeReviewPipelineCont
                 context.fileContextMap,
             ),
             crossFileSnippets: context.crossFileContexts?.contexts,
+            documentationByFile: context.documentationByFile,
             remoteCommands: context.sandboxHandle?.remoteCommands,
             sandboxCloneParams: context.sandboxCloneParams,
         };

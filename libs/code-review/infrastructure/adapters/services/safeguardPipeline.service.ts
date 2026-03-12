@@ -6,40 +6,46 @@ import {
     PromptRole,
     PromptRunnerService,
 } from '@kodus/kodus-common/llm';
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { z } from 'zod';
 
+import {
+    CreateSandboxParams,
+    ISandboxProvider,
+    SANDBOX_PROVIDER_TOKEN,
+    SandboxInstance,
+} from '@libs/code-review/domain/contracts/sandbox.provider';
 import {
     CrossFileContextSnippet,
     RemoteCommands,
 } from '@libs/code-review/infrastructure/adapters/services/collectCrossFileContexts.service';
-import {
-    CreateSandboxParams,
-    ISandboxProvider,
-    SandboxInstance,
-} from '@libs/code-review/domain/contracts/sandbox.provider';
-import {
-    SafeguardFeatureExtractionResult,
-    SafeguardFeatureSet,
-    STRUCTURAL_DEFECT_FEATURES,
-    prompt_codeReviewSafeguard_featureExtraction,
-} from '@libs/common/utils/langchainCommon/prompts/codeReviewSafeguardFeatures';
+import { DocumentationSearchExaService } from '@libs/code-review/infrastructure/adapters/services/documentation-search-exa.service';
 import {
     TriageDecision,
     triageSuggestion,
 } from '@libs/code-review/infrastructure/adapters/services/safeguardTriage.service';
-import { prompt_codeReviewSafeguard_verification } from '@libs/common/utils/langchainCommon/prompts/codeReviewSafeguardVerification';
+import { DocumentationQueryPlanByFile } from '@libs/code-review/pipeline/context/code-review-pipeline.context';
 import {
     SAFEGUARD_CROSS_FILE_CONTEXT_PREAMBLE,
     formatMemoriesSection,
     formatReferenceSection,
     formatSyncErrors,
 } from '@libs/common/utils/langchainCommon/prompts/codeReviewSafeguard';
+import {
+    STRUCTURAL_DEFECT_FEATURES,
+    SafeguardFeatureExtractionResult,
+    SafeguardFeatureSet,
+    prompt_codeReviewSafeguard_featureExtraction,
+} from '@libs/common/utils/langchainCommon/prompts/codeReviewSafeguardFeatures';
+import { prompt_codeReviewSafeguard_verification } from '@libs/common/utils/langchainCommon/prompts/codeReviewSafeguardVerification';
+import { ReviewModeResponse } from '@libs/core/domain/enums/code-review.enum';
+import {
+    DocumentationContextItem,
+    ISafeguardResponse,
+} from '@libs/core/infrastructure/config/types/general/codeReview.type';
+import { OrganizationAndTeamData } from '@libs/core/infrastructure/config/types/general/organizationAndTeamData';
 import { BYOKPromptRunnerService } from '@libs/core/infrastructure/services/tokenTracking/byokPromptRunner.service';
 import { ObservabilityService } from '@libs/core/log/observability.service';
-import { OrganizationAndTeamData } from '@libs/core/infrastructure/config/types/general/organizationAndTeamData';
-import { ISafeguardResponse } from '@libs/core/infrastructure/config/types/general/codeReview.type';
-import { ReviewModeResponse } from '@libs/core/domain/enums/code-review.enum';
 
 interface SafeguardPipelineParams {
     organizationAndTeamData: OrganizationAndTeamData;
@@ -57,6 +63,7 @@ interface SafeguardPipelineParams {
     externalReferences?: unknown[];
     externalReferenceErrors?: unknown[] | string;
     sandboxCloneParams?: CreateSandboxParams;
+    documentationContext?: DocumentationContextItem[];
 }
 
 const MAX_AGENT_TURNS = 6;
@@ -68,10 +75,14 @@ export class SafeguardPipelineService {
     constructor(
         private readonly promptRunnerService: PromptRunnerService,
         private readonly observability: ObservabilityService,
-        private readonly sandboxProvider?: ISandboxProvider,
+        @Inject(SANDBOX_PROVIDER_TOKEN)
+        private readonly sandboxProvider: ISandboxProvider,
+        private readonly documentationSearchExaService: DocumentationSearchExaService,
     ) {}
 
-    async execute(params: SafeguardPipelineParams): Promise<ISafeguardResponse> {
+    async execute(
+        params: SafeguardPipelineParams,
+    ): Promise<ISafeguardResponse> {
         const {
             organizationAndTeamData,
             prNumber,
@@ -97,7 +108,10 @@ export class SafeguardPipelineService {
         try {
             // Step 1: Feature Extraction (batch — one LLM call for all suggestions in the file)
             const feStart = Date.now();
-            const featureResult = await this.extractFeatures(params, promptRunner);
+            const featureResult = await this.extractFeatures(
+                params,
+                promptRunner,
+            );
             const feMs = Date.now() - feStart;
 
             if (!featureResult?.codeSuggestions?.length) {
@@ -109,7 +123,10 @@ export class SafeguardPipelineService {
                     message: `[TIMING] PR#${prNumber} ${fileLabel} — Feature Extraction: ${(feMs / 1000).toFixed(1)}s (no features) | Total: ${((Date.now() - pipelineStart) / 1000).toFixed(1)}s`,
                     context: SafeguardPipelineService.name,
                 });
-                return { suggestions, codeReviewModelUsed: { safeguard: provider } };
+                return {
+                    suggestions,
+                    codeReviewModelUsed: { safeguard: provider },
+                };
             }
 
             // Build lookup map: suggestion id → features
@@ -122,7 +139,10 @@ export class SafeguardPipelineService {
 
             // Step 2: Triage (deterministic — per suggestion)
             const kept: any[] = [];
-            const toVerify: Array<{ suggestion: any; features: SafeguardFeatureSet }> = [];
+            const toVerify: Array<{
+                suggestion: any;
+                features: SafeguardFeatureSet;
+            }> = [];
             let discardedCount = 0;
 
             for (const suggestion of suggestions) {
@@ -185,7 +205,9 @@ export class SafeguardPipelineService {
                 let currentRemoteCommands = remoteCommands;
                 let renewedCleanup: (() => Promise<void>) | undefined;
 
-                const canRenew = !!(params.sandboxCloneParams && this.sandboxProvider);
+                const canRenew = !!(
+                    params.sandboxCloneParams && this.sandboxProvider
+                );
                 this.logger.log({
                     message: `[SAFEGUARD] PR#${prNumber} ${fileLabel} — Agent verification starting: ${toVerify.length} suggestions to verify, sandbox renewal ${canRenew ? 'available' : 'NOT available'}${!params.sandboxCloneParams ? ' (no sandboxCloneParams)' : ''}${!this.sandboxProvider ? ' (no sandboxProvider)' : ''}`,
                     context: SafeguardPipelineService.name,
@@ -202,9 +224,13 @@ export class SafeguardPipelineService {
                     }
                     let newSandbox: SandboxInstance | undefined;
                     try {
-                        newSandbox = await this.sandboxProvider.createSandboxWithRepo(params.sandboxCloneParams);
+                        newSandbox =
+                            await this.sandboxProvider.createSandboxWithRepo(
+                                params.sandboxCloneParams,
+                            );
                         currentRemoteCommands = newSandbox.remoteCommands;
-                        if (renewedCleanup) await renewedCleanup().catch(() => {});
+                        if (renewedCleanup)
+                            await renewedCleanup().catch(() => {});
                         renewedCleanup = newSandbox.cleanup;
                         this.logger.log({
                             message: `Sandbox renewed for PR#${prNumber} ${fileLabel}`,
@@ -231,7 +257,13 @@ export class SafeguardPipelineService {
                     if (stopLoop) break;
 
                     const suggStart = Date.now();
-                    let result: { action: string; evidence: string; turnsUsed: number } | undefined;
+                    let result:
+                        | {
+                              action: string;
+                              evidence: string;
+                              turnsUsed: number;
+                          }
+                        | undefined;
                     let sandboxError = false;
 
                     // First attempt
@@ -245,9 +277,13 @@ export class SafeguardPipelineService {
                             organizationAndTeamData,
                             prNumber,
                             params.memories,
+                            params.documentationContext,
                         );
 
-                        if (result.action !== 'no_changes' && this.isSandboxRelatedEvidence(result.evidence)) {
+                        if (
+                            result.action !== 'no_changes' &&
+                            this.isSandboxRelatedEvidence(result.evidence)
+                        ) {
                             sandboxError = true;
                         }
                     } catch (error) {
@@ -271,7 +307,7 @@ export class SafeguardPipelineService {
                             context: SafeguardPipelineService.name,
                         });
 
-                        if (!await tryRenewSandbox()) {
+                        if (!(await tryRenewSandbox())) {
                             agentDiscarded++;
                             stopLoop = true;
                             continue;
@@ -310,7 +346,10 @@ export class SafeguardPipelineService {
 
                     if (result.action === 'no_changes') {
                         if (features.improvedCode_is_correct === false) {
-                            kept.push({ ...suggestion, improvedCode: null });
+                            kept.push({
+                                ...suggestion,
+                                improvedCode: null,
+                            });
                         } else {
                             kept.push(suggestion);
                         }
@@ -353,7 +392,10 @@ export class SafeguardPipelineService {
 
                         if (result.keep) {
                             if (features.improvedCode_is_correct === false) {
-                                kept.push({ ...suggestion, improvedCode: null });
+                                kept.push({
+                                    ...suggestion,
+                                    improvedCode: null,
+                                });
                             } else {
                                 kept.push(suggestion);
                             }
@@ -390,7 +432,9 @@ export class SafeguardPipelineService {
 
             return {
                 suggestions: kept,
-                codeReviewModelUsed: { safeguard: byokConfig?.main?.provider || provider },
+                codeReviewModelUsed: {
+                    safeguard: byokConfig?.main?.provider || provider,
+                },
             };
         } catch (error) {
             this.logger.error({
@@ -398,7 +442,10 @@ export class SafeguardPipelineService {
                 context: SafeguardPipelineService.name,
                 error,
             });
-            return { suggestions, codeReviewModelUsed: { safeguard: provider } };
+            return {
+                suggestions,
+                codeReviewModelUsed: { safeguard: provider },
+            };
         }
     }
 
@@ -528,9 +575,9 @@ export class SafeguardPipelineService {
         params: SafeguardPipelineParams,
         promptRunner: BYOKPromptRunnerService,
     ): Promise<{ keep: boolean; evidence: string }> {
-        const claimedDefects = STRUCTURAL_DEFECT_FEATURES
-            .filter((f) => features[f])
-            .join(', ');
+        const claimedDefects = STRUCTURAL_DEFECT_FEATURES.filter(
+            (f) => features[f],
+        ).join(', ');
 
         const schema = z.object({
             verdict: z.boolean(),
@@ -598,7 +645,8 @@ Evidence field in ${params.languageResultPrompt}.`;
                         role: PromptRole.USER,
                     })
                     .addMetadata({
-                        organizationId: params.organizationAndTeamData?.organizationId,
+                        organizationId:
+                            params.organizationAndTeamData?.organizationId,
                         teamId: params.organizationAndTeamData?.teamId,
                         pullRequestId: params.prNumber,
                         runName,
@@ -613,7 +661,10 @@ Evidence field in ${params.languageResultPrompt}.`;
         const parsed = schema.safeParse(result);
         if (!parsed.success) {
             // Parse failed — keep suggestion (safe default)
-            return { keep: true, evidence: 'prompt-only parse failed, keeping as safe default' };
+            return {
+                keep: true,
+                evidence: 'prompt-only parse failed, keeping as safe default',
+            };
         }
 
         return { keep: parsed.data.verdict, evidence: parsed.data.evidence };
@@ -631,10 +682,16 @@ Evidence field in ${params.languageResultPrompt}.`;
         organizationAndTeamData: OrganizationAndTeamData,
         prNumber: number,
         memories?: Array<Partial<{ title?: string; rule?: string }>>,
-    ): Promise<{ verified: boolean; action: string; evidence: string; turnsUsed: number }> {
-        const claimedDefects = STRUCTURAL_DEFECT_FEATURES
-            .filter((f) => features[f])
-            .join(', ');
+        documentationContext?: DocumentationContextItem[],
+    ): Promise<{
+        verified: boolean;
+        action: string;
+        evidence: string;
+        turnsUsed: number;
+    }> {
+        const claimedDefects = STRUCTURAL_DEFECT_FEATURES.filter(
+            (f) => features[f],
+        ).join(', ');
 
         const systemPrompt = prompt_codeReviewSafeguard_verification({
             suggestionContent: suggestion.suggestionContent || '',
@@ -645,12 +702,19 @@ Evidence field in ${params.languageResultPrompt}.`;
         });
 
         // Build initial user message with optional memory rules context
-        let userMessage = 'Verify the suggestion. Begin by searching for the key symbol or reading the file.';
+        let userMessage =
+            'Verify the suggestion. Begin by searching for the key symbol or reading the file.';
         const memoriesBlock = formatMemoriesSection(
             memories as Array<{ title?: string; rule?: string }>,
         );
         if (memoriesBlock) {
             userMessage += `\n\n${memoriesBlock}\n\nConsider these team rules when evaluating the suggestion — if it contradicts a rule, lean towards discarding.`;
+        }
+
+        const documentationBlock =
+            this.buildDocumentationContextBlock(documentationContext);
+        if (documentationBlock) {
+            userMessage += `\n\n${documentationBlock}`;
         }
 
         // Build conversation history for multi-turn agent loop
@@ -695,9 +759,10 @@ Evidence field in ${params.languageResultPrompt}.`;
                 },
             });
 
-            const responseText = typeof response === 'string'
-                ? response
-                : JSON.stringify(response);
+            const responseText =
+                typeof response === 'string'
+                    ? response
+                    : JSON.stringify(response);
 
             const parsed = this.parseAgentResponse(responseText);
 
@@ -717,7 +782,10 @@ Evidence field in ${params.languageResultPrompt}.`;
                 // make at least one tool call to verify the code actually
                 // contains the claimed defect before accepting a suggestion.
                 if (turn === 0 && parsed.verdict === true) {
-                    messages.push({ prompt: JSON.stringify(parsed), role: PromptRole.AI });
+                    messages.push({
+                        prompt: JSON.stringify(parsed),
+                        role: PromptRole.AI,
+                    });
                     messages.push({
                         prompt: 'You must use at least one tool call to verify the defect exists in the actual code before giving a verdict. Search for the key symbol or read the file first.',
                         role: PromptRole.USER,
@@ -727,7 +795,9 @@ Evidence field in ${params.languageResultPrompt}.`;
 
                 return {
                     verified: parsed.verdict,
-                    action: parsed.action || (parsed.verdict ? 'no_changes' : 'discard'),
+                    action:
+                        parsed.action ||
+                        (parsed.verdict ? 'no_changes' : 'discard'),
                     evidence: parsed.evidence || '',
                     turnsUsed: turn + 1,
                 };
@@ -737,24 +807,47 @@ Evidence field in ${params.languageResultPrompt}.`;
             let toolResult: string;
             try {
                 if (parsed.tool === 'search') {
-                    toolResult = await remoteCommands.grep(parsed.pattern || '', '.', undefined);
+                    toolResult = await remoteCommands.grep(
+                        parsed.pattern || '',
+                        '.',
+                        undefined,
+                    );
                     // Limit results to avoid blowing up context
                     const lines = toolResult.split('\n');
                     if (lines.length > 15) {
-                        toolResult = lines.slice(0, 15).join('\n') + `\n... (${lines.length - 15} more matches)`;
+                        toolResult =
+                            lines.slice(0, 15).join('\n') +
+                            `\n... (${lines.length - 15} more matches)`;
                     }
                 } else if (parsed.tool === 'read') {
-                    toolResult = await remoteCommands.read(parsed.path || '', 0, 0);
+                    toolResult = await remoteCommands.read(
+                        parsed.path || '',
+                        0,
+                        0,
+                    );
                     const MAX_READ_LENGTH = 20000;
                     if (toolResult.length > MAX_READ_LENGTH) {
-                        toolResult = toolResult.substring(0, MAX_READ_LENGTH) + `\n... (file truncated)`;
+                        toolResult =
+                            toolResult.substring(0, MAX_READ_LENGTH) +
+                            `\n... (file truncated)`;
                     }
                 } else if (parsed.tool === 'list') {
-                    toolResult = await remoteCommands.listDir(parsed.path || '.', 2);
+                    toolResult = await remoteCommands.listDir(
+                        parsed.path || '.',
+                        2,
+                    );
                     const MAX_LIST_LENGTH = 10000;
                     if (toolResult.length > MAX_LIST_LENGTH) {
-                        toolResult = toolResult.substring(0, MAX_LIST_LENGTH) + `\n... (listing truncated)`;
+                        toolResult =
+                            toolResult.substring(0, MAX_LIST_LENGTH) +
+                            `\n... (listing truncated)`;
                     }
+                } else if (parsed.tool === 'documentation') {
+                    toolResult = await this.getDocumentationToolResult(
+                        parsed.packageName || '',
+                        parsed.query || suggestion?.suggestionContent || '',
+                        documentationContext,
+                    );
                 } else {
                     toolResult = `Unknown tool: ${parsed.tool}`;
                 }
@@ -767,7 +860,10 @@ Evidence field in ${params.languageResultPrompt}.`;
                 context: SafeguardPipelineService.name,
             });
 
-            messages.push({ prompt: JSON.stringify(parsed), role: PromptRole.AI });
+            messages.push({
+                prompt: JSON.stringify(parsed),
+                role: PromptRole.AI,
+            });
 
             const remainingTurns = MAX_AGENT_TURNS - turn - 1;
             let followUp = `Tool result:\n${toolResult}`;
@@ -824,12 +920,27 @@ Evidence field in ${params.languageResultPrompt}.`;
 
         for (let i = 0; i < json.length; i++) {
             const c = json[i];
-            if (escape) { escape = false; continue; }
-            if (c === '\\') { escape = true; continue; }
-            if (c === '"') { inStr = !inStr; continue; }
+            if (escape) {
+                escape = false;
+                continue;
+            }
+            if (c === '\\') {
+                escape = true;
+                continue;
+            }
+            if (c === '"') {
+                inStr = !inStr;
+                continue;
+            }
             if (inStr) continue;
             if (c === '{') depth++;
-            if (c === '}') { depth--; if (depth === 0) { end = i; break; } }
+            if (c === '}') {
+                depth--;
+                if (depth === 0) {
+                    end = i;
+                    break;
+                }
+            }
         }
 
         if (end > 0) json = json.substring(0, end + 1);
@@ -848,6 +959,77 @@ Evidence field in ${params.languageResultPrompt}.`;
         } catch {}
 
         return null;
+    }
+
+    private buildDocumentationContextBlock(
+        documentationContext?: DocumentationContextItem[],
+    ): string {
+        if (!documentationContext?.length) {
+            return '';
+        }
+
+        const excerpts = documentationContext
+            .map(
+                (item, index) =>
+                    `${index + 1}. ${item.title || 'Documentation'} (${item.url || 'unknown'})\nQuery: ${item.query}\nSnippet: ${item.snippet || ''}`,
+            )
+            .join('\n\n');
+
+        return `## Available Documentation Context\nUse this context first before requesting more docs with the documentation tool.\n\n${excerpts}`;
+    }
+
+    private async getDocumentationToolResult(
+        packageName: string,
+        query: string,
+        fallbackContext?: DocumentationContextItem[],
+    ): Promise<string> {
+        const normalizedQuery = (query || '').trim();
+        const normalizedPackageName = (packageName || '').trim();
+
+        if (!normalizedQuery) {
+            return 'Documentation tool error: query is required.';
+        }
+
+        const localMatch = (fallbackContext || []).find(
+            (item) =>
+                item.query
+                    ?.toLowerCase()
+                    .includes(normalizedQuery.toLowerCase()) ||
+                item.title
+                    ?.toLowerCase()
+                    .includes(normalizedPackageName.toLowerCase()),
+        );
+
+        if (localMatch) {
+            return `Documentation (preloaded):\nTitle: ${localMatch.title}\nURL: ${localMatch.url}\nSnippet: ${localMatch.snippet}`;
+        }
+
+        const packageForPlan = normalizedPackageName || 'framework';
+
+        const planByFile: Record<string, DocumentationQueryPlanByFile> = {
+            safeguard: {
+                queryTasks: [
+                    {
+                        packageName: packageForPlan,
+                        query: normalizedQuery,
+                    },
+                ],
+            },
+        };
+
+        const results =
+            await this.documentationSearchExaService.searchByFilePlan(
+                planByFile,
+            );
+        const docs = results.safeguard || [];
+
+        if (!docs.length) {
+            return `Documentation lookup returned no results for package "${packageForPlan}" and query "${normalizedQuery}".`;
+        }
+
+        const doc = docs[0];
+
+        return `Documentation:\nTitle: ${doc.title}\nURL: ${doc.url}\nQuery: ${doc.query}\nSnippet: ${doc.snippet}`;
     }
 
     /**
@@ -881,7 +1063,9 @@ Evidence field in ${params.languageResultPrompt}.`;
         );
         if (memoriesBlock) externalBlocks.push(memoriesBlock);
 
-        const referencesBlock = formatReferenceSection(context.externalReferences);
+        const referencesBlock = formatReferenceSection(
+            context.externalReferences,
+        );
         if (referencesBlock) externalBlocks.push(referencesBlock);
 
         const errorsBlock = formatSyncErrors(context.externalReferenceErrors);
@@ -917,7 +1101,11 @@ ${JSON.stringify(context?.suggestions) || 'No suggestions provided'}
      */
     private isSandboxDeadError(error: unknown): boolean {
         const msg = error instanceof Error ? error.message : String(error);
-        return /sandbox/i.test(msg) || msg.includes('ECONNREFUSED') || msg.includes('not running');
+        return (
+            /sandbox/i.test(msg) ||
+            msg.includes('ECONNREFUSED') ||
+            msg.includes('not running')
+        );
     }
 
     /**
@@ -927,6 +1115,10 @@ ${JSON.stringify(context?.suggestions) || 'No suggestions provided'}
     private isSandboxRelatedEvidence(evidence?: string): boolean {
         if (!evidence) return false;
         const lower = evidence.toLowerCase();
-        return lower.includes('sandbox') || lower.includes('not running') || lower.includes('econnrefused');
+        return (
+            lower.includes('sandbox') ||
+            lower.includes('not running') ||
+            lower.includes('econnrefused')
+        );
     }
 }

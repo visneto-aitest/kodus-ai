@@ -1,14 +1,15 @@
 import { BYOKConfig, LLMModelProvider } from '@kodus/kodus-common/llm';
 
+import { CreateSandboxParams } from '@libs/code-review/domain/contracts/sandbox.provider';
 import {
     CrossFileContextSnippet,
     RemoteCommands,
 } from '@libs/code-review/infrastructure/adapters/services/collectCrossFileContexts.service';
-import { CreateSandboxParams } from '@libs/code-review/domain/contracts/sandbox.provider';
 import {
     AIAnalysisResult,
     AnalysisContext,
     CodeSuggestion,
+    DocumentationContextItem,
     FileChange,
     FileChangeContext,
     ReviewModeResponse,
@@ -55,6 +56,7 @@ export interface IAIAnalysisService {
         externalReferences?: unknown[],
         externalReferenceErrors?: unknown[] | string,
         sandboxCloneParams?: CreateSandboxParams,
+        documentationContext?: DocumentationContextItem[],
     ): Promise<any>;
     validateImplementedSuggestions(
         organizationAndTeamData: OrganizationAndTeamData,

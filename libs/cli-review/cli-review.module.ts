@@ -3,36 +3,36 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 // Pipeline
-import { CliReviewPipelineStrategy } from './pipeline/strategy/cli-review-pipeline.strategy';
-import { PrepareCliFilesStage } from './pipeline/stages/prepare-cli-files.stage';
 import { FormatCliOutputStage } from './pipeline/stages/format-cli-output.stage';
+import { PrepareCliFilesStage } from './pipeline/stages/prepare-cli-files.stage';
+import { CliReviewPipelineStrategy } from './pipeline/strategy/cli-review-pipeline.strategy';
 
 // Use Cases
-import { ExecuteCliReviewUseCase } from './application/use-cases/execute-cli-review.use-case';
-import { SubmitCliSessionCaptureUseCase } from './application/use-cases/submit-cli-session-capture.use-case';
 import { ClassifyCliSessionCaptureUseCase } from './application/use-cases/classify-cli-session-capture.use-case';
-import { IngestSessionEventUseCase } from './application/use-cases/ingest-session-event.use-case';
 import { ClassifySessionUseCase } from './application/use-cases/classify-session.use-case';
+import { ExecuteCliReviewUseCase } from './application/use-cases/execute-cli-review.use-case';
+import { IngestSessionEventUseCase } from './application/use-cases/ingest-session-event.use-case';
+import { SubmitCliSessionCaptureUseCase } from './application/use-cases/submit-cli-session-capture.use-case';
 
 // Services
 import { CliInputConverter } from './infrastructure/converters/cli-input.converter';
-import { TrialRateLimiterService } from './infrastructure/services/trial-rate-limiter.service';
-import { AuthenticatedRateLimiterService } from './infrastructure/services/authenticated-rate-limiter.service';
 import { CliSessionCaptureRepository } from './infrastructure/repositories/cli-session-capture.repository';
-import { SessionEventRepository } from './infrastructure/repositories/session-event.repository';
 import {
     CliSessionCaptureModel,
     CliSessionCaptureSchema,
 } from './infrastructure/repositories/schemas/cli-session-capture.model';
 import { SessionEventModel } from './infrastructure/repositories/schemas/session-event.model';
+import { SessionEventRepository } from './infrastructure/repositories/session-event.repository';
+import { AuthenticatedRateLimiterService } from './infrastructure/services/authenticated-rate-limiter.service';
+import { TrialRateLimiterService } from './infrastructure/services/trial-rate-limiter.service';
 
 // External dependencies
+import { AutomationModule } from '@libs/automation/modules/automation.module';
 import { CodeReviewPipelineModule } from '@libs/code-review/pipeline/code-review-pipeline.module';
+import { GlobalCacheModule } from '@libs/core/cache/cache.module';
+import { LicenseModule } from '@libs/ee/license/license.module';
 import { ParametersModule } from '@libs/organization/modules/parameters.module';
 import { TeamModule } from '@libs/organization/modules/team.module';
-import { GlobalCacheModule } from '@libs/core/cache/cache.module';
-import { AutomationModule } from '@libs/automation/modules/automation.module';
-import { LicenseModule } from '@libs/ee/license/license.module';
 
 /**
  * Module for CLI code review functionality
@@ -85,6 +85,8 @@ import { LicenseModule } from '@libs/ee/license/license.module';
         SessionEventRepository,
         TrialRateLimiterService,
         AuthenticatedRateLimiterService,
+        SessionEventRepository,
+        ClassifySessionUseCase,
     ],
 })
 export class CliReviewModule {}

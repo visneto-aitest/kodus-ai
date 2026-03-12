@@ -168,6 +168,8 @@ KEYS=(
     "/prod/kodus-orchestrator/API_BETTERSTACK_HEARTBEAT_REVIEW_MONITOR_URL"
     "/prod/kodus-orchestrator/API_BETTERSTACK_HEARTBEAT_OUTBOX_URL"
     "/prod/kodus-orchestrator/API_BETTERSTACK_HEARTBEAT_WEBHOOK_URL"
+
+    "/prod/kodus-orchestrator/API_EXA_KEY"
 )
 
 # Lista de todas as chaves que você precisa
