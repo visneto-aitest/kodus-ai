@@ -24,6 +24,7 @@ import type { useSuspenseGetParameterPlatformConfigs } from "@services/parameter
 import { KodyLearningStatus } from "@services/parameters/types";
 import { usePermission } from "@services/permissions/hooks";
 import { Action, ResourceType } from "@services/permissions/types";
+import { useCustomMessagesOverrideCountsByRepository } from "@services/pull-request-messages/hooks";
 import { Plus } from "lucide-react";
 import { safeArray } from "src/core/utils/safe-array";
 
@@ -34,10 +35,7 @@ import {
     type FormattedGlobalCodeReviewConfig,
 } from "../../code-review/_types";
 import { AddRepoModal } from "../copy-settings-modal";
-import {
-    RouteButtonWithOverrideCount,
-    useCustomMessagesOverrideCount,
-} from "../route-button-with-override-count";
+import { RouteButtonWithOverrideCount } from "../route-button-with-override-count";
 import { PerDirectory } from "./directory";
 import { SidebarRepositoryOrDirectoryDropdown } from "./options-dropdown";
 
@@ -66,12 +64,24 @@ const RepositoryCollapsibleItem = ({
           )
         : 0;
 
-    const repositoryCustomMessagesOverrideCount =
-        useCustomMessagesOverrideCount({
-            scopeRepositoryId: repository.id,
-            level: FormattedConfigLevel.REPOSITORY,
-            enabled: hasRepositoryConfig,
-        });
+    const shouldFetchRepositoryCounts =
+        hasRepositoryConfig || (repository.directories?.length ?? 0) > 0;
+
+    const { data: repositoryOverrideCountsData } =
+        useCustomMessagesOverrideCountsByRepository(
+            repository.id,
+            shouldFetchRepositoryCounts,
+        );
+
+    const repositoryCustomMessagesOverrideCount = hasRepositoryConfig
+        ? (repositoryOverrideCountsData?.repositoryOverrideCount ?? 0)
+        : 0;
+
+    const directoryCustomMessageCounts = new Map(
+        (repositoryOverrideCountsData?.directoryOverrideCounts ?? []).map(
+            (item) => [item.directoryId, item.overrideCount] as const,
+        ),
+    );
 
     const overrideCount =
         repositoryConfigOverrideCount + repositoryCustomMessagesOverrideCount;
@@ -143,7 +153,9 @@ const RepositoryCollapsibleItem = ({
                                         active={active}
                                         level={FormattedConfigLevel.REPOSITORY}
                                         config={repository.configs}
-                                        scopeRepositoryId={repository.id}
+                                        customMessagesOverrideCount={
+                                            repositoryCustomMessagesOverrideCount
+                                        }
                                     />
                                 </SidebarMenuSubItem>
                             );
@@ -161,6 +173,9 @@ const RepositoryCollapsibleItem = ({
                                 repository={repository}
                                 routes={routes}
                                 configs={directoryWithConfigs?.configs}
+                                customMessagesOverrideCount={
+                                    directoryCustomMessageCounts.get(d.id) ?? 0
+                                }
                             />
                         );
                     })}

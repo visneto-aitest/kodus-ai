@@ -25,10 +25,7 @@ import {
     type CodeReviewRepositoryConfig,
     type FormattedCodeReviewConfig,
 } from "../../code-review/_types";
-import {
-    RouteButtonWithOverrideCount,
-    useCustomMessagesOverrideCount,
-} from "../route-button-with-override-count";
+import { RouteButtonWithOverrideCount } from "../route-button-with-override-count";
 import { SidebarRepositoryOrDirectoryDropdown } from "./options-dropdown";
 
 export const PerDirectory = ({
@@ -36,6 +33,7 @@ export const PerDirectory = ({
     directory,
     repository,
     configs,
+    customMessagesOverrideCount,
 }: {
     repository: Pick<CodeReviewRepositoryConfig, "id" | "name" | "isSelected">;
     directory: Pick<
@@ -44,6 +42,7 @@ export const PerDirectory = ({
     >;
     routes: Array<{ label: string; href: string }>;
     configs?: FormattedCodeReviewConfig;
+    customMessagesOverrideCount: number;
 }) => {
     const searchParams = useSearchParams();
     const { repositoryId, pageName, directoryId } = useCodeReviewRouteParams();
@@ -56,13 +55,6 @@ export const PerDirectory = ({
               FormattedConfigLevel.DIRECTORY,
           )
         : 0;
-
-    const customMessagesOverrideCount = useCustomMessagesOverrideCount({
-        scopeRepositoryId: repository.id,
-        scopeDirectoryId: directory.id,
-        level: FormattedConfigLevel.DIRECTORY,
-        enabled: true,
-    });
 
     const overrideCount = configOverrideCount + customMessagesOverrideCount;
 
@@ -137,8 +129,9 @@ export const PerDirectory = ({
                                     active={active}
                                     level={FormattedConfigLevel.DIRECTORY}
                                     config={configs}
-                                    scopeRepositoryId={repository.id}
-                                    scopeDirectoryId={directory.id}
+                                    customMessagesOverrideCount={
+                                        customMessagesOverrideCount
+                                    }
                                 />
                             </SidebarMenuSubItem>
                         );

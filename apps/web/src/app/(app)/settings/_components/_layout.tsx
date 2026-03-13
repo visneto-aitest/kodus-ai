@@ -291,7 +291,9 @@ export const SettingsLayout = ({ children }: React.PropsWithChildren) => {
                                                                         config={
                                                                             configValue.configs
                                                                         }
-                                                                        scopeRepositoryId="global"
+                                                                        customMessagesOverrideCount={
+                                                                            globalCustomMessagesOverrideCount
+                                                                        }
                                                                     />
                                                                 </SidebarMenuSubItem>
                                                             );

@@ -21,8 +21,7 @@ export const RouteButtonWithOverrideCount = ({
     active,
     level,
     config,
-    scopeRepositoryId,
-    scopeDirectoryId,
+    customMessagesOverrideCount,
 }: {
     label: string;
     href: string;
@@ -30,20 +29,12 @@ export const RouteButtonWithOverrideCount = ({
     active: boolean;
     level: FormattedConfigLevel;
     config?: FormattedCodeReviewConfig;
-    scopeRepositoryId: string;
-    scopeDirectoryId?: string;
+    customMessagesOverrideCount?: number;
 }) => {
-    const shouldFetchCustomMessagesCount = href === "custom-messages";
+    const isCustomMessagesRoute = href === "custom-messages";
 
-    const customMessagesOverrideCount = useCustomMessagesOverrideCount({
-        scopeRepositoryId,
-        scopeDirectoryId,
-        level,
-        enabled: shouldFetchCustomMessagesCount,
-    });
-
-    const routeOverrideCount = shouldFetchCustomMessagesCount
-        ? customMessagesOverrideCount
+    const routeOverrideCount = isCustomMessagesRoute
+        ? (customMessagesOverrideCount ?? 0)
         : countConfigOverridesByRoute(config, href, level);
 
     return (

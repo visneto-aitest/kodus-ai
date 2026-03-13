@@ -9,6 +9,7 @@ import { ParametersModule } from '@libs/organization/modules/parameters.module';
 import { CreateOrUpdatePullRequestMessagesUseCase } from '../application/use-cases/pullRequestMessages/create-or-update-pull-request-messages.use-case';
 import { DeleteByRepositoryOrDirectoryPullRequestMessagesUseCase } from '../application/use-cases/pullRequestMessages/delete-by-repository-or-directory.use-case';
 import { FindByRepositoryOrDirectoryIdPullRequestMessagesUseCase } from '../application/use-cases/pullRequestMessages/find-by-repo-or-directory.use-case';
+import { FindOverrideCountsByRepositoryPullRequestMessagesUseCase } from '../application/use-cases/pullRequestMessages/find-override-counts-by-repository.use-case';
 import { PULL_REQUEST_MESSAGES_REPOSITORY_TOKEN } from '../domain/pullRequestMessages/contracts/pullRequestMessages.repository.contract';
 import { PULL_REQUEST_MESSAGES_SERVICE_TOKEN } from '../domain/pullRequestMessages/contracts/pullRequestMessages.service.contract';
 import { PullRequestMessagesRepository } from '../infrastructure/adapters/repositories/pullRequestMessages.repository';
@@ -27,6 +28,7 @@ import { PullRequestMessagesService } from '../infrastructure/adapters/services/
     providers: [
         CreateOrUpdatePullRequestMessagesUseCase,
         FindByRepositoryOrDirectoryIdPullRequestMessagesUseCase,
+        FindOverrideCountsByRepositoryPullRequestMessagesUseCase,
         DeleteByRepositoryOrDirectoryPullRequestMessagesUseCase,
         {
             provide: PULL_REQUEST_MESSAGES_REPOSITORY_TOKEN,
@@ -43,6 +45,7 @@ import { PullRequestMessagesService } from '../infrastructure/adapters/services/
         DeleteByRepositoryOrDirectoryPullRequestMessagesUseCase,
         CreateOrUpdatePullRequestMessagesUseCase,
         FindByRepositoryOrDirectoryIdPullRequestMessagesUseCase,
+        FindOverrideCountsByRepositoryPullRequestMessagesUseCase,
     ],
 })
 export class PullRequestMessagesModule {}
