@@ -113,11 +113,12 @@ export class GitLabMergeRequestHandler implements IWebhookEventHandler {
 
         // If no active automation found, complete the webhook processing immediately
         if (!context?.organizationAndTeamData) {
-            this.logger.log({
-                message: `No active automation found for repository, completing webhook processing`,
+            this.logger.warn({
+                message: `No active automation found for repository, completing webhook processing. Issue generation and all downstream processing will be skipped.`,
                 context: GitLabMergeRequestHandler.name,
                 metadata: {
                     mrNumber,
+                    mrAction: payload?.object_attributes?.action,
                     repositoryId: repository.id,
                     repositoryName: repository.name,
                 },
@@ -216,7 +217,20 @@ export class GitLabMergeRequestHandler implements IWebhookEventHandler {
                 }
 
                 if (payload?.object_attributes?.action === 'merge') {
-                    this.generateIssuesFromPrClosedUseCase.execute(params);
+                    try {
+                        await this.generateIssuesFromPrClosedUseCase.execute(params);
+                    } catch (error) {
+                        this.logger.error({
+                            message:
+                                'Failed to generate issues from merged MR',
+                            context: GitLabMergeRequestHandler.name,
+                            error,
+                            metadata: {
+                                mrNumber,
+                                repositoryId: repository.id,
+                            },
+                        });
+                    }
 
                     try {
                         if (context.organizationAndTeamData) {
