@@ -116,6 +116,17 @@ export const ResetIntegrationModal = ({
                         },
                     }),
                 }),
+                resetQueries({
+                    type: "all",
+                    queryKey: generateQueryKey(
+                        PARAMETERS_PATHS.GET_CODE_REVIEW_PARAMETER,
+                        {
+                            params: {
+                                teamId,
+                            },
+                        },
+                    ),
+                }),
                 revalidateServerSidePath("/settings/git"),
             ]);
         } catch (error) {

@@ -5204,14 +5204,6 @@ This is an experimental feature that generates committable changes. Review the d
     async deleteWebhook(params: {
         organizationAndTeamData: OrganizationAndTeamData;
     }): Promise<void> {
-        const authDetails = await this.getGithubAuthDetails(
-            params.organizationAndTeamData,
-        );
-
-        const octokit = await this.instanceOctokit(
-            params.organizationAndTeamData,
-        );
-
         const integration = await this.integrationService.findOne({
             organization: {
                 uuid: params.organizationAndTeamData.organizationId,
@@ -5248,55 +5240,80 @@ This is an experimental feature that generates committable changes. Review the d
                 }
             }
         } else if (authMode === AuthMode.TOKEN) {
-            const repositories =
-                await this.findOneByOrganizationAndTeamDataAndConfigKey(
+            try {
+                const authDetails = await this.getGithubAuthDetails(
                     params.organizationAndTeamData,
-                    IntegrationConfigKey.REPOSITORIES,
                 );
 
-            if (repositories) {
-                // Usar método centralizado para determinar o owner correto
-                const owner = await this.getCorrectOwner(authDetails, octokit);
+                const octokit = await this.instanceOctokit(
+                    params.organizationAndTeamData,
+                );
 
-                for (const repo of repositories) {
-                    try {
-                        const { data: webhooks } =
-                            await octokit.repos.listWebhooks({
-                                owner: owner,
-                                repo: repo.name,
-                            });
+                const repositories =
+                    await this.findOneByOrganizationAndTeamDataAndConfigKey(
+                        params.organizationAndTeamData,
+                        IntegrationConfigKey.REPOSITORIES,
+                    );
 
-                        const webhookUrl = this.configService.get<string>(
-                            'API_GITHUB_CODE_MANAGEMENT_WEBHOOK',
-                        );
+                if (repositories) {
+                    // Usar método centralizado para determinar o owner correto
+                    const owner = await this.getCorrectOwner(
+                        authDetails,
+                        octokit,
+                    );
 
-                        const webhookToDelete = webhooks.find(
-                            (webhook) =>
-                                webhook.config &&
-                                webhook.config.url === webhookUrl,
-                        );
+                    for (const repo of repositories) {
+                        try {
+                            const { data: webhooks } =
+                                await octokit.repos.listWebhooks({
+                                    owner: owner,
+                                    repo: repo.name,
+                                });
 
-                        if (webhookToDelete) {
-                            await octokit.repos.deleteWebhook({
-                                owner: owner,
-                                repo: repo.name,
-                                hook_id: webhookToDelete.id,
+                            const webhookUrl =
+                                this.configService.get<string>(
+                                    'API_GITHUB_CODE_MANAGEMENT_WEBHOOK',
+                                );
+
+                            const webhookToDelete = webhooks.find(
+                                (webhook) =>
+                                    webhook.config &&
+                                    webhook.config.url === webhookUrl,
+                            );
+
+                            if (webhookToDelete) {
+                                await octokit.repos.deleteWebhook({
+                                    owner: owner,
+                                    repo: repo.name,
+                                    hook_id: webhookToDelete.id,
+                                });
+                            }
+                        } catch (error) {
+                            this.logger.error({
+                                message: `Error deleting webhook for repository ${repo.name}`,
+                                context: this.deleteWebhook.name,
+                                error: error,
+                                metadata: {
+                                    organizationAndTeamData:
+                                        params.organizationAndTeamData,
+                                    repoId: repo.id,
+                                    owner,
+                                },
                             });
                         }
-                    } catch (error) {
-                        this.logger.error({
-                            message: `Error deleting webhook for repository ${repo.name}`,
-                            context: this.deleteWebhook.name,
-                            error: error,
-                            metadata: {
-                                organizationAndTeamData:
-                                    params.organizationAndTeamData,
-                                repoId: repo.id,
-                                owner,
-                            },
-                        });
                     }
                 }
+            } catch (error) {
+                this.logger.error({
+                    message:
+                        'Error authenticating for webhook deletion in TOKEN mode',
+                    context: this.deleteWebhook.name,
+                    error: error,
+                    metadata: {
+                        organizationAndTeamData:
+                            params.organizationAndTeamData,
+                    },
+                });
             }
         }
     }
