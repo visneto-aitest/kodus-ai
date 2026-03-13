@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import chalk from 'chalk';
-import type { ProjectContext } from '../types/index.js';
+import type { ProjectContext } from '../types/cli.js';
 import { gitService } from './git.service.js';
 import { cliDebug } from '../utils/logger.js';
 

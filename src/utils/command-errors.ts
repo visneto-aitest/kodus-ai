@@ -1,4 +1,4 @@
-import { ApiError, AuthError } from '../types/index.js';
+import { ApiError, AuthError } from '../types/errors.js';
 import type {
     AgentErrorPayload,
     CommandErrorCode,
@@ -7,6 +7,25 @@ import type {
 function isMessageMatch(message: string, terms: string[]): boolean {
     const lower = message.toLowerCase();
     return terms.some((term) => lower.includes(term));
+}
+
+function getApiUnavailableMessage(error: Error): string | null {
+    const cause = error as Error & { cause?: { code?: string } };
+    const code = cause.cause?.code;
+
+    if (
+        !isMessageMatch(error.message, ['fetch failed', 'network', 'econnrefused']) &&
+        !['ECONNREFUSED', 'ENOTFOUND', 'ECONNRESET'].includes(code ?? '')
+    ) {
+        return null;
+    }
+
+    const apiUrl = process.env.KODUS_API_URL?.trim() || 'the configured Kodus API';
+    const localHint = apiUrl.includes('localhost') || apiUrl.includes('127.0.0.1')
+        ? ' If you are using the local API, make sure it is running.'
+        : '';
+
+    return `Could not reach the Kodus API at ${apiUrl}.${localHint}`;
 }
 
 export class CommandError extends Error {
@@ -53,6 +72,15 @@ export function normalizeCommandError(error: unknown): NormalizedCommandError {
     }
 
     if (error instanceof Error) {
+        const apiUnavailableMessage = getApiUnavailableMessage(error);
+        if (apiUnavailableMessage) {
+            return {
+                code: 'API_REQUEST_FAILED',
+                message: apiUnavailableMessage,
+                exitCode: 1,
+            };
+        }
+
         if (
             isMessageMatch(error.message, [
                 'not a git repository',

@@ -5,8 +5,7 @@ import path from 'node:path';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { gitService } from '../services/git.service.js';
-import { loadConfig } from '../utils/config.js';
-import { loadCredentials } from '../utils/credentials.js';
+import { getAuthModeSummary } from '../utils/auth-mode.js';
 import { listBundledSkills } from '../utils/skills.js';
 import { cliInfo } from '../utils/logger.js';
 
@@ -25,20 +24,6 @@ const CODEX_NOTIFY_LINE_LEGACY =
 interface RepoStatus {
     label: string;
     root: string | null;
-}
-
-async function getAuthModeLabel(): Promise<string> {
-    const teamConfig = await loadConfig();
-    if (teamConfig?.teamKey) {
-        return 'team key';
-    }
-
-    const credentials = await loadCredentials();
-    if (credentials?.accessToken || credentials?.refreshToken) {
-        return 'logged in';
-    }
-
-    return 'trial';
 }
 
 async function getRepositoryStatus(): Promise<RepoStatus> {
@@ -120,7 +105,7 @@ export const statusCommand = new Command('status')
     .description('Show consolidated Kodus status')
     .action(async () => {
         const [authMode, repository, skills] = await Promise.all([
-            getAuthModeLabel(),
+            getAuthModeSummary().then((summary) => summary.label),
             getRepositoryStatus(),
             listBundledSkills(),
         ]);

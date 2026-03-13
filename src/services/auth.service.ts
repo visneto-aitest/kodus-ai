@@ -5,8 +5,8 @@ import {
     clearCredentials,
 } from '../utils/credentials.js';
 import { loadConfig, clearConfig } from '../utils/config.js';
-import type { StoredCredentials, AuthResponse } from '../types/index.js';
-import { AuthError } from '../types/index.js';
+import type { StoredCredentials, AuthResponse } from '../types/auth.js';
+import { AuthError } from '../types/errors.js';
 
 const TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000;
 

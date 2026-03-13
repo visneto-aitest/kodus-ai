@@ -34,4 +34,27 @@ describe('command errors', () => {
         const normalized = normalizeCommandError(new Error('boom'));
         expect(normalized.code).toBe('INTERNAL_ERROR');
     });
+
+    it('maps network fetch failures to a user-friendly API unavailable message', () => {
+        const error = new TypeError('fetch failed') as TypeError & {
+            cause?: { code?: string };
+        };
+        error.cause = { code: 'ECONNREFUSED' };
+        process.env.KODUS_API_URL = 'http://localhost:3001';
+
+        const normalized = normalizeCommandError(error);
+
+        expect(normalized).toMatchObject({
+            code: 'API_REQUEST_FAILED',
+            exitCode: 1,
+        });
+        expect(normalized.message).toContain(
+            'Could not reach the Kodus API at http://localhost:3001.',
+        );
+        expect(normalized.message).toContain(
+            'If you are using the local API, make sure it is running.',
+        );
+
+        delete process.env.KODUS_API_URL;
+    });
 });

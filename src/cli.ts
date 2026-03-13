@@ -14,12 +14,12 @@ import { configCommand } from './commands/config.js';
 import { checkForUpdates } from './utils/update-check.js';
 import { setCliOutputMode } from './utils/logger.js';
 import { recordRecentActivity } from './utils/recent-activity.js';
+import { applyCommanderBehavior } from './utils/commander-setup.js';
 
 const require = createRequire(import.meta.url);
 const pkg = require('../package.json') as { version: string };
 
 const program = new Command();
-program.exitOverride();
 
 program
     .name('kodus')
@@ -46,6 +46,7 @@ program.addCommand(statusCommand);
 program.addCommand(skillsCommand);
 program.addCommand(configCommand);
 program.addCommand(createSchemaCommand(() => program));
+applyCommanderBehavior(program);
 
 program.hook('preAction', (_thisCommand, actionCommand) => {
     const opts = actionCommand.optsWithGlobals() as {

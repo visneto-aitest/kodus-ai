@@ -2,12 +2,8 @@ import { simpleGit, SimpleGit } from 'simple-git';
 import fs from 'fs/promises';
 import path from 'path';
 import chalk from 'chalk';
-import type {
-    FileDiff,
-    FileContent,
-    GitInfo,
-    PlatformType,
-} from '../types/index.js';
+import type { FileContent } from '../types/review.js';
+import type { FileDiff, GitInfo, PlatformType } from '../types/cli.js';
 import { cliDebug } from '../utils/logger.js';
 
 class GitService {

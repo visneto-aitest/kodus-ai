@@ -521,6 +521,82 @@ Get your team key at [app.kodus.io/organization/cli-keys](https://app.kodus.io/o
 
 This is also the recommended auth method for AI coding agents (Claude Code, Cursor, Codex) — set the env var once and every agent session is authenticated automatically.
 
+### Repository Configuration
+
+Repository configuration requires team-key auth:
+
+- team keys work across `add`, `list`, `show`, `setup`, `set`, and pattern mutations through the CLI config endpoints
+
+These commands always read and update the repository's current settings directly. There is no reset-to-default flow in the CLI.
+
+`kodus config -r` and `kodus config --remote` are shortcuts for `kodus config remote add`.
+
+```bash
+kodus config -r .                       # Shortcut for: kodus config remote add .
+kodus config --remote .                 # Shortcut for: kodus config remote add .
+kodus config --remote . --json          # Add and print machine-readable result
+kodus config --remote . --no-prompt     # Add without starting setup
+kodus config remote add .               # Add the current repository explicitly
+kodus config remote show .              # Inspect current repository settings
+kodus config remote setup .             # Run guided setup again
+kodus config remote setup . --json      # Print structured setup result
+kodus config remote set . review.enabled true
+kodus config remote set . review.enabled true --json
+kodus config remote set . patterns.ignoreFiles "**/*.lock,dist/**"
+kodus config remote add-pattern . ignore-files "dist/**"
+kodus config remote add-ignore-file . "dist/**"
+kodus config remote remove-base-branch . "release/*"
+kodus config remote remove-pattern . base-branches "release/*"
+kodus config remote open . --section suggestion-control
+kodus config remote list --json
+kodus config remote list                # List repositories already configured
+```
+
+When a repository is added from an interactive terminal, Kodus offers a guided setup for:
+
+- automated review
+- auto approve
+- request changes severity
+- ignored file patterns
+- base branch patterns
+- ignored title patterns
+
+Pattern fields accept glob expressions such as `**/*.lock`, `dist/**`, `release/*`, and `draft*`.
+
+Use `kodus config remote open` when you need advanced repository settings that are still web-only. The CLI opens the Kodus app and prints the repository/section path to navigate.
+
+Use `--json` with `show`, `set`, `open`, `add-pattern`, `remove-pattern`, and the pattern aliases when you need stable machine-readable output for scripts or AI agents.
+
+When targeting a repository that is different from your current working directory, pass `owner/repo` explicitly instead of `.`:
+
+```bash
+kodus config -r Wellington01/kodus-extension
+kodus config remote show Wellington01/kodus-extension
+```
+
+#### Local API note
+
+When testing against the local backend with `yarn start:local`, repository configuration works with a team key when the local API exposes:
+
+- `GET /cli/config/repositories/available`
+- `GET /cli/config/repositories/selected`
+- `POST /cli/config/repositories`
+- `GET /cli/config/repositories/:repositoryId/settings`
+- `PATCH /cli/config/repositories/:repositoryId/settings`
+
+```text
+Repository configuration access denied: ...
+```
+
+Example local commands:
+
+```bash
+export KODUS_TEAM_KEY=kodus_xxxxx
+yarn start:local config -r Wellington01/kodus-extension --no-prompt
+yarn start:local config remote list --json
+yarn start:local config remote show Wellington01/kodus-extension
+```
+
 ### CI/CD Token
 
 For pipelines and automated environments. Generated from your personal login:
@@ -544,6 +620,7 @@ kodus review --format json --fail-on error
 | Variable         | Description                                                                    |
 | ---------------- | ------------------------------------------------------------------------------ |
 | `KODUS_API_URL`  | API endpoint (default: `https://api.kodus.io`). HTTPS only (except localhost). |
+| `KODUS_APP_URL`  | Optional Kodus app URL override for `kodus config remote open`.                |
 | `KODUS_TOKEN`    | CI/CD token for automated pipelines (generated via `kodus auth token`)         |
 | `KODUS_TEAM_KEY` | Team key for shared team access and AI coding agents                           |
 

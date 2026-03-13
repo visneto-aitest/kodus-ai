@@ -1,17 +1,23 @@
+import type { AuthResponse, UserInfo } from '../../types/auth.js';
 import type {
-    AuthResponse,
+    CodeReviewParameter,
     ConfigAddRepositoriesResponse,
     ConfigRepository,
-    ReviewConfig,
-    ReviewResult,
-    PullRequestSuggestionsResponse,
-    BusinessValidationResponse,
-    TrialReviewResult,
-    TrialStatus,
-    UserInfo,
+    ConfigTeam,
+} from '../../types/config.js';
+import type {
     MemoryCaptureApiRequest,
     MemoryCaptureApiResponse,
-} from '../../types/index.js';
+} from '../../types/memory.js';
+import type { RepositorySettings } from '../../types/repo-config.js';
+import type {
+    BusinessValidationResponse,
+    PullRequestSuggestionsResponse,
+    ReviewConfig,
+    ReviewResult,
+    TrialReviewResult,
+} from '../../types/review.js';
+import type { TrialStatus } from '../../types/trial.js';
 import type { SessionApiEvent } from '../../types/session-events.js';
 
 export interface IAuthApi {
@@ -80,10 +86,36 @@ export interface IMemoryApi {
 export interface IConfigApi {
     getAvailableRepositories(accessToken: string): Promise<ConfigRepository[]>;
     getSelectedRepositories(accessToken: string): Promise<ConfigRepository[]>;
+    getTeams(accessToken: string): Promise<ConfigTeam[]>;
     addRepositories(
         accessToken: string,
         repositoryIds: string[],
     ): Promise<ConfigAddRepositoriesResponse>;
+    getCodeReviewParameter(
+        accessToken: string,
+        teamId: string,
+    ): Promise<CodeReviewParameter>;
+    createOrUpdateCodeReviewParameter(
+        accessToken: string,
+        params: {
+            teamId: string;
+            repositoryId?: string;
+            configValue: Record<string, unknown>;
+        },
+    ): Promise<CodeReviewParameter>;
+    updateCodeReviewParameterRepositories(
+        accessToken: string,
+        teamId: string,
+    ): Promise<unknown>;
+    getRepositorySettings(
+        accessToken: string,
+        repositoryId: string,
+    ): Promise<RepositorySettings>;
+    updateRepositorySettings(
+        accessToken: string,
+        repositoryId: string,
+        settings: RepositorySettings,
+    ): Promise<RepositorySettings>;
 }
 
 export interface ISessionsApi {

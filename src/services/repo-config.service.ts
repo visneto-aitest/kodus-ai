@@ -1,8 +1,8 @@
 import { api } from './api/index.js';
 import { gitService } from './git.service.js';
-import { loadConfig } from '../utils/config.js';
-import type { ConfigRepository } from '../types/index.js';
+import type { ConfigRepository } from '../types/config.js';
 import { CommandError } from '../utils/command-errors.js';
+import { resolveTeamKeyAccess } from '../utils/team-key-auth.js';
 
 type RepoConfigResult =
     | {
@@ -85,18 +85,9 @@ class RepoConfigService {
     }
 
     private async loadTeamKeyConfig(): Promise<TeamKeyConfig> {
-        const config = await loadConfig();
-
-        if (!config?.teamKey) {
-            throw new CommandError(
-                'AUTH_REQUIRED',
-                'Repository configuration requires team-key auth. Run: kodus auth team-key --key <your-key>.',
-            );
-        }
-
-        return {
-            teamKey: config.teamKey,
-        };
+        return resolveTeamKeyAccess(
+            'Repository configuration requires team-key auth. Run: kodus auth team-key --key <your-key>.',
+        );
     }
 
     private async resolveRepositoryReference(target: string): Promise<string> {

@@ -5,21 +5,21 @@ import { getTrialIdentifier } from '../utils/rate-limit.js';
 import { loadConfig } from '../utils/config.js';
 import { CLI_VERSION } from '../constants.js';
 import chalk from 'chalk';
-import { ApiError } from '../types/index.js';
+import { ApiError } from '../types/errors.js';
 import { cliDebug, cliWarn } from '../utils/logger.js';
 import type {
-    ReviewConfig,
-    ReviewResult,
-    TrialReviewResult,
-    PullRequestSuggestionsResponse,
-    BusinessValidationResponse,
-    ReviewIssue,
     ApiFileSuggestion,
     ApiPrLevelSuggestion,
     ApiSuggestionsObject,
-    Severity,
+    BusinessValidationResponse,
     FileContent,
-} from '../types/index.js';
+    PullRequestSuggestionsResponse,
+    ReviewConfig,
+    ReviewIssue,
+    ReviewResult,
+    Severity,
+    TrialReviewResult,
+} from '../types/review.js';
 
 const MAX_FILES = 500;
 const MAX_DIFF_SIZE = 1024 * 1024; // 1MB

@@ -3,8 +3,7 @@ import chalk from 'chalk';
 import figlet from 'figlet';
 import gradient from 'gradient-string';
 import { createRequire } from 'node:module';
-import { loadConfig } from './config.js';
-import { loadCredentials } from './credentials.js';
+import { getAuthModeSummary } from './auth-mode.js';
 import { cliInfo } from './logger.js';
 import { getRecentActivityLines } from './recent-activity.js';
 
@@ -168,20 +167,6 @@ function styleOverviewRow(row: string, logoLines: string[]): string {
     return styled;
 }
 
-async function getAuthModeLabel(): Promise<string> {
-    const teamConfig = await loadConfig();
-    if (teamConfig?.teamKey) {
-        return 'team key';
-    }
-
-    const credentials = await loadCredentials();
-    if (credentials?.accessToken || credentials?.refreshToken) {
-        return 'logged in';
-    }
-
-    return 'trial';
-}
-
 function renderLogoLines(terminalWidth: number): string[] {
     const font = terminalWidth >= 100 ? 'Small' : 'Mini';
 
@@ -206,7 +191,7 @@ export async function showBanner() {
     const contentWidth = Math.min(Math.max(terminalWidth - 8, 64), 160);
     const compactLayout = terminalWidth < 90;
     const logoLines = renderLogoLines(terminalWidth);
-    const authMode = await getAuthModeLabel();
+    const authMode = await getAuthModeSummary().then((summary) => summary.label);
     const recentActivityLines = await getRecentActivityLines(2);
 
     const leftOverviewLines: string[] = [

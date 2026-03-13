@@ -1,6 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
-import type { ReviewIssue, CodeFix } from '../types/index.js';
+import type { CodeFix, ReviewIssue } from '../types/review.js';
 import { cliError } from '../utils/logger.js';
 
 /**

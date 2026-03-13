@@ -377,6 +377,305 @@ describe('RealApi config repository methods', () => {
         expect(url).not.toContain('teamId=');
         expect(options.headers['X-Team-Key']).toBe('kodus_team_key');
     });
+
+    it('lists teams with bearer auth for repository settings flows', async () => {
+        fetchMock.mockResolvedValue(
+            new Response(
+                JSON.stringify({
+                    data: [
+                        {
+                            uuid: 'team-1',
+                            name: 'Platform Team',
+                            status: 'ACTIVE',
+                        },
+                    ],
+                }),
+                {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                },
+            ),
+        );
+
+        const api = new RealApi();
+        await api.config.getTeams('eyJ.test.token');
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const [url, options] = fetchMock.mock.calls[0];
+        expect(url).toContain('/team/');
+        expect(options.method).toBeUndefined();
+        expect(options.headers.Authorization).toBe('Bearer eyJ.test.token');
+        expect(options.headers['X-Team-Key']).toBeUndefined();
+    });
+
+    it('reads code review parameter data with bearer auth', async () => {
+        fetchMock.mockResolvedValue(
+            new Response(
+                JSON.stringify({
+                    data: {
+                        uuid: 'param-1',
+                        configKey: 'CODE_REVIEW_CONFIG',
+                        configValue: {
+                            repositories: [
+                                {
+                                    id: 'repo-1',
+                                    name: 'cli',
+                                    configs: {
+                                        automatedReviewActive: true,
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                }),
+                {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                },
+            ),
+        );
+
+        const api = new RealApi();
+        await api.config.getCodeReviewParameter(
+            'eyJ.test.token',
+            'team-1',
+        );
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const [url, options] = fetchMock.mock.calls[0];
+        expect(url).toContain('/parameters/find-by-key');
+        expect(url).toContain('key=CODE_REVIEW_CONFIG');
+        expect(url).toContain('teamId=team-1');
+        expect(options.headers.Authorization).toBe('Bearer eyJ.test.token');
+        expect(options.headers['X-Team-Key']).toBeUndefined();
+    });
+
+    it('updates code review parameter data with bearer auth', async () => {
+        fetchMock.mockResolvedValue(
+            new Response(
+                JSON.stringify({
+                    data: {
+                        uuid: 'param-1',
+                        configKey: 'CODE_REVIEW_CONFIG',
+                        configValue: {
+                            automatedReviewActive: true,
+                        },
+                    },
+                }),
+                {
+                    status: 201,
+                    headers: { 'Content-Type': 'application/json' },
+                },
+            ),
+        );
+
+        const api = new RealApi();
+        await api.config.createOrUpdateCodeReviewParameter(
+            'eyJ.test.token',
+            {
+                teamId: 'team-1',
+                repositoryId: 'repo-1',
+                configValue: {
+                    automatedReviewActive: true,
+                    pullRequestApprovalActive: false,
+                },
+            },
+        );
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const [url, options] = fetchMock.mock.calls[0];
+        expect(url).toContain('/parameters/create-or-update-code-review');
+        expect(options.method).toBe('POST');
+        expect(options.headers.Authorization).toBe('Bearer eyJ.test.token');
+        expect(options.headers['X-Team-Key']).toBeUndefined();
+        expect(options.body).toBe(
+            JSON.stringify({
+                configValue: {
+                    automatedReviewActive: true,
+                    pullRequestApprovalActive: false,
+                },
+                organizationAndTeamData: {
+                    teamId: 'team-1',
+                },
+                repositoryId: 'repo-1',
+            }),
+        );
+    });
+
+    it('syncs repository settings repositories with bearer auth', async () => {
+        fetchMock.mockResolvedValue(
+            new Response(
+                JSON.stringify({
+                    data: {
+                        status: true,
+                    },
+                }),
+                {
+                    status: 201,
+                    headers: { 'Content-Type': 'application/json' },
+                },
+            ),
+        );
+
+        const api = new RealApi();
+        await api.config.updateCodeReviewParameterRepositories(
+            'eyJ.test.token',
+            'team-1',
+        );
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const [url, options] = fetchMock.mock.calls[0];
+        expect(url).toContain('/parameters/update-code-review-parameter-repositories');
+        expect(options.method).toBe('POST');
+        expect(options.headers.Authorization).toBe('Bearer eyJ.test.token');
+        expect(options.body).toBe(
+            JSON.stringify({
+                organizationAndTeamData: {
+                    teamId: 'team-1',
+                },
+            }),
+        );
+    });
+
+    it('surfaces repository config permission errors from the API', async () => {
+        fetchMock.mockResolvedValue(
+            new Response(
+                JSON.stringify({
+                    statusCode: 403,
+                    path: '/cli/config/repositories/available',
+                    error: 'Forbidden',
+                    message:
+                        'This CLI key is not allowed to configure repositories',
+                }),
+                {
+                    status: 403,
+                    headers: { 'Content-Type': 'application/json' },
+                },
+            ),
+        );
+
+        const api = new RealApi();
+
+        await expect(
+            api.config.getAvailableRepositories('kodus_team_key'),
+        ).rejects.toEqual(
+            expect.objectContaining({
+                name: 'ApiError',
+                statusCode: 403,
+                message:
+                    'Repository configuration access denied: This CLI key is not allowed to configure repositories',
+            } satisfies Partial<ApiError>),
+        );
+    });
+
+    it('sends X-Team-Key when getting repository settings', async () => {
+        fetchMock.mockResolvedValue(
+            new Response(
+                JSON.stringify({
+                    data: {
+                        reviewEnabled: true,
+                        autoApproveEnabled: false,
+                        requestChangesMinSeverity: 'critical',
+                        ignoredFilePatterns: ['**/*.lock'],
+                        baseBranchPatterns: ['main', 'release/*'],
+                        ignoredTitlePatterns: ['wip*'],
+                    },
+                }),
+                {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                },
+            ),
+        );
+
+        const api = new RealApi();
+        await api.config.getRepositorySettings('kodus_team_key', 'repo-1');
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const [url, options] = fetchMock.mock.calls[0];
+        expect(url).toContain('/cli/config/repositories/repo-1/settings');
+        expect(options.method).toBeUndefined();
+        expect(options.headers['X-Team-Key']).toBe('kodus_team_key');
+        expect(options.headers.Authorization).toBeUndefined();
+    });
+
+    it('surfaces missing repository settings endpoints clearly', async () => {
+        fetchMock.mockResolvedValue(
+            new Response(
+                JSON.stringify({
+                    statusCode: 404,
+                    path: '/cli/config/repositories/repo-1/settings',
+                    error: 'Not Found',
+                    message: 'Cannot GET /cli/config/repositories/repo-1/settings',
+                }),
+                {
+                    status: 404,
+                    headers: { 'Content-Type': 'application/json' },
+                },
+            ),
+        );
+
+        const api = new RealApi();
+
+        await expect(
+            api.config.getRepositorySettings('kodus_team_key', 'repo-1'),
+        ).rejects.toEqual(
+            expect.objectContaining({
+                name: 'ApiError',
+                statusCode: 404,
+                message:
+                    'Repository settings are not available in this Kodus API environment. `config remote show`, `setup`, and `set` require the repository settings endpoint.',
+            } satisfies Partial<ApiError>),
+        );
+    });
+
+    it('sends Authorization when updating repository settings with bearer token', async () => {
+        fetchMock.mockResolvedValue(
+            new Response(
+                JSON.stringify({
+                    data: {
+                        reviewEnabled: true,
+                        autoApproveEnabled: true,
+                        requestChangesMinSeverity: 'high',
+                        ignoredFilePatterns: ['dist/**'],
+                        baseBranchPatterns: ['main'],
+                        ignoredTitlePatterns: ['draft*'],
+                    },
+                }),
+                {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                },
+            ),
+        );
+
+        const api = new RealApi();
+        await api.config.updateRepositorySettings('eyJ.test.token', 'repo-1', {
+            reviewEnabled: true,
+            autoApproveEnabled: true,
+            requestChangesMinSeverity: 'high',
+            ignoredFilePatterns: ['dist/**'],
+            baseBranchPatterns: ['main'],
+            ignoredTitlePatterns: ['draft*'],
+        });
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const [url, options] = fetchMock.mock.calls[0];
+        expect(url).toContain('/cli/config/repositories/repo-1/settings');
+        expect(options.method).toBe('PATCH');
+        expect(options.headers.Authorization).toBe('Bearer eyJ.test.token');
+        expect(options.headers['X-Team-Key']).toBeUndefined();
+        expect(options.body).toBe(
+            JSON.stringify({
+                reviewEnabled: true,
+                autoApproveEnabled: true,
+                requestChangesMinSeverity: 'high',
+                ignoredFilePatterns: ['dist/**'],
+                baseBranchPatterns: ['main'],
+                ignoredTitlePatterns: ['draft*'],
+            }),
+        );
+    });
 });
 
 describe('RealApi review.analyze auth mode', () => {

@@ -34,6 +34,7 @@ const mockApiConfig = vi.mocked(api.config);
 describe('repoConfigService.addRepository', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        vi.unstubAllEnvs();
         mockLoadConfig.mockResolvedValue({
             teamKey: 'kodus_team_key',
             teamName: 'Platform Team',
@@ -128,6 +129,20 @@ describe('repoConfigService.addRepository', () => {
         });
     });
 
+    it('prefers KODUS_TEAM_KEY from the environment over the saved config', async () => {
+        vi.stubEnv('KODUS_TEAM_KEY', 'kodus_env_team_key');
+
+        await repoConfigService.addRepository('.');
+
+        expect(mockApiConfig.getAvailableRepositories).toHaveBeenCalledWith(
+            'kodus_env_team_key',
+        );
+        expect(mockApiConfig.addRepositories).toHaveBeenCalledWith(
+            'kodus_env_team_key',
+            ['repo-1'],
+        );
+    });
+
     it('fails when current directory is not a git repository', async () => {
         mockGitService.isGitRepository.mockResolvedValue(false);
 
@@ -152,6 +167,7 @@ describe('repoConfigService.addRepository', () => {
 describe('repoConfigService.listRepositories', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        vi.unstubAllEnvs();
         mockLoadConfig.mockResolvedValue({
             teamKey: 'kodus_team_key',
             teamName: 'Platform Team',

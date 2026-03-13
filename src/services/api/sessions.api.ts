@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { request } from './api.real.js';
-import { ApiError } from '../../types/index.js';
+import { ApiError } from '../../types/errors.js';
 import type { SessionApiEvent } from '../../types/session-events.js';
 import type { ISessionsApi } from './api.interface.js';
 

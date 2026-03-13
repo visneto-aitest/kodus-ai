@@ -5,6 +5,7 @@ import { showBanner } from './utils/banner.js';
 import { checkForUpdates } from './utils/update-check.js';
 import { isCliExitError, isCommanderExitError } from './utils/cli-exit.js';
 import { cliError } from './utils/logger.js';
+import { formatCommanderError } from './utils/commander-errors.js';
 
 function normalizeDecisionsCaptureLegacyArgs(args: string[]): string[] {
     const decisionsIndex = args.indexOf('decisions');
@@ -42,6 +43,7 @@ try {
     if (isCliExitError(error)) {
         process.exitCode = error.exitCode;
     } else if (isCommanderExitError(error)) {
+        cliError(formatCommanderError(error, process.argv.slice(2)));
         process.exitCode = error.exitCode;
     } else {
         if (error instanceof Error && error.message) {
