@@ -51,6 +51,10 @@ export default async function Layout({ children }: React.PropsWithChildren) {
             getPlatformConfigParameterNoCache(initialTeamId),
         ]);
 
+    if (!initialShellConfig || !initialDefaultConfig || !initialPlatformConfig) {
+        return null;
+    }
+
     return (
         <PageBoundary
             loading={<SettingsLoadingSkeleton />}

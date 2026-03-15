@@ -80,7 +80,7 @@ const RepositoryCollapsibleItem = ({
         ),
     );
 
-    const nestedDirectoryOverrideCount = repository.directories.reduce(
+    const nestedDirectoryOverrideCount = (repository.directories ?? []).reduce(
         (total, directory) => {
             const directoryConfigOverrideCount = countConfigOverridesForRoutes(
                 directory.configs,
@@ -249,7 +249,7 @@ export const PerRepository = ({
                     .filter(
                         (repository) =>
                             repository.isSelected ||
-                            repository.directories.length > 0,
+                            (repository.directories?.length ?? 0) > 0,
                     )
                     .map((repository) => (
                         <RepositoryCollapsibleItem
