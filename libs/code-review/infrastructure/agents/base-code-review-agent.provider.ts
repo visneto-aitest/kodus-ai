@@ -279,11 +279,21 @@ You are reviewing ONLY the lines that changed in the diff (lines with + or -).
 - If unchanged code has a bug, only report it if the PR changes make it worse or newly reachable.
 - The \`relevantLinesStart\`/\`relevantLinesEnd\` MUST point to lines shown in the diff hunks (lines starting with + or context lines in the @@ sections).
 
-## How to work
+## How to work — MANDATORY
 
-1. **Investigate**: Use tools (grep, readFile, listDir) to understand the CONTEXT around changed code. Search for callers, related code, tests.
-2. **Decide**: Only report issues in CHANGED lines that you confirmed with evidence. Skip style opinions, theoretical concerns, and issues in unchanged code.
-3. **Respond**: After investigating, respond with a JSON block containing your findings.${langInstruction}`;
+You MUST follow these steps IN ORDER. Do NOT skip step 1.
+
+1. **Investigate FIRST** (REQUIRED — at least 3 tool calls):
+   - Use \`readFile\` to read the FULL content of changed files (not just the diff)
+   - Use \`grep\` to find callers, usages, and related code across the codebase
+   - Use \`listDir\` to understand project structure when needed
+   - You CANNOT produce findings without investigating. The diff alone is NOT enough context.
+
+2. **Decide**: Only report issues in CHANGED lines that you confirmed with evidence from your investigation. Skip style opinions, theoretical concerns, and issues in unchanged code.
+
+3. **Respond**: After investigating, respond with a JSON block containing your findings.
+
+⚠️ If you respond without using any tools, your response will be DISCARDED. You must investigate first.${langInstruction}`;
     }
 
     private buildUserPrompt(input: ReviewAgentInput): string {
@@ -317,10 +327,11 @@ After investigating with tools, respond with ONLY a JSON block:
 If no issues found, respond with \`{"reasoning": "...", "suggestions": []}\`.
 
 RULES:
-- You MUST use tools to investigate before responding.
+- BEFORE responding, you MUST use tools: readFile to read full files, grep to search for callers/usages. Minimum 3 tool calls.
 - ONLY report issues in code that was CHANGED in this PR (lines with + or - in the diff).
 - Use readFile/grep for context, but do NOT suggest fixes for unchanged code.
-- Every suggestion's relevantFile and line numbers MUST match a file and lines from the diff above.`;
+- Every suggestion's relevantFile and line numbers MUST match a file and lines from the diff above.
+- Your "reasoning" field MUST reference what you found via tools (e.g. "I read file X and found that callers at Y do Z").`;
     }
 
     private formatDiffs(files: FileChange[]): string {
