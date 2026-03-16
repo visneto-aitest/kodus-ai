@@ -149,6 +149,11 @@
         "docker:start:all": "docker compose -f docker-compose.dev.yml up"
     },
     "dependencies": {
+        "@ai-sdk/anthropic": "^3.0.58",
+        "@ai-sdk/google": "^3.0.43",
+        "@ai-sdk/google-vertex": "^4.0.80",
+        "@ai-sdk/openai": "^3.0.41",
+        "@ai-sdk/openai-compatible": "^2.0.35",
         "@casl/ability": "^6.8.0",
         "@faker-js/faker": "^10.3.0",
         "@gitbeaker/rest": "^43.8.0",
@@ -197,6 +202,7 @@
         "@sentry/node": "^10.42.0",
         "@sentry/opentelemetry": "^10.42.0",
         "@sentry/profiling-node": "^10.42.0",
+        "ai": "^6.0.116",
         "ajv": "^8.18.0",
         "amqp-connection-manager": "^5.0.0",
         "amqplib": "^0.10.9",
