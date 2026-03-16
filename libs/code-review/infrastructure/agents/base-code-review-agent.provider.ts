@@ -205,7 +205,7 @@ export abstract class BaseCodeReviewAgentProvider {
             }));
 
             this.agentLogger.log({
-                message: `[AGENT] ${identity.name} completed for PR#${input.prNumber}: ${suggestions.length} suggestions in ${durationMs}ms (source=${agentResult.source}, steps=${agentResult.steps}, tools=${agentResult.toolCalls.length}, tokens=${agentResult.usage.totalTokens})`,
+                message: `[AGENT] ${identity.name} completed for PR#${input.prNumber}: ${suggestions.length} suggestions in ${durationMs}ms (source=${agentResult.source}, steps=${agentResult.steps}, tools=${agentResult.toolCalls.length}, input=${agentResult.usage.inputTokens}, output=${agentResult.usage.outputTokens}, total=${agentResult.usage.totalTokens})`,
                 context: identity.name,
                 metadata: {
                     organizationId:
@@ -216,7 +216,9 @@ export abstract class BaseCodeReviewAgentProvider {
                     source: agentResult.source,
                     steps: agentResult.steps,
                     toolCalls: agentResult.toolCalls.length,
-                    tokens: agentResult.usage.totalTokens,
+                    inputTokens: agentResult.usage.inputTokens,
+                    outputTokens: agentResult.usage.outputTokens,
+                    totalTokens: agentResult.usage.totalTokens,
                     finishReason: agentResult.finishReason,
                     model: modelName,
                 },

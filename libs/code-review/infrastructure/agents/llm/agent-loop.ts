@@ -89,6 +89,9 @@ export async function runAgentLoop(
 
     const allToolCalls: AgentLoopOutput['toolCalls'] = [];
     let stepCount = 0;
+    let lastStepText = ''; // Capture text from intermediate steps for timeout recovery
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
 
     // Timeout: 5 minutes max per agent to prevent hanging on slow/dead providers
     const AGENT_TIMEOUT_MS = 5 * 60 * 1000;
@@ -155,6 +158,7 @@ export async function runAgentLoop(
                 }
 
                 if (event.text) {
+                    lastStepText = event.text;
                     logger.log({
                         message: `[AGENT-TEXT] step=${stepCount} finishReason=${event.finishReason} textLength=${event.text.length} tokens=${event.usage?.totalTokens ?? 0}`,
                         context: 'AgentLoop',
@@ -168,24 +172,68 @@ export async function runAgentLoop(
                     });
                 }
 
+                // Track cumulative token usage for timeout recovery
+                if (event.usage) {
+                    totalInputTokens += event.usage.inputTokens ?? 0;
+                    totalOutputTokens += event.usage.outputTokens ?? 0;
+                }
+
                 input.onStepFinish?.(event);
             },
         });
     } catch (error) {
         clearTimeout(timeoutHandle);
         if (abortController.signal.aborted) {
+            // Try to recover findings from the last text the model produced before timeout
+            let findings: FindingsOutput | null = null;
+            let source: AgentLoopOutput['source'] = 'empty';
+
+            if (lastStepText) {
+                // Strategy 1: Try to parse JSON directly (safe — no hallucination risk)
+                findings = tryParseFindings(lastStepText);
+                if (findings && findings.suggestions.length > 0) {
+                    source = 'json-parse';
+                    logger.log({
+                        message: `[AGENT-TIMEOUT-RECOVERY] Recovered ${findings.suggestions.length} suggestions from last step text (${lastStepText.length} chars)`,
+                        context: 'AgentLoop',
+                    });
+                }
+                // Strategy 2: Only use fallback LLM if text clearly contains findings
+                // (not just investigation text). This prevents the LLM from fabricating
+                // suggestions to fill the schema when the agent was still investigating.
+                if (!findings && lastStepText.length > 100 && looksLikeFindings(lastStepText)) {
+                    try {
+                        findings = await structureWithFallbackModel(lastStepText, input.byokConfig);
+                        if (findings && findings.suggestions.length > 0) {
+                            source = 'generate-object';
+                            logger.log({
+                                message: `[AGENT-TIMEOUT-RECOVERY] Recovered ${findings.suggestions.length} suggestions via fallback model`,
+                                context: 'AgentLoop',
+                            });
+                        }
+                    } catch {
+                        // Best effort
+                    }
+                }
+            }
+
             logger.warn({
-                message: `[AGENT-TIMEOUT] Agent timed out after ${AGENT_TIMEOUT_MS / 1000}s (${stepCount} steps, ${allToolCalls.length} tool calls)`,
+                message: `[AGENT-TIMEOUT] Agent timed out after ${AGENT_TIMEOUT_MS / 1000}s (${stepCount} steps, ${allToolCalls.length} tool calls, recovered=${findings?.suggestions?.length ?? 0})`,
                 context: 'AgentLoop',
             });
+
             return {
-                findings: { reasoning: 'Agent timed out', suggestions: [] },
-                text: '',
+                findings: findings || { reasoning: 'Agent timed out', suggestions: [] },
+                text: lastStepText,
                 steps: stepCount,
                 toolCalls: allToolCalls,
                 finishReason: 'timeout',
-                source: 'empty',
-                usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+                source,
+                usage: {
+                    inputTokens: totalInputTokens,
+                    outputTokens: totalOutputTokens,
+                    totalTokens: totalInputTokens + totalOutputTokens,
+                },
             };
         }
         throw error;
@@ -299,6 +347,26 @@ function tryParseFindings(text: string): FindingsOutput | null {
     }
 
     return null;
+}
+
+/**
+ * Check if text looks like it contains actual findings vs just investigation notes.
+ * Used to gate the fallback LLM — prevents fabricating suggestions from
+ * "I'm looking at file X..." investigation text.
+ */
+function looksLikeFindings(text: string): boolean {
+    const lower = text.toLowerCase();
+    // Must mention at least 2 of these to look like actual findings
+    const signals = [
+        /\b(bug|issue|vulnerability|problem|error|flaw|defect)\b/,
+        /\b(fix|should|must|incorrect|missing|broken|unsafe|race condition)\b/,
+        /\b(line\s*\d+|\.ts\b|\.js\b|\.go\b|\.rb\b|\.py\b)/,
+        /\b(severity|critical|high|medium)\b/,
+        /\b(existing.?code|improved.?code|suggestion)\b/,
+        /```/,
+    ];
+    const matches = signals.filter((r) => r.test(lower)).length;
+    return matches >= 2;
 }
 
 /**
