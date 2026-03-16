@@ -113,11 +113,18 @@ export async function runAgentLoop(
             prompt: input.userPrompt,
             tools,
             stopWhen: stepCountIs(input.maxSteps || MAX_STEPS),
-            // After 80% of steps, disable tools and force the model to respond with text.
-            // This prevents models that keep calling tools indefinitely from never producing output.
+            // Step control:
+            // - First MIN_TOOL_STEPS steps: force tool calls (model MUST investigate before responding)
+            // - Middle steps: model chooses freely (tools or text)
+            // - Last 2 steps: force text response (prevent infinite tool loops)
             prepareStep: ({ stepNumber }: any) => {
                 const maxSteps = input.maxSteps || MAX_STEPS;
-                const forceTextAfter = maxSteps - 2; // Last 2 steps: force text response
+                const forceTextAfter = maxSteps - 2;
+                const MIN_TOOL_STEPS = 3; // Must investigate for at least 3 steps
+
+                if (stepNumber < MIN_TOOL_STEPS) {
+                    return { toolChoice: 'required' as const };
+                }
                 if (stepNumber >= forceTextAfter) {
                     logger.log({
                         message: `[AGENT-FORCE-TEXT] step=${stepNumber}/${maxSteps} — disabling tools, forcing text response`,
