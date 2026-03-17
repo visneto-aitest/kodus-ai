@@ -233,13 +233,14 @@ export abstract class BaseCodeReviewAgentProvider {
         } catch (error) {
             const durationMs = Date.now() - startTime;
             this.agentLogger.error({
-                message: `[AGENT] ${identity.name} failed for PR#${input.prNumber} after ${durationMs}ms`,
+                message: `[AGENT] ${identity.name} failed for PR#${input.prNumber} after ${durationMs}ms: ${error instanceof Error ? error.message : String(error)}`,
                 context: identity.name,
                 error,
                 metadata: {
                     prNumber: input.prNumber,
                     durationMs,
                     model: modelName,
+                    errorStack: error instanceof Error ? error.stack?.substring(0, 500) : undefined,
                 },
             });
             return {

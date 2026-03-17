@@ -10,6 +10,7 @@ import {
     tool,
     stepCountIs,
     Output,
+    jsonSchema,
     type LanguageModel,
 } from 'ai';
 import { z } from 'zod';
@@ -446,16 +447,14 @@ function buildTools(
         grep: (tool as any)({
             description:
                 'Search the repository for a regex pattern. Returns matching lines with file paths.',
-            parameters: z.object({
-                pattern: z.string().describe('Regex pattern to search for'),
-                glob: z
-                    .string()
-                    .optional()
-                    .describe('Optional glob to filter files (e.g. "*.ts")'),
-                path: z
-                    .string()
-                    .optional()
-                    .describe('Optional directory to scope the search'),
+            parameters: jsonSchema({
+                type: 'object',
+                properties: {
+                    pattern: { type: 'string', description: 'Regex pattern to search for' },
+                    glob: { type: 'string', description: 'Optional glob to filter files (e.g. "*.ts")' },
+                    path: { type: 'string', description: 'Optional directory to scope the search' },
+                },
+                required: ['pattern'],
             }),
             execute: async (args: any) => {
                 const pattern = args.pattern || args.regex || '';
@@ -480,10 +479,14 @@ function buildTools(
         readFile: (tool as any)({
             description:
                 'Read file contents. Use startLine/endLine for specific sections. Omit both for entire file.',
-            parameters: z.object({
-                path: z.string().describe('File path relative to repo root'),
-                startLine: z.number().optional().describe('Start line (1-based)'),
-                endLine: z.number().optional().describe('End line (1-based)'),
+            parameters: jsonSchema({
+                type: 'object',
+                properties: {
+                    path: { type: 'string', description: 'File path relative to repo root' },
+                    startLine: { type: 'number', description: 'Start line (1-based)' },
+                    endLine: { type: 'number', description: 'End line (1-based)' },
+                },
+                required: ['path'],
             }),
             execute: async (args: any) => {
                 // Tolerate models sending file/filePath instead of path
@@ -510,15 +513,12 @@ function buildTools(
         listDir: (tool as any)({
             description:
                 'List files and directories. Use maxDepth to control recursion (default 2).',
-            parameters: z.object({
-                path: z
-                    .string()
-                    .optional()
-                    .describe('Directory path (default: ".")'),
-                maxDepth: z
-                    .number()
-                    .optional()
-                    .describe('Max recursion depth (default: 2, max: 4)'),
+            parameters: jsonSchema({
+                type: 'object',
+                properties: {
+                    path: { type: 'string', description: 'Directory path (default: ".")' },
+                    maxDepth: { type: 'number', description: 'Max recursion depth (default: 2, max: 4)' },
+                },
             }),
             execute: async (args: any) => {
                 let dirPath = (args.path || args.directory || args.dir || '.').replace(/^\/+/, '') || '.';
@@ -541,10 +541,12 @@ function buildTools(
         tools.shell = (tool as any)({
             description:
                 'Execute a read-only shell command. Allowed: tsc, eslint, npx, python, go vet, cargo check.',
-            parameters: z.object({
-                command: z
-                    .string()
-                    .describe('Command to run (e.g. "npx tsc --noEmit src/file.ts")'),
+            parameters: jsonSchema({
+                type: 'object',
+                properties: {
+                    command: { type: 'string', description: 'Command to run (e.g. "npx tsc --noEmit src/file.ts")' },
+                },
+                required: ['command'],
             }),
             execute: async ({ command }: any) => {
                 const ALLOWED = [
@@ -573,9 +575,13 @@ function buildTools(
         tools.searchDocs = (tool as any)({
             description:
                 'Search external documentation for a package/library.',
-            parameters: z.object({
-                packageName: z.string().describe('Package name (e.g. "express")'),
-                query: z.string().describe('What to search for in docs'),
+            parameters: jsonSchema({
+                type: 'object',
+                properties: {
+                    packageName: { type: 'string', description: 'Package name (e.g. "express")' },
+                    query: { type: 'string', description: 'What to search for in docs' },
+                },
+                required: ['packageName', 'query'],
             }),
             execute: async ({ packageName, query }: any) => {
                 if (!packageName || !query)
