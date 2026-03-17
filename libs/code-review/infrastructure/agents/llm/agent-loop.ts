@@ -1,3 +1,4 @@
+import { buildAgentTools } from './agent-tools.factory';
 /**
  * Simple agent loop using Vercel AI SDK with native function calling.
  *
@@ -5,28 +6,19 @@
  * 2. Parse JSON from response text — zero cost if model cooperates
  * 3. If JSON parse fails — `generateText` with `Output.object` (cheap model) to structure the text
  */
-import {
-    generateText,
-    tool,
-    stepCountIs,
-    Output,
-    type LanguageModel,
-} from 'ai';
+import { generateText, stepCountIs, Output, type LanguageModel } from 'ai';
 import { z } from 'zod';
 import { createLogger } from '@kodus/flow';
 import { EnhancedJSONParser } from '@kodus/flow';
 import { BYOKConfig } from '@kodus/kodus-common/llm';
 import { getInternalModel } from './byok-to-vercel';
-import { RemoteCommands } from '@libs/code-review/infrastructure/adapters/services/collectCrossFileContexts.service';
+import { RemoteCommands } from '../../adapters/services/collectCrossFileContexts.service';
 import { DocumentationSearchAdapter } from '../tools/sandbox-tools';
 
 const logger = createLogger('AgentLoop');
 
 const MAX_STEPS = 35;
-const MAX_GREP_MATCHES = 30;
-const MAX_READ_LENGTH = 30_000;
-const MAX_LIST_LENGTH = 15_000;
-const MAX_SHELL_OUTPUT = 15_000;
+const AGENT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes max per agent to prevent hanging on slow/dead providers
 
 /** Schema for structured output */
 const suggestionSchema = z.object({
@@ -81,7 +73,7 @@ export interface AgentLoopOutput {
 export async function runAgentLoop(
     input: AgentLoopInput,
 ): Promise<AgentLoopOutput> {
-    const tools = buildTools(
+    const tools = buildAgentTools(
         input.remoteCommands,
         input.documentationSearchService,
         input.documentationSearchOptions,
@@ -94,7 +86,6 @@ export async function runAgentLoop(
     let totalOutputTokens = 0;
 
     // Timeout: 5 minutes max per agent to prevent hanging on slow/dead providers
-    const AGENT_TIMEOUT_MS = 5 * 60 * 1000;
     const abortController = new AbortController();
     const timeoutHandle = setTimeout(() => {
         logger.warn({
@@ -132,7 +123,8 @@ export async function runAgentLoop(
 
                 if (event.toolCalls) {
                     for (const tc of event.toolCalls) {
-                        const args = (tc as any).args || (tc as any).input || {};
+                        const args =
+                            (tc as any).args || (tc as any).input || {};
                         allToolCalls.push({ tool: tc.toolName, args });
 
                         const toolResult = (event.toolResults || []).find(
@@ -201,9 +193,16 @@ export async function runAgentLoop(
                 // Strategy 2: Only use fallback LLM if text clearly contains findings
                 // (not just investigation text). This prevents the LLM from fabricating
                 // suggestions to fill the schema when the agent was still investigating.
-                if (!findings && lastStepText.length > 100 && looksLikeFindings(lastStepText)) {
+                if (
+                    !findings &&
+                    lastStepText.length > 100 &&
+                    looksLikeFindings(lastStepText)
+                ) {
                     try {
-                        findings = await structureWithFallbackModel(lastStepText, input.byokConfig);
+                        findings = await structureWithFallbackModel(
+                            lastStepText,
+                            input.byokConfig,
+                        );
                         if (findings && findings.suggestions.length > 0) {
                             source = 'generate-object';
                             logger.log({
@@ -223,7 +222,10 @@ export async function runAgentLoop(
             });
 
             return {
-                findings: findings || { reasoning: 'Agent timed out', suggestions: [] },
+                findings: findings || {
+                    reasoning: 'Agent timed out',
+                    suggestions: [],
+                },
                 text: lastStepText,
                 steps: stepCount,
                 toolCalls: allToolCalls,
@@ -265,7 +267,10 @@ export async function runAgentLoop(
             context: 'AgentLoop',
         });
 
-        findings = await structureWithFallbackModel(finalText, input.byokConfig);
+        findings = await structureWithFallbackModel(
+            finalText,
+            input.byokConfig,
+        );
         source = findings ? 'generate-object' : 'empty';
     }
 
@@ -282,9 +287,18 @@ export async function runAgentLoop(
         finishReason: result.finishReason,
         source,
         usage: {
-            inputTokens: (result as any).totalUsage?.inputTokens ?? result.usage?.inputTokens ?? 0,
-            outputTokens: (result as any).totalUsage?.outputTokens ?? result.usage?.outputTokens ?? 0,
-            totalTokens: (result as any).totalUsage?.totalTokens ?? result.usage?.totalTokens ?? 0,
+            inputTokens:
+                (result as any).totalUsage?.inputTokens ??
+                result.usage?.inputTokens ??
+                0,
+            outputTokens:
+                (result as any).totalUsage?.outputTokens ??
+                result.usage?.outputTokens ??
+                0,
+            totalTokens:
+                (result as any).totalUsage?.totalTokens ??
+                result.usage?.totalTokens ??
+                0,
         },
     };
 }
@@ -382,13 +396,14 @@ async function structureWithFallbackModel(
 
         if (!internalModel) {
             logger.warn({
-                message: '[AGENT-FALLBACK] No internal model available for fallback',
+                message:
+                    '[AGENT-FALLBACK] No internal model available for fallback',
                 context: 'AgentLoop',
             });
             return null;
         }
 
-        const result = await generateText({
+        const result: any = await generateText({
             model: internalModel as any,
             output: Output.object({ schema: findingsSchema }) as any,
             system: `You are a JSON extraction assistant. You receive code review text and extract structured findings.
@@ -409,7 +424,7 @@ ${reviewText}
 For each issue found, extract: relevantFile, language, suggestionContent (full description), existingCode, improvedCode, oneSentenceSummary, relevantLinesStart, relevantLinesEnd, severity (critical/high/medium/low).`,
         });
 
-        const output = (result as any).object ?? (result as any).output;
+        const output: any = (result as any).object ?? (result as any).output;
 
         logger.log({
             message: `[AGENT-FALLBACK] structured output returned ${output?.suggestions?.length ?? 0} suggestions`,
@@ -430,166 +445,3 @@ For each issue found, extract: relevantFile, language, suggestionContent (full d
 /**
  * Build the tool set for the agent from RemoteCommands.
  */
-function buildTools(
-    remoteCommands: RemoteCommands,
-    docSearchService?: DocumentationSearchAdapter,
-    docSearchOptions?: Record<string, unknown>,
-): Record<string, any> {
-    const tools: Record<string, any> = {
-        grep: (tool as any)({
-            description:
-                'Search the repository for a regex pattern. Returns matching lines with file paths.',
-            parameters: z.object({
-                pattern: z.string().describe('Regex pattern to search for'),
-                glob: z
-                    .string()
-                    .optional()
-                    .describe('Optional glob to filter files (e.g. "*.ts")'),
-                path: z
-                    .string()
-                    .optional()
-                    .describe('Optional directory to scope the search'),
-            }),
-            execute: async (args: any) => {
-                const pattern = args.pattern || args.regex || '';
-                const glob = args.glob || args.include || undefined;
-                let searchPath = (args.path || args.directory || args.dir || '.').replace(/^\/+/, '') || '.';
-                if (!pattern) return 'Error: pattern is required';
-                let result = await remoteCommands.grep(
-                    pattern,
-                    searchPath,
-                    glob,
-                );
-                const lines = result.split('\n');
-                if (lines.length > MAX_GREP_MATCHES) {
-                    result =
-                        lines.slice(0, MAX_GREP_MATCHES).join('\n') +
-                        `\n... (${lines.length - MAX_GREP_MATCHES} more matches)`;
-                }
-                return result;
-            },
-        }),
-
-        readFile: (tool as any)({
-            description:
-                'Read file contents. Use startLine/endLine for specific sections. Omit both for entire file.',
-            parameters: z.object({
-                path: z.string().describe('File path relative to repo root'),
-                startLine: z.number().optional().describe('Start line (1-based)'),
-                endLine: z.number().optional().describe('End line (1-based)'),
-            }),
-            execute: async (args: any) => {
-                // Tolerate models sending file/filePath instead of path
-                let filePath: string = args.path || args.filePath || args.file || '';
-                const startLine = args.startLine || args.start_line || 0;
-                const endLine = args.endLine || args.end_line || 0;
-                // Strip leading slash — paths are relative to repo root
-                filePath = filePath.replace(/^\/+/, '');
-                if (!filePath) return 'Error: path is required';
-                let result = await remoteCommands.read(
-                    filePath,
-                    startLine,
-                    endLine,
-                );
-                if (result.length > MAX_READ_LENGTH) {
-                    result =
-                        result.substring(0, MAX_READ_LENGTH) +
-                        `\n... (truncated)`;
-                }
-                return result;
-            },
-        }),
-
-        listDir: (tool as any)({
-            description:
-                'List files and directories. Use maxDepth to control recursion (default 2).',
-            parameters: z.object({
-                path: z
-                    .string()
-                    .optional()
-                    .describe('Directory path (default: ".")'),
-                maxDepth: z
-                    .number()
-                    .optional()
-                    .describe('Max recursion depth (default: 2, max: 4)'),
-            }),
-            execute: async (args: any) => {
-                let dirPath = (args.path || args.directory || args.dir || '.').replace(/^\/+/, '') || '.';
-                const depth = Math.min(args.maxDepth || args.max_depth || 2, 4);
-                let result = await remoteCommands.listDir(dirPath, depth);
-                if (result.length > MAX_LIST_LENGTH) {
-                    result =
-                        result.substring(0, MAX_LIST_LENGTH) +
-                        `\n... (truncated)`;
-                }
-                return result;
-            },
-        }),
-    };
-
-    // Add exec-based tools if available
-    if (remoteCommands.exec) {
-        const exec = remoteCommands.exec;
-
-        tools.shell = (tool as any)({
-            description:
-                'Execute a read-only shell command. Allowed: tsc, eslint, npx, python, go vet, cargo check.',
-            parameters: z.object({
-                command: z
-                    .string()
-                    .describe('Command to run (e.g. "npx tsc --noEmit src/file.ts")'),
-            }),
-            execute: async ({ command }: any) => {
-                const ALLOWED = [
-                    'tsc ', 'npx ', 'eslint ', 'python ', 'python3 ',
-                    'go ', 'cargo ', 'cat ', 'wc ', 'head ', 'tail ', 'file ',
-                ];
-                const isAllowed = ALLOWED.some((p) =>
-                    command.trimStart().startsWith(p),
-                );
-                if (!isAllowed) {
-                    return `Command not allowed. Allowed prefixes: ${ALLOWED.join(', ')}`;
-                }
-                if (/[;&|`$>]|\brm\b|\bsudo\b/.test(command)) {
-                    return 'Command contains blocked patterns.';
-                }
-                const { stdout } = await exec(command);
-                return stdout.length > MAX_SHELL_OUTPUT
-                    ? stdout.substring(0, MAX_SHELL_OUTPUT) + '\n... (truncated)'
-                    : stdout;
-            },
-        });
-    }
-
-    // Add searchDocs if available
-    if (docSearchService) {
-        tools.searchDocs = (tool as any)({
-            description:
-                'Search external documentation for a package/library.',
-            parameters: z.object({
-                packageName: z.string().describe('Package name (e.g. "express")'),
-                query: z.string().describe('What to search for in docs'),
-            }),
-            execute: async ({ packageName, query }: any) => {
-                if (!packageName || !query)
-                    return 'Both packageName and query are required.';
-                try {
-                    const results = await docSearchService.searchByFilePlan(
-                        { agent: { queryTasks: [{ packageName, query }] } },
-                        docSearchOptions,
-                    );
-                    const docs = results['agent'] || [];
-                    if (docs.length === 0)
-                        return `No docs found for "${packageName}": ${query}`;
-                    return docs
-                        .map((d) => `### ${d.title}\n${d.url}\n${d.snippet}`)
-                        .join('\n---\n');
-                } catch (e) {
-                    return `Doc search error: ${e instanceof Error ? e.message : String(e)}`;
-                }
-            },
-        });
-    }
-
-    return tools;
-}
