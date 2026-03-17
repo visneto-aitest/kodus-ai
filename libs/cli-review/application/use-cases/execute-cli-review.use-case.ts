@@ -248,6 +248,12 @@ export class ExecuteCliReviewUseCase implements IUseCase {
                         filesAnalyzed: changedFiles.length,
                         issuesFound: result.cliResponse.issues.length,
                         duration: result.cliResponse.duration,
+                        repositoryResolution: {
+                            resolvedRepositoryId: resolvedRepoId,
+                            resolvedRepositoryName: resolvedRepoName,
+                            matchedByRemote: resolvedRepoId !== 'global',
+                            gitRemote: gitContext?.remote ?? null,
+                        },
                     },
                     resolvedRepoId !== 'global' ? resolvedRepoId : undefined,
                 );
