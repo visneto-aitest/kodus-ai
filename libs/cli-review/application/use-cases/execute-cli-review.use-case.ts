@@ -481,17 +481,12 @@ export class ExecuteCliReviewUseCase implements IUseCase {
      * Handles HTTPS and SSH formats.
      */
     private extractRepoNameFromRemote(remote: string): string | null {
-        const patterns = [
-            /[:/]([^/]+)\/([^/.]+?)(?:\.git)?$/,
-        ];
-
-        for (const pattern of patterns) {
-            const match = remote.match(pattern);
-            if (match) {
-                return match[2];
-            }
+        // Strip trailing .git and slashes, then split by / or : to get last segment
+        const normalized = remote.replace(/\.git$/, '').replace(/\/+$/, '');
+        const parts = normalized.split(/[/:]/).filter(Boolean);
+        if (parts.length >= 2) {
+            return parts[parts.length - 1];
         }
-
         return null;
     }
 
