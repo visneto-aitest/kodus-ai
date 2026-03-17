@@ -45,9 +45,7 @@ export const SelectRepositoriesDropdown = ({
             id: LiteralUnion<"global">;
         }
     > = global
-        ? [{ id: "global", name: "Global", isSelected: true }].concat(
-              _repositories,
-          )
+        ? [{ id: "global", name: "Global", isSelected: false }].concat(_repositories)
         : _repositories;
 
     const matchesSearch = (repo: (typeof repositories)[0]) => {
@@ -58,22 +56,14 @@ export const SelectRepositoriesDropdown = ({
     const selectedRepos = useMemo(
         () =>
             repositories
-                .filter(
-                    (r) =>
-                        selectedRepositoriesIds.includes(r.id) ||
-                        r.id === "global",
-                )
+                .filter((r) => selectedRepositoriesIds.includes(r.id))
                 .filter(matchesSearch),
         [repositories, selectedRepositoriesIds, search],
     );
     const unselectedRepos = useMemo(
         () =>
             repositories
-                .filter(
-                    (r) =>
-                        !selectedRepositoriesIds.includes(r.id) &&
-                        r.id !== "global",
-                )
+                .filter((r) => !selectedRepositoriesIds.includes(r.id))
                 .filter(matchesSearch),
         [repositories, selectedRepositoriesIds, search],
     );
@@ -117,8 +107,7 @@ export const SelectRepositoriesDropdown = ({
                                         onClick={() => {
                                             const idsToRemove = new Set(
                                                 selectedRepos
-                                                    .map((r) => r.id)
-                                                    .filter((id) => id !== "global"),
+                                                    .map((r) => r.id),
                                             );
                                             setSelectedRepositoriesIds(
                                                 selectedRepositoriesIds.filter(
@@ -165,7 +154,6 @@ export const SelectRepositoriesDropdown = ({
                                             key={r.id}
                                             value={r.id}
                                             onSelect={() => {
-                                                if (r.id === "global") return;
                                                 setSelectedRepositoriesIds(
                                                     selectedRepositoriesIds.filter(
                                                         (id) => id !== r.id,
@@ -199,9 +187,7 @@ export const SelectRepositoriesDropdown = ({
                                                         </div>
                                                     )}
                                             </span>
-                                            {r.id !== "global" && (
-                                                <Check className="text-primary-light -mr-2 size-5" />
-                                            )}
+                                            <Check className="text-primary-light -mr-2 size-5" />
                                         </CommandItem>
                                     ))}
                                 </CommandGroup>

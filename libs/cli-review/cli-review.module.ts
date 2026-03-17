@@ -31,6 +31,7 @@ import { AutomationModule } from '@libs/automation/modules/automation.module';
 import { CodeReviewPipelineModule } from '@libs/code-review/pipeline/code-review-pipeline.module';
 import { GlobalCacheModule } from '@libs/core/cache/cache.module';
 import { LicenseModule } from '@libs/ee/license/license.module';
+import { KodyRulesModule } from '@libs/kodyRules/modules/kodyRules.module';
 import { ParametersModule } from '@libs/organization/modules/parameters.module';
 import { TeamModule } from '@libs/organization/modules/team.module';
 
@@ -53,6 +54,7 @@ import { TeamModule } from '@libs/organization/modules/team.module';
         forwardRef(() => GlobalCacheModule), // For rate limiting
         forwardRef(() => AutomationModule), // For tracking executions
         forwardRef(() => LicenseModule), // For license validation and auto-assign
+        forwardRef(() => KodyRulesModule), // For loading kody rules in CLI review
     ],
     providers: [
         // Strategy
