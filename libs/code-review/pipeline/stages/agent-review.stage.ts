@@ -380,7 +380,7 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                 const summaries = fileSuggestions
                     .map(
                         (s, i) =>
-                            `[${i}] [${s.label || 'unknown'}/${s.level || 'warning'}] lines ${s.relevantLinesStart}-${s.relevantLinesEnd}: ${s.oneSentenceSummary || s.suggestionContent?.substring(0, 200)}`,
+                            `[${i}] [${s.label || 'unknown'}/${s.level || 'warning'}] lines ${s.relevantLinesStart}-${s.relevantLinesEnd}: ${s.oneSentenceSummary || s.suggestionContent?.substring(0, 200)}${s.improvedCode ? `\n    fix: ${s.improvedCode.substring(0, 100)}` : ''}`,
                     )
                     .join('\n');
 
@@ -402,9 +402,13 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                     }) as any,
                     prompt: `You have ${fileSuggestions.length} code review suggestions for file "${filename}". Remove duplicates and return the indices to KEEP. You MUST keep at least 1 suggestion.
 
-Two suggestions are DUPLICATES if they have the same ROOT CAUSE — even if described from different angles (e.g., one says "key collision" and another says "DoS via key collision" — same root cause, keep only the more detailed one).
+Two suggestions are DUPLICATES if:
+- They point to the same lines AND the fix is the same (e.g., both say "use Regexp.escape" — keep only the more detailed one)
+- They describe the same problem from different angles (e.g., "ReDoS vulnerability" and "regex injection" on the same line — same root cause, same fix)
 
-Two suggestions are NOT duplicates if they have DIFFERENT root causes — even if they're on the same lines (e.g., one about "missing cache invalidation" and another about "memory growth" — different problems, keep BOTH).
+Two suggestions are NOT duplicates if:
+- They point to different lines
+- They require different fixes (e.g., one says "add nil check" and another says "add SQL parameterization" — different problems even if nearby)
 
 ${summaries}`,
                 });

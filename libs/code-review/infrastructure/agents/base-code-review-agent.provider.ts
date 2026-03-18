@@ -371,10 +371,10 @@ RULES:
         // V3 level classification: binary issue/warning
         parts.push(`## Level Classification
 Classify each finding as one of:
-- **issue**: A real bug, vulnerability, or incorrect behavior. This includes: logic errors, null/undefined dereferences, race conditions, data loss risks, security vulnerabilities, broken functionality, incorrect return values, missing error handling that causes crashes.
-- **warning**: A code improvement, performance optimization, style suggestion, or theoretical concern that won't cause incorrect behavior. This includes: missing caching, code style, potential future problems, micro-optimizations, missing indexes.
+- **issue**: The code WILL break, produce wrong results, or create a security vulnerability in production. Ask yourself: "If this ships, will something go wrong?" If yes → issue.
+- **warning**: The code works correctly but COULD be better. Ask yourself: "If this ships as-is, will users notice a problem?" If no → warning.
 
-Most findings from your investigation should be "issue" — if the code will produce wrong results, crash, or has a security hole, it's an issue. Only use "warning" for nice-to-haves.`);
+Key test: If fixing this requires changing the LOGIC (control flow, conditions, data handling), it's an issue. If fixing this is about OPTIMIZATION (speed, memory, style, best practices), it's a warning.`);
 
         const generationMain =
             input.generationMain ?? input.v2PromptOverrides?.generation?.main;

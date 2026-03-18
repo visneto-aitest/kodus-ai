@@ -112,6 +112,40 @@
                     "description": "The BlockedEmail.should_block? method has unintended side effects, incrementing match_count and updating last_match_at in the database. This violates the principle that query methods should be read-only. As it's called during validation (e.g., by EmailValidator), which can execute multiple times per user action (e.g., form input, failed registration attempts), it leads to inflated and inaccurate match_count statistics."
                 }
             ]
+        },
+        {
+            "repo": "ai-code-review-benchmark/cal.com",
+            "head": "improve-two-factor-authentication-features",
+            "base": "enhance-two-factor-security-foundation",
+            "title": "feat: 2fa backup codes",
+            "baseline": [
+                {
+                    "description": "Backup codes not invalidated after use"
+                }
+            ]
+        },
+        {
+            "repo": "ai-code-review-benchmark/cal.com",
+            "head": "oauth-security-enhanced",
+            "base": "oauth-security-base",
+            "title": "OAuth credential sync and app integration enhancements",
+            "baseline": [
+                {
+                    "description": "logic: Direct string comparison is vulnerable to timing attacks - use crypto.timingSafeEqual() for webhook secret validation"
+                }
+            ]
+        },
+        {
+            "repo": "ai-code-review-benchmark/cal.com",
+            "head": "sms-retry-enhanced",
+            "base": "sms-retry-base",
+            "title": "SMS workflow reminder retry count tracking",
+            "baseline": [
+                {
+                    "location": "packages/features/ee/workflows/api/scheduleSMSReminders.ts",
+                    "description": "The OR condition combines deletion of expired reminders with deletion of high retry count reminders. This means reminders with high retry counts but valid scheduled dates will be deleted. Consider using separate delete operations or adding method filtering to the retry count condition."
+                }
+            ]
         }
     ]
 }
