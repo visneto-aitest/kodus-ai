@@ -70,6 +70,13 @@ const SKILL_SYNC_TARGET_DEFINITIONS: SkillSyncTargetDefinition[] = [
         label: 'Agents user skills',
         scope: 'user',
         type: 'skill',
+        activationSegments: ['.agents'],
+        baseSegments: ['.agents', 'skills'],
+    },
+    {
+        label: 'Agents user skills (legacy config path)',
+        scope: 'user',
+        type: 'skill',
         activationSegments: ['.config', 'agents'],
         baseSegments: ['.config', 'agents', 'skills'],
     },

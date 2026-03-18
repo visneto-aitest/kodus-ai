@@ -13,10 +13,31 @@ describe('buildSkillSyncTargets', () => {
         });
 
         expect(targets).toContainEqual({
+            label: 'Copilot user skills',
+            type: 'skill',
+            activationPath: '/users/demo/.copilot',
+            baseDir: '/users/demo/.copilot/skills',
+        });
+
+        expect(targets).toContainEqual({
             label: 'Claude config commands',
             type: 'command',
             activationPath: '/users/demo/.config/claude',
             baseDir: '/users/demo/.config/claude/commands',
+        });
+
+        expect(targets).toContainEqual({
+            label: 'Agents user skills',
+            type: 'skill',
+            activationPath: '/users/demo/.agents',
+            baseDir: '/users/demo/.agents/skills',
+        });
+
+        expect(targets).toContainEqual({
+            label: 'Agents user skills (legacy config path)',
+            type: 'skill',
+            activationPath: '/users/demo/.config/agents',
+            baseDir: '/users/demo/.config/agents/skills',
         });
 
         expect(targets).toContainEqual({
