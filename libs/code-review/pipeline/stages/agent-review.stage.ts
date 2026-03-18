@@ -279,11 +279,19 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                 return snapped;
             });
 
+            // Classify level (issue/warning) using GPT 5.4 mini
+            // Separated from agent generation for consistency — BYOK models
+            // are unreliable at classification but good at finding bugs.
+            const classified = await this.classifyLevels(
+                validatedSuggestions,
+                prNumber,
+            );
+
             // Deduplicate suggestions that describe the same issue
-            let deduped = validatedSuggestions;
+            let deduped = classified;
             try {
                 deduped = await this.deduplicateSuggestions(
-                    validatedSuggestions,
+                    classified,
                     prNumber,
                     context.codeReviewConfig?.byokConfig,
                 );
@@ -343,12 +351,122 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
      * Deduplicate suggestions that describe the same issue using LLM.
      * Groups by file, then asks Gemini Flash which suggestions are duplicates.
      */
+    /**
+     * Classify each suggestion as "issue" or "warning" using GPT 5.4 mini.
+     * Separated from agent generation because BYOK models are inconsistent
+     * at classification — they find bugs well but classify them unreliably.
+     */
+    private async classifyLevels(
+        suggestions: Partial<CodeSuggestion>[],
+        prNumber: number,
+    ): Promise<Partial<CodeSuggestion>[]> {
+        if (suggestions.length === 0) return suggestions;
+
+        const model = getInternalModel();
+        if (!model) {
+            // No internal model — default all to issue
+            return suggestions.map((s) => ({ ...s, level: 'issue' as const }));
+        }
+
+        try {
+            const summaries = suggestions
+                .map(
+                    (s, i) =>
+                        `[${i}] [${s.label}] ${s.relevantFile}:${s.relevantLinesStart}-${s.relevantLinesEnd}
+  Description: ${s.suggestionContent?.substring(0, 300) || s.oneSentenceSummary || 'N/A'}
+  Existing code: ${s.existingCode?.substring(0, 150) || 'N/A'}
+  Suggested fix: ${s.improvedCode?.substring(0, 150) || 'N/A'}`,
+                )
+                .join('\n\n');
+
+            const classifyResult: any = await generateText({
+                model: model as any,
+                output: Output.object({
+                    schema: jsonSchema({
+                        type: 'object',
+                        properties: {
+                            classifications: {
+                                type: 'array',
+                                items: {
+                                    type: 'object',
+                                    properties: {
+                                        index: { type: 'number' },
+                                        level: {
+                                            type: 'string',
+                                            enum: ['issue', 'warning'],
+                                        },
+                                    },
+                                    required: ['index', 'level'],
+                                    additionalProperties: false,
+                                },
+                            },
+                        },
+                        required: ['classifications'],
+                        additionalProperties: false,
+                    }),
+                }) as any,
+                prompt: `Each finding below was already confirmed by an expert code review agent who investigated the codebase. Your job is NOT to question whether the finding is valid — it is. You only classify it.
+
+Classify as:
+- "issue": The finding describes broken behavior — wrong output, crash, security hole, data corruption, incorrect logic, missing error handling that causes failures. The code does something WRONG.
+- "warning": The finding describes a quality improvement — performance optimization, missing cache, code style, missing index, best practice suggestion. The code works but could be BETTER.
+
+${summaries}`,
+            });
+
+            const output =
+                (classifyResult as any).object ??
+                (classifyResult as any).output;
+            const classifications = output?.classifications || [];
+
+            const levelMap = new Map<number, 'issue' | 'warning'>();
+            for (const c of classifications) {
+                if (c.index != null && c.level) {
+                    levelMap.set(c.index, c.level);
+                }
+            }
+
+            const result = suggestions.map((s, i) => ({
+                ...s,
+                level: levelMap.get(i) || ('issue' as const),
+            }));
+
+            const issueCount = result.filter(
+                (s) => s.level === 'issue',
+            ).length;
+            const warningCount = result.filter(
+                (s) => s.level === 'warning',
+            ).length;
+
+            this.logger.log({
+                message: `[CLASSIFY] PR#${prNumber}: ${issueCount} issues, ${warningCount} warnings (${suggestions.length} total)`,
+                context: this.stageName,
+            });
+
+            return result;
+        } catch (error) {
+            this.logger.warn({
+                message: `[CLASSIFY] Failed for PR#${prNumber}, defaulting all to issue`,
+                context: this.stageName,
+                error,
+            });
+            // On failure, default to issue (inclusive)
+            return suggestions.map((s) => ({
+                ...s,
+                level: 'issue' as const,
+            }));
+        }
+    }
+
     private async deduplicateSuggestions(
         suggestions: Partial<CodeSuggestion>[],
         prNumber: number,
         byokConfig?: any,
     ): Promise<Partial<CodeSuggestion>[]> {
         if (suggestions.length <= 1) return suggestions;
+
+        // LLM dedup implementation below
+        // (classifyLevels is defined above this method)
 
         // Group by file
         const byFile = new Map<string, Partial<CodeSuggestion>[]>();

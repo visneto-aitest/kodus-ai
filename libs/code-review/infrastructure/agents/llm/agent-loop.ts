@@ -6,7 +6,20 @@ import { buildAgentTools } from './agent-tools.factory';
  * 2. Parse JSON from response text — zero cost if model cooperates
  * 3. If JSON parse fails — `generateText` with `Output.object` (cheap model) to structure the text
  */
-import { generateText, stepCountIs, Output, jsonSchema, type LanguageModel } from 'ai';
+import * as aiSdk from 'ai';
+import { stepCountIs, Output, jsonSchema, type LanguageModel } from 'ai';
+
+// Wrap AI SDK with LangSmith tracing when LANGCHAIN_TRACING_V2=true
+let generateText = aiSdk.generateText;
+if (process.env.LANGCHAIN_TRACING_V2 === 'true') {
+    try {
+        const { wrapAISDK } = require('langsmith/experimental/vercel');
+        const wrapped = wrapAISDK(aiSdk);
+        generateText = wrapped.generateText;
+    } catch {
+        // LangSmith wrapping not available — use original
+    }
+}
 import { z } from 'zod';
 import { createLogger } from '@kodus/flow';
 import { EnhancedJSONParser } from '@kodus/flow';
@@ -49,6 +62,7 @@ export interface AgentLoopInput {
     documentationSearchService?: DocumentationSearchAdapter;
     documentationSearchOptions?: Record<string, unknown>;
     byokConfig?: BYOKConfig;
+    agentName?: string; // e.g. 'kodus-bug-review-agent' — used for LangSmith trace identification
     maxSteps?: number;
     onStepFinish?: (event: any) => void;
 }

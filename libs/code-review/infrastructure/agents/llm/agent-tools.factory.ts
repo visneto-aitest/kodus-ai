@@ -69,11 +69,16 @@ export function buildAgentTools(
                         '.'
                     ).replace(/^\/+/, '') || '.';
                 if (!pattern) return 'Error: pattern is required';
-                let result = await remoteCommands.grep(
-                    pattern,
-                    searchPath,
-                    glob,
-                );
+                let result: string;
+                try {
+                    result = await remoteCommands.grep(
+                        pattern,
+                        searchPath,
+                        glob,
+                    );
+                } catch (err) {
+                    return `Error searching for "${pattern}": ${err instanceof Error ? err.message : String(err)}`;
+                }
                 const lines = result.split('\n');
                 if (lines.length > MAX_GREP_MATCHES) {
                     result =
@@ -114,11 +119,19 @@ export function buildAgentTools(
                 // Strip leading slash — paths are relative to repo root
                 filePath = filePath.replace(/^\/+/, '');
                 if (!filePath) return 'Error: path is required';
-                let result = await remoteCommands.read(
-                    filePath,
-                    startLine,
-                    endLine,
-                );
+                let result: string;
+                try {
+                    result = await remoteCommands.read(
+                        filePath,
+                        startLine,
+                        endLine,
+                    );
+                } catch (err) {
+                    return `Error reading ${filePath}: ${err instanceof Error ? err.message : String(err)}`;
+                }
+                if (!result && result !== '') {
+                    return `Error: readFile returned ${typeof result} for ${filePath}`;
+                }
                 if (result.length > MAX_READ_LENGTH) {
                     const lines = result.split('\n');
                     result =
@@ -164,6 +177,94 @@ export function buildAgentTools(
                         `\n... (truncated)`;
                 }
                 return result;
+            },
+        ),
+
+        findFile: mkTool(
+            'Find files by name or glob pattern. Use this to locate files before reading them.',
+            {
+                type: 'object',
+                properties: {
+                    pattern: {
+                        type: 'string',
+                        description:
+                            'File name or glob pattern (e.g. "config.ts", "*.test.go", "schema")',
+                    },
+                    path: {
+                        type: 'string',
+                        description:
+                            'Directory to search in (default: ".")',
+                    },
+                    extension: {
+                        type: 'string',
+                        description:
+                            'Filter by extension (e.g. "ts", "go", "rb")',
+                    },
+                },
+                required: ['pattern'],
+            },
+            async (args: any) => {
+                const pattern = args.pattern || '';
+                if (!pattern) return 'Error: pattern is required';
+                const searchPath =
+                    (args.path || '.').replace(/^\/+/, '') || '.';
+                const ext = args.extension || args.ext || '';
+                const safePattern = pattern.replace(/'/g, "'\\''");
+                const safePath = searchPath.replace(/'/g, "'\\''");
+                const extArg = ext ? ` -e '${ext}'` : '';
+
+                try {
+                    // Try fd first (fast, .gitignore aware), then find as fallback
+                    if (remoteCommands.exec) {
+                        // Try fd
+                        try {
+                            const fdCmd = `fd ${safePattern}${extArg} ${safePath} --type f --max-results 30`;
+                            const { stdout } = await remoteCommands.exec(fdCmd);
+                            if (stdout && stdout.trim()) return stdout.trim();
+                        } catch {
+                            // fd not available, try find
+                        }
+                        // Fallback to find
+                        try {
+                            const cleanPattern = safePattern.replace(/[*?[\]]/g, '');
+                            const findCmd = `find ${safePath} -type f -iname *${cleanPattern}*`;
+                            const { stdout } = await remoteCommands.exec(findCmd);
+                            if (stdout && stdout.trim()) {
+                                const lines = stdout.trim().split('\n');
+                                return lines.slice(0, 30).join('\n');
+                            }
+                        } catch {
+                            // find also failed, fall through to listDir
+                        }
+                    }
+
+                    // Fallback: listDir + filter (slower, no .gitignore)
+                    const allFiles = await remoteCommands.listDir(
+                        searchPath,
+                        4,
+                    );
+                    const matching = allFiles
+                        .split('\n')
+                        .filter(
+                            (f: string) =>
+                                f.trim() &&
+                                f.toLowerCase().includes(
+                                    pattern.toLowerCase(),
+                                ) &&
+                                (!ext || f.endsWith(`.${ext}`)),
+                        );
+                    if (matching.length === 0)
+                        return `No files matching "${pattern}" in ${searchPath}`;
+                    if (matching.length > 30) {
+                        return (
+                            matching.slice(0, 30).join('\n') +
+                            `\n... (${matching.length - 30} more files)`
+                        );
+                    }
+                    return matching.join('\n');
+                } catch (err) {
+                    return `Error finding files: ${err instanceof Error ? err.message : String(err)}`;
+                }
             },
         ),
     };

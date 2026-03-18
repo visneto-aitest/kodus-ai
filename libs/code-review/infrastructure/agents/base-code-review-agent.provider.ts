@@ -145,11 +145,12 @@ export abstract class BaseCodeReviewAgentProvider {
 
             const durationMs = Date.now() - startTime;
 
-            // Record token usage to observability span
-            // Uses runInSpan directly (not runLLMInSpan which depends on LangChain callbacks)
+            // Record token usage to observability (MongoDB spans)
+            // Uses runInSpan to ensure proper span lifecycle and MongoDB persistence
             try {
-                const span = this.observabilityService.startSpan(
+                await this.observabilityService.runInSpan(
                     `${identity.name}::review`,
+                    async () => agentResult,
                     {
                         'gen_ai.usage.input_tokens':
                             agentResult.usage.inputTokens,
@@ -171,7 +172,6 @@ export abstract class BaseCodeReviewAgentProvider {
                         durationMs,
                     },
                 );
-                span?.end?.();
             } catch {
                 // Observability is best-effort
             }
@@ -258,51 +258,55 @@ export abstract class BaseCodeReviewAgentProvider {
         const overridesSection = this.formatOverrides(input);
         const memoryRulesSection = this.formatMemoryRules(input.memoryRules);
 
-        const langInstruction = input.languageResultPrompt
-            ? `\nIMPORTANT: Write all review comments in ${input.languageResultPrompt}.`
+        const langSection = input.languageResultPrompt
+            ? `\n  <Language>Write all review comments in ${input.languageResultPrompt}.</Language>`
             : '';
 
-        return `You are ${identity.name}, ${identity.description}.
+        return `<CodeReviewAgent>
+  <Identity name="${identity.name}">${identity.description}</Identity>
+  <Date>${new Date().toLocaleDateString('en-GB')}</Date>${langSection}
 
-Date: ${new Date().toLocaleDateString('en-GB')}.
-
+  <Expertise>
 ${categoryPrompt}
+  </Expertise>
 
 ${overridesSection}
 
 ${memoryRulesSection}
 
-## Scope — CRITICAL
+  <Scope>
+    <Rule id="changed-only">Review ONLY lines that changed in the diff (lines with + or -). Do NOT suggest improvements to unchanged code.</Rule>
+    <Rule id="context-via-tools">Use tools to read surrounding code for CONTEXT, but only report issues in CHANGED lines.</Rule>
+    <Rule id="worse-or-reachable">If unchanged code has a bug, only report it if the PR changes make it worse or newly reachable.</Rule>
+    <Rule id="line-numbers">relevantLinesStart/relevantLinesEnd MUST point to lines shown in the diff hunks.</Rule>
+  </Scope>
 
-You are reviewing ONLY the lines that changed in the diff (lines with + or -).
-- Use tools to read surrounding code for CONTEXT, but only report issues in CHANGED lines.
-- Do NOT suggest improvements to existing code that was not modified in this PR.
-- If unchanged code has a bug, only report it if the PR changes make it worse or newly reachable.
-- The \`relevantLinesStart\`/\`relevantLinesEnd\` MUST point to lines shown in the diff hunks (lines starting with + or context lines in the @@ sections).
+  <Workflow>
+    <Step id="investigate">Use tools (readFile, grep, listDir) to understand the context around changed code. Read the full files, search for callers, check how changed functions are used, look at related tests.</Step>
+    <Step id="analyze">For each suspicious change, trace the execution path mentally. What happens with edge cases? Concurrent access? Null values? Error paths?</Step>
+    <Step id="decide">Only report issues you confirmed with evidence from your investigation. Skip style opinions, theoretical concerns, and issues in unchanged code.</Step>
+    <Step id="respond">Respond with a JSON block containing your findings.</Step>
+  </Workflow>
 
-## How to work
+  <ToolGuidelines>
+    <Guideline id="investigate-first">You MUST use tools to investigate before responding. Do not guess about code you haven't read.</Guideline>
+    <Guideline id="read-full-files">Use readFile to read the full content of changed files, not just the diff snippet. The diff shows what changed but you need the full file to understand the context.</Guideline>
+    <Guideline id="search-callers">Use grep to find callers, usages, and related code when you need to understand impact of a change.</Guideline>
+    <Guideline id="no-loops">Do not repeat the same tool call with the same arguments. If a search returns empty, that IS useful information — move on.</Guideline>
+  </ToolGuidelines>
 
-1. **Read the diff** and identify the most suspicious changes (logic errors, missing checks, concurrency issues).
-2. **Investigate** using tools to confirm or dismiss your suspicions:
-   - Use \`readFile\` to read the full file around the change (not just the diff snippet)
-   - Use \`grep\` to check callers or related code ONLY when needed to confirm a specific suspicion
-   - Stop investigating once you have enough evidence. Do NOT exhaustively read every file.
-3. **Respond** with your findings in JSON.
-
-**Efficiency rules:**
-- Focus on the 2-3 most critical files. Do NOT read every changed file.
-- A grep that returns no results IS useful information — it means no callers are affected. Move on.
-- If after reading a file the code looks correct, move on. Do not keep searching for problems that aren't there.
-- Aim for 5-10 tool calls total, not 30+.${langInstruction}`;
+</CodeReviewAgent>`;
     }
 
     private buildUserPrompt(input: ReviewAgentInput): string {
         const diffsSection = this.formatDiffs(input.changedFiles);
 
-        return `Review the following pull request changes.
-
+        return `<ReviewTask>
+  <Diffs>
 ${diffsSection}
+  </Diffs>
 
+  <OutputFormat>
 After investigating with tools, respond with ONLY a JSON block:
 
 \`\`\`json
@@ -312,13 +316,12 @@ After investigating with tools, respond with ONLY a JSON block:
     {
       "relevantFile": "path/to/file.ts",
       "language": "typescript",
-      "suggestionContent": "Description of the issue with evidence",
+      "suggestionContent": "Description of the issue with evidence from investigation",
       "existingCode": "problematic code snippet",
       "improvedCode": "fixed code snippet",
       "oneSentenceSummary": "Brief summary",
       "relevantLinesStart": 10,
       "relevantLinesEnd": 15,
-      "level": "issue|warning",
       "severity": "critical|high|medium|low"
     }
   ]
@@ -326,13 +329,15 @@ After investigating with tools, respond with ONLY a JSON block:
 \`\`\`
 
 If no issues found, respond with \`{"reasoning": "...", "suggestions": []}\`.
+  </OutputFormat>
 
-RULES:
-- BEFORE responding, you MUST use tools: readFile to read full files, grep to search for callers/usages. Minimum 3 tool calls.
-- ONLY report issues in code that was CHANGED in this PR (lines with + or - in the diff).
-- Use readFile/grep for context, but do NOT suggest fixes for unchanged code.
-- Every suggestion's relevantFile and line numbers MUST match a file and lines from the diff above.
-- Your "reasoning" field MUST reference what you found via tools (e.g. "I read file X and found that callers at Y do Z").`;
+  <Rules>
+    <Rule>You MUST use tools to investigate before responding.</Rule>
+    <Rule>ONLY report issues in code that was CHANGED in this PR (lines with + or - in the diff).</Rule>
+    <Rule>Use readFile/grep for context, but do NOT suggest fixes for unchanged code.</Rule>
+    <Rule>Every suggestion's relevantFile and line numbers MUST match a file and lines from the diff above.</Rule>
+  </Rules>
+</ReviewTask>`;
     }
 
     private formatDiffs(files: FileChange[]): string {
@@ -368,13 +373,8 @@ RULES:
             parts.push(`## Category Guidelines\n${categoryDesc}`);
         }
 
-        // V3 level classification: binary issue/warning
-        parts.push(`## Level Classification
-Classify each finding as one of:
-- **issue**: The code WILL break, produce wrong results, or create a security vulnerability in production. Ask yourself: "If this ships, will something go wrong?" If yes → issue.
-- **warning**: The code works correctly but COULD be better. Ask yourself: "If this ships as-is, will users notice a problem?" If no → warning.
-
-Key test: If fixing this requires changing the LOGIC (control flow, conditions, data handling), it's an issue. If fixing this is about OPTIMIZATION (speed, memory, style, best practices), it's a warning.`);
+        // Level classification is done in a separate step after agent generation
+        // by GPT 5.4 mini (more consistent than letting the BYOK model classify)
 
         const generationMain =
             input.generationMain ?? input.v2PromptOverrides?.generation?.main;
