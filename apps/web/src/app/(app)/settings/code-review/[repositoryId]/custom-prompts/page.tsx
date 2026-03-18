@@ -15,10 +15,11 @@ import { KodyLearningStatus } from "@services/parameters/types";
 import { usePermission } from "@services/permissions/hooks";
 import { Action, ResourceType } from "@services/permissions/types";
 import { SaveIcon } from "lucide-react";
-import { Path, useFormContext } from "react-hook-form";
+import { Path, useFormContext, useWatch } from "react-hook-form";
 import { useMCPMentions } from "src/core/hooks/use-mcp-mentions";
 import { useUnsavedChangesGuard } from "src/core/hooks/use-unsaved-changes-guard";
 import { useSelectedTeamId } from "src/core/providers/selected-team-context";
+import { unformatConfig } from "src/core/utils/helpers";
 
 import { CodeReviewPagesBreadcrumb } from "../../_components/breadcrumb";
 import GeneratingConfig from "../../_components/generating-config";
@@ -31,7 +32,11 @@ import {
 } from "../../../_components/context";
 import { useCodeReviewRouteParams } from "../../../_hooks";
 import { PromptEditorField } from "./_components/prompt-editor-field";
-import { getValueAtPath } from "./_utils/custom-prompts-state";
+import {
+    getPromptFieldText,
+    getValueAtPath,
+    parsePromptFieldValue,
+} from "./_utils/custom-prompts-state";
 
 type PromptFieldConfig = {
     name: Path<CodeReviewFormType>;
@@ -184,20 +189,34 @@ function CustomPromptsContent() {
         [promptFieldConfigs],
     );
     const {
-        dirtyFields,
         isValid: formIsValid,
         isSubmitting: formIsSubmitting,
     } = form.formState;
 
+    const watchedPromptValues = useWatch({
+        control: form.control,
+        name: promptFields as any[],
+    });
+
     const dirtyPromptFields = useMemo(
         () =>
             Object.fromEntries(
-                promptFields.map((fieldName) => [
-                    fieldName,
-                    getValueAtPath(dirtyFields, fieldName) === true,
-                ]),
+                promptFields.map((fieldName, index) => {
+                    const currentVal = watchedPromptValues[index];
+                    const savedVal = getValueAtPath(
+                        form.formState.defaultValues ?? {},
+                        fieldName,
+                    );
+                    const currentText = getPromptFieldText(
+                        parsePromptFieldValue(currentVal),
+                    );
+                    const savedText = getPromptFieldText(
+                        parsePromptFieldValue(savedVal),
+                    );
+                    return [fieldName, currentText !== savedText];
+                }),
             ),
-        [dirtyFields, promptFields],
+        [watchedPromptValues, promptFields],
     );
     const isPromptsDirty = useMemo(
         () => Object.values(dirtyPromptFields).some(Boolean),
@@ -206,7 +225,18 @@ function CustomPromptsContent() {
 
     const handleSubmit = form.handleSubmit(async (formData) => {
         try {
-            await saveSettings(formData);
+            await saveSettings(formData, {
+                prepare: (data) => {
+                    const { language: _language, ...config } = data;
+                    const unformatted = unformatConfig(config);
+                    return {
+                        savedFormData: data,
+                        codeReviewConfig: {
+                            v2PromptOverrides: unformatted.v2PromptOverrides,
+                        },
+                    };
+                },
+            });
 
             toast({
                 description: "Settings saved",

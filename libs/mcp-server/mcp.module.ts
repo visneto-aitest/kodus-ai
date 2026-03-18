@@ -7,6 +7,7 @@ import { ConfigService } from '@nestjs/config';
 import { McpController } from './controllers/mcp.controller';
 import { McpEnabledGuard } from './guards/mcp-enabled.guard';
 import { McpCoreModule } from './mcp-core.module';
+import { McpServerFactory } from './services/mcp-server.factory';
 import { McpServerService } from './services/mcp-server.service';
 import { CodeManagementTools, KodyRulesTools } from './tools';
 import { KodyIssuesTools } from './tools/kodyIssues.tools';
@@ -45,6 +46,7 @@ export class McpModule {
             controllers.push(McpController);
 
             providers.push(
+                McpServerFactory,
                 McpServerService,
                 McpEnabledGuard,
                 CodeManagementTools,

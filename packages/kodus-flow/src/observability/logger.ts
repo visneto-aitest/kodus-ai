@@ -38,19 +38,55 @@ function getPinoLogger(): pino.Logger {
             },
             redact: {
                 paths: [
+                    // depth 0
                     'password',
                     'token',
                     'secret',
                     'apiKey',
+                    'apikey',
+                    'api_key',
                     'authorization',
+                    'accessToken',
+                    'refreshToken',
+                    'clientSecret',
+                    'privateKey',
+                    'bearerToken',
+                    'jwt',
+                    'credential',
+                    'connectionString',
+                    // depth 1
                     '*.password',
                     '*.token',
                     '*.secret',
                     '*.apiKey',
+                    '*.apikey',
+                    '*.api_key',
                     '*.authorization',
+                    '*.accessToken',
+                    '*.refreshToken',
+                    '*.clientSecret',
+                    '*.privateKey',
+                    '*.bearerToken',
+                    '*.jwt',
+                    '*.credential',
+                    '*.connectionString',
+                    // depth 2
+                    '*.*.password',
+                    '*.*.token',
+                    '*.*.secret',
+                    '*.*.apiKey',
+                    '*.*.authorization',
+                    '*.*.accessToken',
+                    '*.*.refreshToken',
+                    '*.*.clientSecret',
+                    '*.*.privateKey',
+                    '*.*.jwt',
+                    '*.*.credential',
+                    '*.*.connectionString',
+                    // HTTP
                     'req.headers.authorization',
                     'req.headers[\"x-api-key\"]',
-                    'user.sensitiveInfo',
+                    'req.headers.cookie',
                 ],
                 censor: '[REDACTED]',
             },
@@ -104,6 +140,102 @@ function getPinoLogger(): pino.Logger {
         pinoLogger = pino(baseConfig, transport);
     }
     return pinoLogger;
+}
+
+const SENSITIVE_KEYS = new Set([
+    'password',
+    'token',
+    'secret',
+    'apikey',
+    'api_key',
+    'authorization',
+    'accesstoken',
+    'refreshtoken',
+    'clientsecret',
+    'privatekey',
+    'bearertoken',
+    'jwt',
+    'credential',
+    'connectionstring',
+    'ssn',
+    'cpf',
+    'cvv',
+    'creditcard',
+]);
+
+// Cache key normalization — bounded to avoid memory growth in long-running processes.
+const KEY_SENSITIVITY_CACHE = new Map<string, boolean>();
+const KEY_SENSITIVITY_CACHE_MAX = 512;
+
+function isSensitiveKey(key: string): boolean {
+    let result = KEY_SENSITIVITY_CACHE.get(key);
+    if (result === undefined) {
+        result = SENSITIVE_KEYS.has(
+            key.toLowerCase().replace(/[^a-z0-9]/g, ''),
+        );
+        if (KEY_SENSITIVITY_CACHE.size < KEY_SENSITIVITY_CACHE_MAX) {
+            KEY_SENSITIVITY_CACHE.set(key, result);
+        }
+    }
+    return result;
+}
+
+/**
+ * Strips credentials embedded in URL strings.
+ * e.g. "mongodb://user:secret@host/db" → "mongodb://user:[REDACTED]@host/db"
+ */
+const URL_CREDENTIAL_RE = /([a-z][a-z0-9+\-.]*:\/\/[^:@\s]*:)([^@\s]+)(@)/gi;
+
+function sanitizeString(value: string): string {
+    return value.replace(URL_CREDENTIAL_RE, '$1[REDACTED]$3');
+}
+
+/**
+ * Deep-sanitizes an object, redacting sensitive keys at any depth.
+ * Also strips URL-embedded credentials from string values.
+ * Uses structural sharing: returns the original reference when nothing changed,
+ * so clean metadata incurs zero allocation overhead.
+ */
+function deepSanitize(obj: any, seen?: WeakSet<object>): any {
+    if (obj === null || typeof obj !== 'object') {
+        if (typeof obj === 'string') {
+            const sanitized = sanitizeString(obj);
+            return sanitized !== obj ? sanitized : obj;
+        }
+        return obj;
+    }
+
+    // Lazily create WeakSet only when we actually recurse into a nested object.
+    const refs = seen ?? new WeakSet();
+    if (refs.has(obj)) return '[Circular]';
+    refs.add(obj);
+
+    if (Array.isArray(obj)) {
+        let changed = false;
+        const out: any[] = [];
+        for (const item of obj) {
+            const sanitized = deepSanitize(item, refs);
+            out.push(sanitized);
+            if (sanitized !== item) changed = true;
+        }
+        // Return original array reference if nothing was redacted.
+        return changed ? out : obj;
+    }
+
+    let changed = false;
+    const out: Record<string, any> = {};
+    for (const key of Object.keys(obj)) {
+        if (isSensitiveKey(key)) {
+            out[key] = '[REDACTED]';
+            changed = true;
+        } else {
+            const val = deepSanitize(obj[key], refs);
+            out[key] = val;
+            if (val !== obj[key]) changed = true;
+        }
+    }
+    // Return original object reference if nothing was redacted.
+    return changed ? out : obj;
 }
 
 export class SimpleLogger {
@@ -162,12 +294,13 @@ export class SimpleLogger {
         }
 
         // Processors run regardless of stdout log level
+        const safeProcessorMetadata = deepSanitize({ ...metadata, component: effectiveServiceName });
         for (const processor of globalLogProcessors) {
             try {
                 processor.process(
                     level,
                     message,
-                    { ...metadata, component: effectiveServiceName },
+                    safeProcessorMetadata,
                     error,
                 );
             } catch {}
@@ -200,17 +333,23 @@ export class SimpleLogger {
         metadata: Record<string, any>,
         error?: Error,
     ) {
+        const safeMetadata = deepSanitize(metadata);
+        // User metadata spread FIRST so system fields always win and
+        // cannot be poisoned by caller-controlled metadata keys.
         const logObject: Record<string, any> = {
+            ...safeMetadata,
             environment: process.env.API_NODE_ENV || 'unknown',
             serviceName,
-            ...metadata,
-            metadata,
+            metadata: safeMetadata,
             ...this.getTraceContext(),
             ...this.getObservabilityContext(),
         };
 
         if (error) {
-            logObject.error = { message: error.message, stack: error.stack };
+            logObject.error = {
+                message: sanitizeString(error.message),
+                stack: error.stack ? sanitizeString(error.stack) : undefined,
+            };
         }
 
         return logObject;
@@ -241,6 +380,9 @@ export class SimpleLogger {
         return {};
     }
 }
+
+/** Exported for testing only. */
+export { deepSanitize, isSensitiveKey, sanitizeString };
 
 export function createLogger(component: string): SimpleLogger {
     return new SimpleLogger(component);
