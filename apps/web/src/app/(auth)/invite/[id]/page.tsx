@@ -14,10 +14,13 @@ export const metadata: Metadata = {
 export default async function InvitePage({
     params,
 }: {
-    params: Promise<{ id: string }>;
+    params: { id: string };
 }) {
-    const { id } = await params;
-    const userData = await getInviteData(id);
+    const { id } = params;
+    const userData = await getInviteData(id).catch((error) => {
+    console.error(`Failed to get invite data for id ${id}:`, error);
+    return null;
+});
 
     if (!userData?.uuid || !userData?.email) {
         return (
