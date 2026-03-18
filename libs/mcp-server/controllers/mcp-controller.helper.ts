@@ -4,6 +4,7 @@ import { Response } from 'express';
 
 import { applyMcpHttpResponseHeaders } from '../utils/mcp-http.config';
 import { JsonRpcCode } from '../utils/errors';
+import { extractMcpRequestMetadata } from '../utils/mcp-protocol.utils';
 import { toJsonRpcError } from '../utils/serialize';
 
 function getJsonRpcId(body: any): string | number | null {
@@ -39,7 +40,7 @@ export async function handleStatelessMcpPost({
             message: errorMessage,
             context: errorContext,
             error,
-            metadata: { body },
+            metadata: extractMcpRequestMetadata(body),
         });
 
         if (res.headersSent) {

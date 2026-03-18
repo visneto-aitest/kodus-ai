@@ -25,8 +25,11 @@ export async function GET() {
         }
 
         const data = await res.json();
-        const latest = (data.tag_name as string)?.replace(/^v/, "") ?? current;
-        const hasUpdate = latest !== current;
+        const latest =
+            typeof data?.tag_name === "string"
+                ? data.tag_name.replace(/^v/, "")
+                : null;
+        const hasUpdate = latest !== null && latest !== current;
 
         return Response.json({ current, latest, hasUpdate });
     } catch {

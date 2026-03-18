@@ -15,21 +15,19 @@ jest.mock('@kodus/flow', () => ({
 }));
 
 describe('MCPManagerService', () => {
-    beforeEach(() => {
-        process.env.API_JWT_SECRET = 'mcp-test-secret';
-    });
-
     it('does not inject bearer auth when formatting first-party Kodus MCP connections', async () => {
         const permissionValidationService = {
             shouldLimitResources: jest.fn().mockResolvedValue(false),
         };
+        const jwtService = {
+            sign: jest.fn().mockReturnValue('signed-token'),
+        };
         const service = new MCPManagerService(
-            new JwtService(),
+            jwtService as unknown as JwtService,
             permissionValidationService as any,
         );
 
-        (service as any).axiosMCPManagerService = {
-            get: jest.fn().mockResolvedValue({
+        const axiosGet = jest.fn().mockResolvedValue({
                 items: [
                     {
                         id: 'connection-1',
@@ -55,7 +53,10 @@ describe('MCPManagerService', () => {
                         deletedAt: null,
                     },
                 ],
-            }),
+            });
+
+        (service as any).axiosMCPManagerService = {
+            get: axiosGet,
         };
 
         const connections = await service.getConnections(
@@ -64,6 +65,15 @@ describe('MCPManagerService', () => {
         );
 
         expect(permissionValidationService.shouldLimitResources).toHaveBeenCalled();
+        expect(jwtService.sign).toHaveBeenCalled();
+        expect(axiosGet).toHaveBeenCalledWith(
+            'mcp/connections',
+            expect.objectContaining({
+                headers: expect.objectContaining({
+                    Authorization: 'Bearer signed-token',
+                }),
+            }),
+        );
         expect(connections).toEqual([
             expect.objectContaining({
                 url: 'https://api.kodus.io/mcp',

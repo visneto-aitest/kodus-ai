@@ -86,26 +86,35 @@ export class McpServerFactory {
             ...this.kodyIssuesTools.getAllTools(),
         ];
 
-        this.registeredToolsCache = allTools.map((tool) => ({
-            name: tool.name,
-            config: {
-                description: tool.description,
-                inputSchema: toShape(tool.inputSchema)!,
-                outputSchema: toShape(tool.outputSchema),
-                annotations: tool?.annotations,
-            },
-            execute: async (args: Record<string, unknown>, extra: unknown) =>
-                executeLoggedTool(
-                    tool.name,
-                    tool.execute as (
-                        toolArgs: Record<string, unknown>,
-                        toolExtra: unknown,
-                    ) => Promise<CallToolResult>,
-                    args,
-                    extra,
-                    this.logger,
-                ),
-        }));
+        this.registeredToolsCache = allTools.map((tool) => {
+            const inputSchema = toShape(tool.inputSchema);
+            if (!inputSchema) {
+                throw new Error(
+                    `Invalid input schema for MCP tool: ${tool.name}`,
+                );
+            }
+
+            return {
+                name: tool.name,
+                config: {
+                    description: tool.description,
+                    inputSchema,
+                    outputSchema: toShape(tool.outputSchema),
+                    annotations: tool?.annotations,
+                },
+                execute: async (args: Record<string, unknown>, extra: unknown) =>
+                    executeLoggedTool(
+                        tool.name,
+                        tool.execute as (
+                            toolArgs: Record<string, unknown>,
+                            toolExtra: unknown,
+                        ) => Promise<CallToolResult>,
+                        args,
+                        extra,
+                        this.logger,
+                    ),
+            };
+        });
 
         return this.registeredToolsCache;
     }

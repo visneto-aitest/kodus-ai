@@ -50,4 +50,29 @@ describe('McpServerFactory', () => {
         await second.transport.close();
         await second.server.close();
     });
+
+    it('fails fast when a tool input schema cannot be converted', async () => {
+        toShapeMock.mockImplementationOnce(() => undefined);
+
+        const tool = {
+            name: 'KODUS_LIST_REPOSITORIES',
+            description: 'List repositories',
+            inputSchema: { type: 'object', properties: {} },
+            outputSchema: { type: 'object', properties: {} },
+            annotations: { readOnlyHint: true },
+            execute: jest.fn().mockResolvedValue({ content: [] }),
+        };
+
+        const { McpServerFactory } = await import('../mcp-server.factory');
+
+        const factory = new McpServerFactory(
+            { getAllTools: jest.fn().mockReturnValue([tool]) } as any,
+            { getAllTools: jest.fn().mockReturnValue([]) } as any,
+            { getAllTools: jest.fn().mockReturnValue([]) } as any,
+        );
+
+        await expect(factory.create()).rejects.toThrow(
+            'Invalid input schema for MCP tool: KODUS_LIST_REPOSITORIES',
+        );
+    });
 });

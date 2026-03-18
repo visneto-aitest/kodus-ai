@@ -50,9 +50,22 @@ describe('mcp-controller.helper', () => {
     it('returns JSON-RPC 500 when the handler throws before sending headers', async () => {
         const res = makeResponse();
         const logger = { error: jest.fn() } as any;
+        const body = {
+            jsonrpc: '2.0',
+            id: 7,
+            method: 'tools/call',
+            params: {
+                name: 'KODUS_LIST_REPOSITORIES',
+                arguments: {
+                    organizationId: 'org-1',
+                    teamId: 'team-1',
+                    password: 'should-not-be-logged',
+                },
+            },
+        };
 
         await handleStatelessMcpPost({
-            body: { jsonrpc: '2.0', id: 7, method: 'tools/list' },
+            body,
             res,
             handler: jest.fn().mockRejectedValue(new Error('boom')),
             errorContext: 'TestMcpController',
@@ -60,7 +73,19 @@ describe('mcp-controller.helper', () => {
             logger,
         });
 
-        expect(logger.error).toHaveBeenCalled();
+        expect(logger.error).toHaveBeenCalledWith(
+            expect.objectContaining({
+                metadata: expect.objectContaining({
+                    jsonrpcMethod: 'tools/call',
+                    toolName: 'KODUS_LIST_REPOSITORIES',
+                    organizationId: 'org-1',
+                    teamId: 'team-1',
+                }),
+            }),
+        );
+        expect(logger.error.mock.calls[0][0].metadata).not.toHaveProperty(
+            'body',
+        );
         expect(res.status).toHaveBeenCalledWith(
             HttpStatus.INTERNAL_SERVER_ERROR,
         );

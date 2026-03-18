@@ -113,9 +113,7 @@ export default function PRSummary(props: AutomationCodeReviewConfigPageProps) {
                     const unformatted = unformatConfig(config);
                     return {
                         savedFormData: data,
-                        codeReviewConfig: {
-                            summary: unformatted.summary,
-                        },
+                        codeReviewConfig: unformatted,
                     };
                 },
             });

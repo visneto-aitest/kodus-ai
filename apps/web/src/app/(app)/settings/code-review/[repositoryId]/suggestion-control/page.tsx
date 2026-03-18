@@ -52,9 +52,7 @@ export default function SuggestionControl(
                     const unformatted = unformatConfig(config);
                     return {
                         savedFormData: data,
-                        codeReviewConfig: {
-                            suggestionControl: unformatted.suggestionControl,
-                        },
+                        codeReviewConfig: unformatted,
                     };
                 },
             });

@@ -73,6 +73,7 @@ export default function ReviewCategories() {
                     return {
                         savedFormData: data,
                         codeReviewConfig: {
+                            ...unformatted,
                             codeReviewVersion,
                             reviewOptions: unformatted.reviewOptions,
                         },
