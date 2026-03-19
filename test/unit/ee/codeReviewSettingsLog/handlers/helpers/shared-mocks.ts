@@ -1,6 +1,5 @@
 import {
     ActionType,
-    ConfigLevel,
 } from '@libs/core/infrastructure/config/types/general/codeReviewSettingsLog.type';
 import {
     BaseLogParams,

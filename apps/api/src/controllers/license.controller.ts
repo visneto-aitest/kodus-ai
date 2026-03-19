@@ -132,6 +132,37 @@ export class LicenseController {
         return result;
     }
 
+    @Get('/org-status')
+    @UseGuards(PolicyGuard)
+    @ApiOperation({
+        summary: 'Get organization license status',
+        description:
+            'Public endpoint for all organization members to check license status.',
+    })
+    public async orgStatus() {
+        const organizationId = this.request?.user?.organization?.uuid;
+
+        if (!organizationId) {
+            throw new BadRequestException(
+                'Organization ID is missing from request',
+            );
+        }
+
+        const result =
+            await this.selfHostedLicenseService.validateOrganizationLicense({
+                organizationId,
+            });
+
+        if (!result.valid) {
+            return {
+                valid: false,
+                subscriptionStatus: result.subscriptionStatus,
+            };
+        }
+
+        return result;
+    }
+
     @Get('/users')
     @UseGuards(PolicyGuard)
     @CheckPolicies(

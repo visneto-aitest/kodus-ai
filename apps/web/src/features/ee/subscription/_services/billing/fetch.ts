@@ -3,7 +3,7 @@ import { getOrganizationId } from "@services/organizations/fetch";
 import { pathToApiUrl } from "src/core/utils/helpers";
 import { isSelfHosted } from "src/core/utils/self-hosted";
 
-import type { OrganizationLicense, Plan } from "./types";
+import type { OrganizationLicense, Plan, PlanType } from "./types";
 import { billingFetch } from "./utils";
 
 type OrganizationMember = {
@@ -150,6 +150,7 @@ export const validateOrganizationLicense = async (params: {
 }): Promise<OrganizationLicense> => {
     if (isSelfHosted) {
         // Check if there's a self-hosted license key activated
+        // Use /license/org-status which is accessible to all org members
         try {
             const result = await authorizedFetch<{
                 valid: boolean;
@@ -157,7 +158,7 @@ export const validateOrganizationLicense = async (params: {
                 planType?: string;
                 numberOfLicenses?: number;
                 expiresAt?: string;
-            }>(pathToApiUrl("/license/status"));
+            }>(pathToApiUrl("/license/org-status"));
 
             if (
                 result?.valid &&
@@ -166,7 +167,7 @@ export const validateOrganizationLicense = async (params: {
                 return {
                     valid: true,
                     subscriptionStatus: "licensed-self-hosted",
-                    planType: result.planType || "enterprise",
+                    planType: (result.planType as PlanType) || "enterprise",
                     numberOfLicenses: result.numberOfLicenses || 0,
                     expiresAt: result.expiresAt,
                 };

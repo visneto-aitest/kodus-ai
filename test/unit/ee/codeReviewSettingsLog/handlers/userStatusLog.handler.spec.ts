@@ -1,8 +1,6 @@
 import { UserStatusLogHandler } from '@libs/ee/codeReviewSettingsLog/infrastructure/adapters/services/userStatusLog.handler';
-import {
-    ActionType,
-    ConfigLevel,
-} from '@libs/core/infrastructure/config/types/general/codeReviewSettingsLog.type';
+
+
 import {
     createMockUnifiedLogHandler,
     createBaseParams,

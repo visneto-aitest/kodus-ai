@@ -1,5 +1,4 @@
 import { SaveCodeReviewFeedbackUseCase } from '../save-feedback.use-case';
-import { CodeReviewFeedbackEntity } from '@libs/code-review/domain/codeReviewFeedback/entities/codeReviewFeedback.entity';
 import {
     createSampleFeedbackEntity,
 } from './fixtures';

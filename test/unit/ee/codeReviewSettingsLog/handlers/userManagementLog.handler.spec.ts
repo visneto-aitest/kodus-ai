@@ -1,8 +1,6 @@
 import { UserManagementLogHandler } from '@libs/ee/codeReviewSettingsLog/infrastructure/adapters/services/userManagementLog.handler';
-import {
-    ActionType,
-    ConfigLevel,
-} from '@libs/core/infrastructure/config/types/general/codeReviewSettingsLog.type';
+
+
 import {
     createMockUnifiedLogHandler,
     createBaseParams,

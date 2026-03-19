@@ -5,7 +5,7 @@ import { ConfigService } from '@nestjs/config';
 import { execFile } from 'child_process';
 import { lstat, mkdtemp, realpath, rm } from 'fs/promises';
 import { tmpdir } from 'os';
-import { join, resolve } from 'path';
+import { join } from 'path';
 import { promisify } from 'util';
 
 import {

@@ -13,10 +13,8 @@ import { SelfHostedLicenseService } from './self-hosted-license.service';
 import { AutoAssignLicenseUseCase } from './use-cases/auto-assign-license.use-case';
 import { OrganizationParametersModule } from '@libs/organization/modules/organizationParameters.module';
 import { environment } from '@libs/ee/configs/environment';
-import {
-    IOrganizationParametersService,
-    ORGANIZATION_PARAMETERS_SERVICE_TOKEN,
-} from '@libs/organization/domain/organizationParameters/contracts/organizationParameters.service.contract';
+
+
 
 @Module({
     imports: [

@@ -6,7 +6,10 @@ import { auth } from "src/core/config/auth";
 import { NavMenu } from "src/core/layout/navbar";
 import { TEAM_STATUS } from "src/core/types";
 import { BYOKMissingKeyTopbar } from "src/features/ee/byok/_components/missing-key-topbar";
-import { isBYOKSubscriptionPlan } from "src/features/ee/byok/_utils";
+import {
+    isBYOKSubscriptionPlan,
+    shouldShowBYOKMissingKeyTopbar,
+} from "src/features/ee/byok/_utils";
 import { FinishedTrialModal } from "src/features/ee/subscription/_components/finished-trial-modal";
 import { SubscriptionStatusTopbar } from "src/features/ee/subscription/_components/subscription-status-topbar";
 import { SubscriptionProvider } from "src/features/ee/subscription/_providers/subscription-context";
@@ -82,6 +85,13 @@ export default async function Layout({ children }: React.PropsWithChildren) {
         ? isBYOKSubscriptionPlan(organizationLicense)
         : false;
     const isTrial = organizationLicense?.subscriptionStatus === "trial";
+    const showBYOKMissingKeyTopbar = shouldShowBYOKMissingKeyTopbar({
+        license: organizationLicense,
+        byokConfig,
+        permissions,
+        organizationId,
+        role: session.user.role,
+    });
 
     const canManageCodeReview = !!(
         permissions as Record<string, Record<string, boolean>> | undefined
@@ -112,7 +122,7 @@ export default async function Layout({ children }: React.PropsWithChildren) {
                 <FinishedTrialModal />
                 <SubscriptionStatusTopbar />
 
-                {isBYOK && !byokConfig?.main && <BYOKMissingKeyTopbar />}
+                {showBYOKMissingKeyTopbar && <BYOKMissingKeyTopbar />}
 
                 {children}
 
