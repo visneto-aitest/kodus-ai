@@ -304,13 +304,7 @@ export class GetIssueByIdUseCase implements IUseCase {
                 if (data.repositoryUrl) {
                     try {
                         const parsedRepositoryUrl = new URL(data.repositoryUrl);
-                        if (
-                            parsedRepositoryUrl.pathname
-                                .split('/')
-                                .filter(Boolean).length >= 2
-                        ) {
-                            return `${parsedRepositoryUrl.origin}/${data.repositoryFullName}`;
-                        }
+                        return `${parsedRepositoryUrl.origin}/${data.repositoryFullName}`;
                     } catch {
                         // Fall back to cloud URL when stored repository URL is malformed.
                     }
