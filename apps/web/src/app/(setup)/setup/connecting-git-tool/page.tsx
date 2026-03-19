@@ -9,7 +9,6 @@ import { SvgBitbucket } from "@components/ui/icons/SvgBitbucket";
 import { SvgForgejo } from "@components/ui/icons/SvgForgejo";
 import { SvgGithub } from "@components/ui/icons/SvgGithub";
 import { SvgGitlab } from "@components/ui/icons/SvgGitlab";
-import { SvgKodus } from "@components/ui/icons/SvgKodus";
 import { magicModal } from "@components/ui/magic-modal";
 import { Page } from "@components/ui/page";
 import { Separator } from "@components/ui/separator";

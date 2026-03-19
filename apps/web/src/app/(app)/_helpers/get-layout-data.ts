@@ -30,6 +30,7 @@ export const getLayoutData = cache(
             ssoFeatureFlag,
             cliKeysFeatureFlag,
             kodyRuleSuggestionsFeatureFlag,
+            githubEnterpriseServerPatFeatureFlag,
         ] = await Promise.all([
             getPermissions().catch(() => ({})),
             getOrganizationName().catch(() => ""),
@@ -56,6 +57,9 @@ export const getLayoutData = cache(
             isFeatureEnabled({
                 feature: FEATURE_FLAGS.kodyRuleSuggestions,
             }).catch(() => false),
+            isFeatureEnabled({
+                feature: FEATURE_FLAGS.githubEnterpriseServerPat,
+            }).catch(() => false),
         ]);
 
         return {
@@ -72,6 +76,7 @@ export const getLayoutData = cache(
                 sso: ssoFeatureFlag,
                 cliKeys: cliKeysFeatureFlag,
                 kodyRuleSuggestions: kodyRuleSuggestionsFeatureFlag,
+                githubEnterpriseServerPat: githubEnterpriseServerPatFeatureFlag,
             },
         };
     },

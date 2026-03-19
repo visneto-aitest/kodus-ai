@@ -2000,6 +2000,11 @@
     "@octokit/request-error" "^7.0.2"
     "@octokit/types" "^16.0.0"
 
+"@octokit/openapi-types@^25.1.0":
+  version "25.1.0"
+  resolved "https://registry.yarnpkg.com/@octokit/openapi-types/-/openapi-types-25.1.0.tgz#5a72a9dfaaba72b5b7db375fd05e90ca90dc9682"
+  integrity sha512-idsIggNXUKkk0+BExUn1dQ92sfysJrje03Q0bv0e+KPLrvyqZF8MnBpFz8UNfYDwB3Ie7Z0TByjWfzxt7vseaA==
+
 "@octokit/openapi-types@^27.0.0":
   version "27.0.0"
   resolved "https://registry.npmjs.org/@octokit/openapi-types/-/openapi-types-27.0.0.tgz#374ea53781965fd02a9d36cacb97e152cefff12d"
@@ -2009,6 +2014,13 @@
   version "12.1.0"
   resolved "https://registry.npmjs.org/@octokit/openapi-webhooks-types/-/openapi-webhooks-types-12.1.0.tgz#6f1b2839a0d00c9524e81f16d8735ec410bce187"
   integrity sha512-WiuzhOsiOvb7W3Pvmhf8d2C6qaLHXrWiLBP4nJ/4kydu+wpagV5Fkz9RfQwV2afYzv3PB+3xYgp4mAdNGjDprA==
+
+"@octokit/plugin-enterprise-server@^20.0.0":
+  version "20.0.0"
+  resolved "https://registry.yarnpkg.com/@octokit/plugin-enterprise-server/-/plugin-enterprise-server-20.0.0.tgz#be85460234d8c5ee1a1f9051f7e45267be8c5da5"
+  integrity sha512-vF3hzqJEfnLymNb9SLwA8qVr2gWeMMwl7hssxqleTre4pzFy+867RHFdiRgZZH82w6wL60g8cyMFBiApjZT03g==
+  dependencies:
+    "@octokit/types" "^14.0.0"
 
 "@octokit/plugin-paginate-graphql@^6.0.0":
   version "6.0.0"
@@ -2079,6 +2091,13 @@
     "@octokit/plugin-paginate-rest" "^14.0.0"
     "@octokit/plugin-request-log" "^6.0.0"
     "@octokit/plugin-rest-endpoint-methods" "^17.0.0"
+
+"@octokit/types@^14.0.0":
+  version "14.1.0"
+  resolved "https://registry.yarnpkg.com/@octokit/types/-/types-14.1.0.tgz#3bf9b3a3e3b5270964a57cc9d98592ed44f840f2"
+  integrity sha512-1y6DgTy8Jomcpu33N+p5w58l6xyt55Ar2I91RPiIA0xCJBXyUAhXCcmZaDWSANiha7R9a6qJJ2CRomGPZ6f46g==
+  dependencies:
+    "@octokit/openapi-types" "^25.1.0"
 
 "@octokit/types@^16.0.0":
   version "16.0.0"

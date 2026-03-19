@@ -82,11 +82,8 @@ export const GithubTokenModal = (props: {
         }
     };
 
-    const {
-        isDirty: formIsDirty,
-        isValid: formIsValid,
-        isSubmitting: formIsSubmitting,
-    } = form.formState;
+    const { isValid: formIsValid, isSubmitting: formIsSubmitting } =
+        form.formState;
 
     return (
         <Dialog open onOpenChange={() => magicModal.hide()}>
