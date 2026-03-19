@@ -416,7 +416,7 @@ export class ChatWithKodyFromGitUseCase {
             params.platformType,
         );
 
-        let ackResponse = null;
+        let ackResponse;
         let ackResponseId = null;
         let parentId = null;
         const commentId = this.getCommentId(params);
@@ -683,7 +683,7 @@ export class ChatWithKodyFromGitUseCase {
             params.platformType,
         );
 
-        let ackResponse = null;
+        let ackResponse;
         let ackResponseId = null;
         let parentId = null;
 
@@ -743,8 +743,6 @@ export class ChatWithKodyFromGitUseCase {
             }
         }
 
-        let response = '';
-
         const gitUser = this.getGitUser(params);
 
         const prepareContext = this.prepareContext({
@@ -779,7 +777,7 @@ export class ChatWithKodyFromGitUseCase {
             prepareContext.userQuestion,
         );
 
-        response = await this.processCommand(commandType, {
+        const response = await this.processCommand(commandType, {
             prepareContext,
             organizationAndTeamData,
             thread,
@@ -997,7 +995,7 @@ export class ChatWithKodyFromGitUseCase {
 
     private getRepository(params: WebhookParams): Repository {
         switch (params.platformType) {
-            case PlatformType.GITHUB:
+            case PlatformType.GITHUB: {
                 const fallbackRepository =
                     this.extractRepositoryFromGitHubPullRequestUrl(params);
 
@@ -1012,6 +1010,7 @@ export class ChatWithKodyFromGitUseCase {
                         fallbackRepository.owner ||
                         '',
                 };
+            }
             case PlatformType.GITLAB:
                 return {
                     name: params.payload?.project?.name,
@@ -1250,7 +1249,7 @@ export class ChatWithKodyFromGitUseCase {
     }
 
     private getPullRequestDescription(params: WebhookParams): string {
-        let description = '';
+        let description: string;
 
         switch (params.platformType) {
             case PlatformType.GITHUB:

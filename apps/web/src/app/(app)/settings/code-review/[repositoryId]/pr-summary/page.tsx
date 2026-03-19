@@ -33,6 +33,7 @@ import {
     type AutomationCodeReviewConfigPageProps,
     type CodeReviewFormType,
 } from "../../_types";
+import { unformatConfig } from "src/core/utils/helpers";
 import {
     useCodeReviewConfig,
     usePlatformConfig,
@@ -106,7 +107,16 @@ export default function PRSummary(props: AutomationCodeReviewConfigPageProps) {
 
     const handleSubmit = form.handleSubmit(async (formData) => {
         try {
-            await saveSettings(formData);
+            await saveSettings(formData, {
+                prepare: (data) => {
+                    const { language: _language, ...config } = data;
+                    const unformatted = unformatConfig(config);
+                    return {
+                        savedFormData: data,
+                        codeReviewConfig: unformatted,
+                    };
+                },
+            });
 
             toast({
                 description: "Settings saved",

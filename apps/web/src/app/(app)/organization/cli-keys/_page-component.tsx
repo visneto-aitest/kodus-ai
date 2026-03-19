@@ -39,7 +39,11 @@ import {
     revokeCLIKey,
     updateCLIKeyConfig,
 } from "@services/cliKeys/fetch";
-import { CLI_KEY_CAPABILITIES, type CLIKey } from "@services/cliKeys/types";
+import {
+    CLI_KEY_CAPABILITIES,
+    type CLIKey,
+    type CLIKeyCapability,
+} from "@services/cliKeys/types";
 import { usePermission } from "@services/permissions/hooks";
 import { Action, ResourceType } from "@services/permissions/types";
 import { formatDistanceToNow } from "date-fns";
@@ -86,7 +90,10 @@ export const CliKeysPage = ({
     const [revokingKeyId, setRevokingKeyId] = useState<string | null>(null);
     const [keyToRevoke, setKeyToRevoke] = useState<CLIKey | null>(null);
     const [keyToConfigure, setKeyToConfigure] = useState<CLIKey | null>(null);
-    const [configDraft, setConfigDraft] = useState(false);
+    const [configDraft, setConfigDraft] = useState({
+        repositoryConfig: false,
+        kodyRulesManage: false,
+    });
     const [createdKey, setCreatedKey] = useState<string | null>(null);
     const [createdMessage, setCreatedMessage] = useState<string | undefined>();
     const [showKeyModal, setShowKeyModal] = useState(false);
@@ -151,19 +158,38 @@ export const CliKeysPage = ({
         }
     };
 
-    const handleToggleRepositoryConfig = async (
+    const handleUpdateKeyConfig = async (
         cliKey: CLIKey,
-        checked: boolean,
+        draft: {
+            repositoryConfig: boolean;
+            kodyRulesManage: boolean;
+        },
     ) => {
         setUpdatingKeyId(cliKey.uuid);
         try {
+            const otherCapabilities =
+                cliKey.config?.capabilities?.filter(
+                    (capability) =>
+                        capability !==
+                            CLI_KEY_CAPABILITIES.CONFIG_REPO_MANAGE &&
+                        capability !== CLI_KEY_CAPABILITIES.KODY_RULES_MANAGE,
+                ) ?? [];
+
+            const capabilities: CLIKeyCapability[] = [...otherCapabilities];
+
+            if (draft.repositoryConfig) {
+                capabilities.push(CLI_KEY_CAPABILITIES.CONFIG_REPO_MANAGE);
+            }
+
+            if (draft.kodyRulesManage) {
+                capabilities.push(CLI_KEY_CAPABILITIES.KODY_RULES_MANAGE);
+            }
+
             const updatedKey = await updateCLIKeyConfig({
                 teamId,
                 keyId: cliKey.uuid,
                 config: {
-                    capabilities: checked
-                        ? [CLI_KEY_CAPABILITIES.CONFIG_REPO_MANAGE]
-                        : [],
+                    capabilities,
                 },
             });
 
@@ -179,9 +205,7 @@ export const CliKeysPage = ({
 
             toast({
                 variant: "success",
-                title: checked
-                    ? "Repository config enabled"
-                    : "Repository config disabled",
+                title: "CLI key configuration updated",
             });
         } catch (error: any) {
             toast({
@@ -197,13 +221,22 @@ export const CliKeysPage = ({
 
     const openConfigModal = (cliKey: CLIKey) => {
         setKeyToConfigure(cliKey);
-        setConfigDraft(thisKeyHasRepoManageCapability(cliKey));
+        setConfigDraft({
+            repositoryConfig: thisKeyHasCapability(
+                cliKey,
+                CLI_KEY_CAPABILITIES.CONFIG_REPO_MANAGE,
+            ),
+            kodyRulesManage: thisKeyHasCapability(
+                cliKey,
+                CLI_KEY_CAPABILITIES.KODY_RULES_MANAGE,
+            ),
+        });
     };
 
     const handleSaveKeyConfig = async () => {
         if (!keyToConfigure) return;
 
-        await handleToggleRepositoryConfig(keyToConfigure, configDraft);
+        await handleUpdateKeyConfig(keyToConfigure, configDraft);
         setKeyToConfigure(null);
     };
 
@@ -283,10 +316,10 @@ export const CliKeysPage = ({
     const formatCreatedAt = (value: string) =>
         `${createdAtFormatter.format(new Date(value))} UTC`;
 
-    const thisKeyHasRepoManageCapability = (cliKey: CLIKey) =>
-        cliKey.config?.capabilities?.includes(
-            CLI_KEY_CAPABILITIES.CONFIG_REPO_MANAGE,
-        ) ?? false;
+    const thisKeyHasCapability = (
+        cliKey: CLIKey,
+        capability: CLIKeyCapability,
+    ) => cliKey.config?.capabilities?.includes(capability) ?? false;
 
     return (
         <Page.Root>
@@ -605,8 +638,38 @@ export const CliKeysPage = ({
                                 </div>
 
                                 <Switch
-                                    checked={configDraft}
-                                    onCheckedChange={setConfigDraft}
+                                    checked={configDraft.repositoryConfig}
+                                    onCheckedChange={(checked) =>
+                                        setConfigDraft((current) => ({
+                                            ...current,
+                                            repositoryConfig: checked,
+                                        }))
+                                    }
+                                    disabled={
+                                        updatingKeyId === keyToConfigure.uuid
+                                    }
+                                />
+                            </div>
+
+                            <div className="bg-card-lv2 border-card-lv1 flex items-start justify-between gap-4 rounded-xl border p-4">
+                                <div className="flex flex-col gap-1">
+                                    <span className="text-sm font-semibold">
+                                        Allow Kody Rules management via CLI
+                                    </span>
+                                    <span className="text-text-secondary text-sm">
+                                        Enables commands that manage Kody Rules
+                                        for this key.
+                                    </span>
+                                </div>
+
+                                <Switch
+                                    checked={configDraft.kodyRulesManage}
+                                    onCheckedChange={(checked) =>
+                                        setConfigDraft((current) => ({
+                                            ...current,
+                                            kodyRulesManage: checked,
+                                        }))
+                                    }
                                     disabled={
                                         updatingKeyId === keyToConfigure.uuid
                                     }

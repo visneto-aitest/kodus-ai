@@ -69,11 +69,6 @@ const routes = [
     { label: "PR Summary", href: "pr-summary" },
     { label: "Kody Rules", href: "kody-rules" },
     { label: "Custom Messages", href: "custom-messages" },
-    {
-        label: "Business Rules",
-        href: "business-rules",
-        featureFlag: "businessLogic",
-    },
 ] satisfies Array<{
     label: string;
     href: string;

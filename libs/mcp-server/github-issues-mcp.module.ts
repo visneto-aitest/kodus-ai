@@ -4,7 +4,9 @@ import { ConfigService } from '@nestjs/config';
 import { GithubModule } from '@libs/platform/modules/github.module';
 
 import { GithubIssuesMcpController } from './controllers/github-issues-mcp.controller';
+import { McpEnabledGuard } from './guards/mcp-enabled.guard';
 import { McpCoreModule } from './mcp-core.module';
+import { GithubIssuesMcpServerFactory } from './services/github-issues-mcp-server.factory';
 import { GithubIssuesMcpServerService } from './services/github-issues-mcp-server.service';
 import { GithubIssuesTools } from './tools/githubIssues.tools';
 
@@ -20,7 +22,12 @@ export class GithubIssuesMcpModule {
 
         controllers.push(GithubIssuesMcpController);
 
-        providers.push(GithubIssuesMcpServerService, GithubIssuesTools);
+        providers.push(
+            GithubIssuesMcpServerFactory,
+            GithubIssuesMcpServerService,
+            McpEnabledGuard,
+            GithubIssuesTools,
+        );
 
         exports.push(GithubIssuesMcpServerService);
 

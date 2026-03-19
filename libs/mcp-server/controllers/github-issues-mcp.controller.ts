@@ -1,13 +1,11 @@
-import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import {
     Body,
     Controller,
     Delete,
     Get,
-    Headers,
-    HttpStatus,
     Post,
     Res,
+    UseGuards,
 } from '@nestjs/common';
 import {
     ApiBody,
@@ -16,26 +14,21 @@ import {
     ApiProduces,
     ApiTags,
 } from '@nestjs/swagger';
-import { Request, Response } from 'express';
+import { Response } from 'express';
 
 import { createLogger } from '@kodus/flow';
+import { Public } from '@libs/identity/infrastructure/adapters/services/auth/public.decorator';
+import { McpEnabledGuard } from '../guards/mcp-enabled.guard';
 import { GithubIssuesMcpServerService } from '../services/github-issues-mcp-server.service';
-import { JsonRpcCode } from '../utils/errors';
-import { toJsonRpcError } from '../utils/serialize';
-
-function getJsonRpcId(body: any): string | number | null {
-    return body && (typeof body.id === 'string' || typeof body.id === 'number')
-        ? body.id
-        : null;
-}
-
-function accepts(req: Request, mime: string) {
-    const h = (req.headers['accept'] || '').toString().toLowerCase();
-    return h.includes(mime.toLowerCase());
-}
+import {
+    handleStatelessMcpPost,
+    handleUnsupportedStatelessMcpMethod,
+} from './mcp-controller.helper';
 
 @ApiTags('MCP Github Issues')
+@Public()
 @Controller('mcp/github-issues')
+@UseGuards(McpEnabledGuard)
 export class GithubIssuesMcpController {
     private readonly logger = createLogger(GithubIssuesMcpController.name);
 
@@ -46,14 +39,14 @@ export class GithubIssuesMcpController {
     @Post()
     @ApiOperation({
         summary: 'Handle GitHub Issues MCP client request',
+        description:
+            'Handles JSON-RPC MCP client requests over stateless Streamable HTTP. Each POST request creates a fresh MCP server and transport for the lifetime of that request only.',
     })
     @ApiHeader({
         name: 'accept',
         required: true,
-    })
-    @ApiHeader({
-        name: 'mcp-session-id',
-        required: false,
+        description:
+            'Clients should advertise `application/json, text/event-stream` per Streamable HTTP negotiation.',
     })
     @ApiProduces('application/json', 'text/event-stream')
     @ApiBody({
@@ -64,117 +57,38 @@ export class GithubIssuesMcpController {
     })
     async handleClientRequest(
         @Body() body: any,
-        @Headers('mcp-session-id') sessionId: string | undefined,
         @Res() res: Response,
     ) {
-        const id = getJsonRpcId(body);
-
-        try {
-            if (!accepts(res.req, 'application/json')) {
-                return res.status(HttpStatus.NOT_ACCEPTABLE).json(
-                    toJsonRpcError(
-                        {
-                            code: JsonRpcCode.INVALID_REQUEST,
-                            message: 'Client must accept application/json',
-                        },
-                        id,
-                    ),
-                );
-            }
-
-            if (sessionId && this.mcpServerService.hasSession(sessionId)) {
-                await this.mcpServerService.handleRequest(sessionId, body, res);
-                return;
-            }
-
-            if (!sessionId && isInitializeRequest(body)) {
-                const newSessionId =
-                    await this.mcpServerService.createSession();
-                await this.mcpServerService.handleRequest(
-                    newSessionId,
-                    body,
-                    res,
-                );
-                return;
-            }
-
-            return res.status(HttpStatus.BAD_REQUEST).json(
-                toJsonRpcError(
-                    {
-                        code: JsonRpcCode.INVALID_REQUEST,
-                        message:
-                            'Bad Request: missing or invalid Mcp-Session-Id',
-                    },
-                    id,
-                ),
-            );
-        } catch (error) {
-            this.logger.error({
-                message: 'Error handling GitHub Issues MCP request',
-                context: GithubIssuesMcpController.name,
-                error,
-                metadata: { sessionId, body },
-            });
-
-            return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json(
-                toJsonRpcError(
-                    {
-                        code: JsonRpcCode.INTERNAL_ERROR,
-                        message: 'Internal error',
-                        data: { reason: 'controller-failure' },
-                    },
-                    id,
-                ),
-            );
-        }
+        return handleStatelessMcpPost({
+            body,
+            res,
+            handler: this.mcpServerService.handleRequest.bind(
+                this.mcpServerService,
+            ),
+            errorContext: GithubIssuesMcpController.name,
+            errorMessage: 'Error handling GitHub Issues MCP request',
+            logger: this.logger,
+        });
     }
 
     @Get()
     @ApiOperation({
-        summary: 'Handle GitHub Issues MCP server notifications',
-    })
-    @ApiHeader({
-        name: 'mcp-session-id',
-        required: true,
+        summary: 'GET is not supported for this GitHub Issues MCP endpoint',
+        description:
+            'This deployment runs MCP in stateless POST-only mode. Long-lived SSE streams are not exposed on this endpoint.',
     })
     @ApiProduces('text/event-stream')
-    async handleServerNotifications(
-        @Headers('mcp-session-id') sessionId: string | undefined,
-        @Res() res: Response,
-    ) {
-        if (!accepts(res.req, 'text/event-stream')) {
-            return res
-                .status(HttpStatus.NOT_ACCEPTABLE)
-                .send('Client must accept text/event-stream');
-        }
-
-        if (!sessionId || !this.mcpServerService.hasSession(sessionId)) {
-            return res
-                .status(HttpStatus.BAD_REQUEST)
-                .send('Invalid or missing session ID');
-        }
-
-        await this.mcpServerService.handleServerNotifications(sessionId, res);
+    async handleServerNotifications(@Res() res: Response) {
+        return handleUnsupportedStatelessMcpMethod(res);
     }
 
     @Delete()
     @ApiOperation({
-        summary: 'Terminate GitHub Issues MCP session',
+        summary: 'DELETE is not supported for this GitHub Issues MCP endpoint',
+        description:
+            'This deployment does not keep MCP sessions between requests, so there is no session to terminate.',
     })
-    @ApiHeader({
-        name: 'mcp-session-id',
-        required: true,
-    })
-    async handleSessionTermination(
-        @Headers('mcp-session-id') sessionId: string | undefined,
-        @Res() res: Response,
-    ) {
-        if (!sessionId || !this.mcpServerService.hasSession(sessionId)) {
-            return res
-                .status(HttpStatus.BAD_REQUEST)
-                .send('Invalid or missing session ID');
-        }
-
-        await this.mcpServerService.terminateSession(sessionId, res);
+    async handleSessionTermination(@Res() res: Response) {
+        return handleUnsupportedStatelessMcpMethod(res);
     }
 }

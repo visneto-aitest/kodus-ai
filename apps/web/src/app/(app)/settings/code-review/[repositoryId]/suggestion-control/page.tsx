@@ -19,6 +19,7 @@ import {
     type AutomationCodeReviewConfigPageProps,
     type CodeReviewFormType,
 } from "../../_types";
+import { unformatConfig } from "src/core/utils/helpers";
 import { usePlatformConfig } from "../../../_components/context";
 import { useCodeReviewRouteParams } from "../../../_hooks";
 import { ApplyFiltersToKodyRules } from "./_components/apply-filters-to-kody-rules";
@@ -43,9 +44,18 @@ export default function SuggestionControl(
         form,
     });
 
-    const handleSubmit = form.handleSubmit(async (config) => {
+    const handleSubmit = form.handleSubmit(async (formData) => {
         try {
-            await saveSettings(config);
+            await saveSettings(formData, {
+                prepare: (data) => {
+                    const { language: _language, ...config } = data;
+                    const unformatted = unformatConfig(config);
+                    return {
+                        savedFormData: data,
+                        codeReviewConfig: unformatted,
+                    };
+                },
+            });
 
             toast({
                 description: "Settings saved",

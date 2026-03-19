@@ -15,6 +15,7 @@ import GeneratingConfig from "../../_components/generating-config";
 import { CodeReviewSaveButton } from "../../_components/save-button";
 import { useCodeReviewSettingsMutation } from "../../_hooks/use-code-review-settings-mutation";
 import { type CodeReviewFormType } from "../../_types";
+import { unformatConfig } from "src/core/utils/helpers";
 import {
     useFeatureFlags,
     usePlatformConfig,
@@ -55,12 +56,29 @@ export default function ReviewCategories() {
 
     const handleSubmit = form.handleSubmit(async (formData) => {
         try {
-            await saveSettings({
+            const mergedFormData = {
                 ...formData,
                 reviewOptions: mergeMissingReviewOptions(
                     formData.reviewOptions || {},
                     visibleLabelTypes,
                 ),
+            };
+            await saveSettings(mergedFormData, {
+                prepare: (data) => {
+                    const { language: _language, ...config } = data;
+                    const unformatted = unformatConfig(config);
+                    const rawVersion = unformatted.codeReviewVersion;
+                    const codeReviewVersion =
+                        rawVersion === "legacy" ? "legacy" : "v2";
+                    return {
+                        savedFormData: data,
+                        codeReviewConfig: {
+                            ...unformatted,
+                            codeReviewVersion,
+                            reviewOptions: unformatted.reviewOptions,
+                        },
+                    };
+                },
             });
 
             toast({

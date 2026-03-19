@@ -48,6 +48,7 @@ import { Module } from '@nestjs/common';
 import { AgentController } from './controllers/agent.controller';
 import { AuthController } from './controllers/auth.controller';
 import { CliConfigController } from './controllers/cli/cli-config.controller';
+import { CliKodyRulesController } from './controllers/cli/cli-kody-rules.controller';
 import { CliReviewController } from './controllers/cli/cli-review.controller';
 import { CodeBaseController } from './controllers/codeBase.controller';
 import { CodeManagementController } from './controllers/codeManagement.controller';
@@ -152,6 +153,7 @@ import { CronModule } from './cron/cron.module';
         UsersController,
         CliReviewController,
         CliConfigController,
+        CliKodyRulesController,
         SSOConfigController,
         LicenseController,
         MetricsController,

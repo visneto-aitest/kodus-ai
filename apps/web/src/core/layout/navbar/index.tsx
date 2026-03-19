@@ -20,6 +20,7 @@ import {
     LibraryBig,
     SlidersHorizontalIcon,
 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { ErrorBoundary } from "react-error-boundary";
 import { UserNav } from "src/core/layout/navbar/_components/user-nav";
 import { cn } from "src/core/utils/components";
@@ -29,10 +30,13 @@ import { useSubscriptionContext } from "src/features/ee/subscription/_providers/
 import { GithubStars } from "./_components/github-stars";
 import { IssuesCount } from "./_components/issues-count";
 import { PendingRulesNotification } from "./_components/pending-rules-notification";
+import { VERSION_QUERY } from "./_components/version-info";
 
 export const NavMenu = () => {
     const pathname = usePathname();
     const subscription = useSubscriptionContext();
+    const queryClient = useQueryClient();
+    queryClient.prefetchQuery(VERSION_QUERY);
 
     const canReadIssues = usePermission(Action.Read, ResourceType.Issues);
     const canReadPullRequests = usePermission(
