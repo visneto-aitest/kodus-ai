@@ -146,6 +146,86 @@
                     "description": "The OR condition combines deletion of expired reminders with deletion of high retry count reminders. This means reminders with high retry counts but valid scheduled dates will be deleted. Consider using separate delete operations or adding method filtering to the retry count condition."
                 }
             ]
+        },
+        {
+            "repo": "ai-code-review-benchmark/sentry",
+            "head": "performance-enhancement-complete",
+            "base": "master",
+            "title": "Enhanced Pagination Performance for High-Volume Audit Logs",
+            "baseline": [
+                {
+                    "location": "src/sentry/api/endpoints/organization_auditlogs.py",
+                    "description": "logic: OptimizedCursorPaginator doesn't exist in the codebase - this import will cause an ImportError"
+                }
+            ]
+        },
+        {
+            "repo": "ai-code-review-benchmark/sentry",
+            "head": "performance-enhancement-complete",
+            "base": "performance-optimization-baseline",
+            "title": "Optimize spans buffer insertion with eviction during insert",
+            "baseline": [
+                {
+                    "location": "src/sentry/api/paginator.py#L876-L882",
+                    "description": "The OptimizedCursorPaginator passes negative start_offset values to Django QuerySet slicing when enable_advanced_features is true and cursor.offset < 0"
+                }
+            ]
+        },
+        {
+            "repo": "ai-code-review-benchmark/sentry",
+            "head": "oauth-state-secure",
+            "base": "oauth-state-vulnerable",
+            "title": "GitHub OAuth Security Enhancement",
+            "baseline": [
+                {
+                    "location": "src/sentry/integrations/github/integration.py#L499-L505",
+                    "description": "The code attempts to access integration.metadata[sender][login] without checking for the existence of the sender key."
+                }
+            ]
+        },
+        {
+            "repo": "ai-code-review-benchmark/sentry",
+            "head": "replays-delete-stable",
+            "base": "replays-delete-vulnerable",
+            "title": "Replays Self-Serve Bulk Delete System",
+            "baseline": [
+                {
+                    "description": "Breaking changes in error response format"
+                }
+            ]
+        },
+        {
+            "repo": "ai-code-review-benchmark/keycloak",
+            "head": "feature-idp-cache-implementation",
+            "base": "feature-idp-cache-baseline",
+            "title": "Add caching support for IdentityProviderStorageProvider.getForLogin operations",
+            "baseline": [
+                {
+                    "description": "logic: using session.identityProviders().getById(id) calls the same provider recursively, which could lead to inconsistent caching behavior"
+                }
+            ]
+        },
+        {
+            "repo": "ai-code-review-benchmark/keycloak",
+            "head": "feature-authz-crypto-implementation",
+            "base": "feature-authz-crypto-baseline",
+            "title": "Add AuthzClientCryptoProvider for authorization client cryptographic operations",
+            "baseline": [
+                {
+                    "description": "logic: incorrect provider returned - this returns the default keystore provider instead of BouncyCastle provider, which will break cryptographic operations expecting BC functionality"
+                }
+            ]
+        },
+        {
+            "repo": "ai-code-review-benchmark/keycloak",
+            "head": "feature-authz-crypto-implementation",
+            "base": "feature-authz-crypto-baseline",
+            "title": "Add Client resource type and scopes to authorization schema",
+            "baseline": [
+                {
+                    "description": "The AdminPermissions event listener, responsible for cleaning up permissions upon role, client, or group removal, is incorrectly guarded by the ADMIN_FINE_GRAINED_AUTHZ (V1) feature flag."
+                }
+            ]
         }
     ]
 }

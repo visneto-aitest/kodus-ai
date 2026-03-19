@@ -40,6 +40,8 @@ export interface ReviewAgentInput {
     v2PromptOverrides?: CodeReviewConfig['v2PromptOverrides'];
     generationMain?: string;
     documentationSearchService?: DocumentationSearchAdapter;
+    prTitle?: string;
+    prBody?: string;
 }
 
 /**
@@ -301,7 +303,9 @@ ${memoryRulesSection}
     private buildUserPrompt(input: ReviewAgentInput): string {
         const diffsSection = this.formatDiffs(input.changedFiles);
 
-        return `<ReviewTask>
+        const prContextSection = this.formatPRContext(input.prTitle, input.prBody);
+
+        return `<ReviewTask>${prContextSection}
   <Diffs>
 ${diffsSection}
   </Diffs>
@@ -338,6 +342,16 @@ If no issues found, respond with \`{"reasoning": "...", "suggestions": []}\`.
     <Rule>Every suggestion's relevantFile and line numbers MUST match a file and lines from the diff above.</Rule>
   </Rules>
 </ReviewTask>`;
+    }
+
+    private formatPRContext(prTitle?: string, prBody?: string): string {
+        if (!prTitle && !prBody) return '';
+
+        const parts: string[] = [];
+        if (prTitle) parts.push(`Title: ${prTitle}`);
+        if (prBody) parts.push(prBody.substring(0, 500));
+
+        return `\n  <PRContext>${parts.join('\n')}</PRContext>`;
     }
 
     private formatDiffs(files: FileChange[]): string {

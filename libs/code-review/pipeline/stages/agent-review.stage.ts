@@ -237,6 +237,8 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                         ?.main,
                 documentationSearchService:
                     this.documentationSearchService || undefined,
+                prTitle: context.pullRequest?.title,
+                prBody: context.pullRequest?.body,
                 reviewOptions,
             });
 
@@ -282,9 +284,21 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
             // Classify level (issue/warning) using GPT 5.4 mini
             // Separated from agent generation for consistency — BYOK models
             // are unreliable at classification but good at finding bugs.
+            const prContext = [
+                context.pullRequest?.title
+                    ? `PR: ${context.pullRequest.title}`
+                    : '',
+                context.pullRequest?.body
+                    ? context.pullRequest.body.substring(0, 500)
+                    : '',
+            ]
+                .filter(Boolean)
+                .join('\n');
+
             const classified = await this.classifyLevels(
                 validatedSuggestions,
                 prNumber,
+                prContext,
             );
 
             // Deduplicate suggestions that describe the same issue
@@ -352,27 +366,45 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
      * Groups by file, then asks Gemini Flash which suggestions are duplicates.
      */
     /**
-     * Classify each suggestion as "issue" or "warning" using GPT 5.4 mini.
-     * Separated from agent generation because BYOK models are inconsistent
-     * at classification — they find bugs well but classify them unreliably.
+     * Classify each suggestion as "issue" or "warning" using GPT 5.4 nano
+     * with reasoning. Separated from agent generation because BYOK models
+     * are inconsistent at classification.
+     *
+     * Uses XML prompt (dr1) + stripped category labels to avoid keyword
+     * anchoring bias. Eval score: 88% on 18 test cases.
      */
     private async classifyLevels(
         suggestions: Partial<CodeSuggestion>[],
         prNumber: number,
+        prContext?: string,
     ): Promise<Partial<CodeSuggestion>[]> {
         if (suggestions.length === 0) return suggestions;
 
-        const model = getInternalModel();
+        // Use GPT 5.4 nano with reasoning for classification
+        // Falls back to getInternalModel() if OpenAI key not available
+        let model: any;
+        const openaiKey = process.env.API_OPEN_AI_API_KEY;
+        if (openaiKey) {
+            const { createOpenAI } = require('@ai-sdk/openai');
+            model = createOpenAI({ apiKey: openaiKey })(
+                'gpt-5.4-nano',
+                { reasoningEffort: 'medium' },
+            );
+        } else {
+            model = getInternalModel();
+        }
         if (!model) {
-            // No internal model — default all to issue
             return suggestions.map((s) => ({ ...s, level: 'issue' as const }));
         }
 
         try {
+            // Strip category labels ([security], [bug], [performance]) to avoid
+            // keyword anchoring bias — the classifier should reason from the
+            // description, not the label.
             const summaries = suggestions
                 .map(
                     (s, i) =>
-                        `[${i}] [${s.label}] ${s.relevantFile}:${s.relevantLinesStart}-${s.relevantLinesEnd}
+                        `[${i}] ${s.relevantFile}:${s.relevantLinesStart}-${s.relevantLinesEnd}
   Description: ${s.suggestionContent?.substring(0, 300) || s.oneSentenceSummary || 'N/A'}
   Existing code: ${s.existingCode?.substring(0, 150) || 'N/A'}
   Suggested fix: ${s.improvedCode?.substring(0, 150) || 'N/A'}`,
@@ -405,13 +437,17 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                         additionalProperties: false,
                     }),
                 }) as any,
-                prompt: `Each finding below was already confirmed by an expert code review agent who investigated the codebase. Your job is NOT to question whether the finding is valid — it is. You only classify it.
-
-Classify as:
-- "issue": The finding describes broken behavior — wrong output, crash, security hole, data corruption, incorrect logic, missing error handling that causes failures. The code does something WRONG.
-- "warning": The finding describes a quality improvement — performance optimization, missing cache, code style, missing index, best practice suggestion. The code works but could be BETTER.
-
-${summaries}`,
+                prompt: `<LevelClassifier>
+  <Context>Each finding was confirmed by an expert code review agent. Classify only — do not question validity.</Context>${prContext ? `\n  <PRContext>${prContext}</PRContext>` : ''}
+  <Definitions>
+    <Level name="issue">The code produces WRONG results, crashes, or corrupts data in at least one scenario.</Level>
+    <Level name="warning">The code produces CORRECT results in ALL scenarios but is suboptimal.</Level>
+  </Definitions>
+  <DecisionRule>Ask: "Will any user/request ever get an INCORRECT result, crash, or lose data because of this?" YES → issue. NO → warning. Note: "missing hardening" (rate limits, input caps, entropy) means every request still gets the correct answer — that is warning, not issue. But "concurrent requests get wrong state" or "stale cache serves wrong data" IS wrong results — that is issue.</DecisionRule>
+  <Findings>
+${summaries}
+  </Findings>
+</LevelClassifier>`,
             });
 
             const output =
