@@ -15,6 +15,7 @@ import {
 } from '@libs/automation/domain/automationExecution/contracts/automation-execution.service';
 import { AutomationStatus } from '@libs/automation/domain/automation/enum/automation-status';
 import { AgentProgressEvent } from '@libs/code-review/infrastructure/agents/base-code-review-agent.provider';
+import { ReflectionAgentProvider } from '@libs/code-review/infrastructure/agents/reflection-agent.provider';
 import { CodeReviewPipelineContext } from '../context/code-review-pipeline.context';
 
 /**
@@ -167,6 +168,8 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
         @Inject(AUTOMATION_EXECUTION_SERVICE_TOKEN)
         private readonly automationExecutionService: IAutomationExecutionService,
         @Optional()
+        private readonly reflectionAgent?: ReflectionAgentProvider,
+        @Optional()
         @Inject(DOCUMENTATION_SEARCH_ADAPTER_TOKEN)
         private readonly documentationSearchService?: DocumentationSearchAdapter,
     ) {
@@ -297,6 +300,79 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                 return snapped;
             });
 
+            // Reflection: optional second pass to validate findings and discover missed issues
+            let reflectedSuggestions = validatedSuggestions;
+            if (
+                context.codeReviewConfig?.enableReflection &&
+                this.reflectionAgent &&
+                validatedSuggestions.length > 0
+            ) {
+                try {
+                    // Only validate bug/security/performance findings, not kody_rules
+                    const toValidate = validatedSuggestions.filter(
+                        (s) => s.label !== 'kody_rules',
+                    );
+                    const rulesFindings = validatedSuggestions.filter(
+                        (s) => s.label === 'kody_rules',
+                    );
+
+                    if (toValidate.length > 0) {
+                        this.logger.log({
+                            message: `[REFLECTION] Starting reflection for PR#${prNumber}: ${toValidate.length} findings to validate`,
+                            context: this.stageName,
+                        });
+
+                        const reflectionResult =
+                            await this.reflectionAgent.executeReflection(
+                                {
+                                    organizationAndTeamData:
+                                        context.organizationAndTeamData,
+                                    changedFiles,
+                                    remoteCommands:
+                                        context.sandboxHandle.remoteCommands,
+                                    prNumber,
+                                    repositoryFullName:
+                                        context.repository?.fullName ||
+                                        context.pullRequest?.base?.repo
+                                            ?.fullName ||
+                                        '',
+                                    languageResultPrompt:
+                                        context.codeReviewConfig
+                                            ?.languageResultPrompt || 'en-US',
+                                    prTitle: context.pullRequest?.title,
+                                    prBody: context.pullRequest?.body,
+                                    onAgentProgress: onAgentProgress,
+                                    gitHubToken:
+                                        await this.resolveGitHubToken(context),
+                                },
+                                toValidate,
+                            );
+
+                        const confirmed = reflectionResult.suggestions.length;
+                        const rejected =
+                            toValidate.length - confirmed;
+
+                        this.logger.log({
+                            message: `[REFLECTION] PR#${prNumber}: ${confirmed} confirmed, ${rejected} rejected, ${reflectionResult.suggestions.length - toValidate.length > 0 ? reflectionResult.suggestions.length - toValidate.length : 0} new findings`,
+                            context: this.stageName,
+                        });
+
+                        // Merge: validated findings + rules findings (untouched)
+                        reflectedSuggestions = [
+                            ...reflectionResult.suggestions,
+                            ...rulesFindings,
+                        ];
+                    }
+                } catch (reflectionError) {
+                    this.logger.warn({
+                        message: `[REFLECTION] Failed for PR#${prNumber}, using original findings`,
+                        context: this.stageName,
+                        error: reflectionError,
+                    });
+                    // On failure, keep original findings
+                }
+            }
+
             // Classify level (issue/warning) using Gemini 3 Flash
             // Separated from agent generation for consistency — BYOK models
             // are unreliable at classification but good at finding bugs.
@@ -313,7 +389,7 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
 
             const levelOverrides = context.codeReviewConfig?.v2PromptOverrides?.level;
             const classified = await this.classifyLevels(
-                validatedSuggestions,
+                reflectedSuggestions,
                 prNumber,
                 prContext,
                 levelOverrides,
