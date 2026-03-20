@@ -4,26 +4,26 @@ import { REQUEST } from '@nestjs/core';
 import { produce } from 'immer';
 
 import { createLogger } from '@kodus/flow';
-import {
-    IParametersService,
-    PARAMETERS_SERVICE_TOKEN,
-} from '@libs/organization/domain/parameters/contracts/parameters.service.contract';
-import { EventEmitter2 } from '@nestjs/event-emitter';
-import { AuditLogEvents } from '@libs/ee/codeReviewSettingsLog/events/audit-log.events';
 import { DeleteByRepositoryOrDirectoryPullRequestMessagesUseCase } from '@libs/code-review/application/use-cases/pullRequestMessages/delete-by-repository-or-directory.use-case';
+import { ParametersKey } from '@libs/core/domain/enums';
+import { CodeReviewParameter } from '@libs/core/infrastructure/config/types/general/codeReviewConfig.type';
+import { ActionType } from '@libs/core/infrastructure/config/types/general/codeReviewSettingsLog.type';
+import { OrganizationAndTeamData } from '@libs/core/infrastructure/config/types/general/organizationAndTeamData';
+import { UserRequest } from '@libs/core/infrastructure/config/types/http/user-request.type';
+import { RepositoryWithDirectoriesException } from '@libs/core/infrastructure/filters';
+import { AuditLogEvents } from '@libs/ee/codeReviewSettingsLog/events/audit-log.events';
 import {
     IKodyRulesService,
     KODY_RULES_SERVICE_TOKEN,
 } from '@libs/kodyRules/domain/contracts/kodyRules.service.contract';
-import { UserRequest } from '@libs/core/infrastructure/config/types/http/user-request.type';
-import { DeleteRepositoryCodeReviewParameterDto } from '@libs/organization/dtos/delete-repository-code-review-parameter.dto';
-import { ParametersEntity } from '@libs/organization/domain/parameters/entities/parameters.entity';
-import { ParametersKey } from '@libs/core/domain/enums';
-import { OrganizationAndTeamData } from '@libs/core/infrastructure/config/types/general/organizationAndTeamData';
-import { CodeReviewParameter } from '@libs/core/infrastructure/config/types/general/codeReviewConfig.type';
 import { KodyRulesStatus } from '@libs/kodyRules/domain/interfaces/kodyRules.interface';
-import { ActionType } from '@libs/core/infrastructure/config/types/general/codeReviewSettingsLog.type';
-import { RepositoryWithDirectoriesException } from '@libs/core/infrastructure/filters';
+import {
+    IParametersService,
+    PARAMETERS_SERVICE_TOKEN,
+} from '@libs/organization/domain/parameters/contracts/parameters.service.contract';
+import { ParametersEntity } from '@libs/organization/domain/parameters/entities/parameters.entity';
+import { DeleteRepositoryCodeReviewParameterDto } from '@libs/organization/dtos/delete-repository-code-review-parameter.dto';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
 @Injectable()
 export class DeleteRepositoryCodeReviewParameterUseCase {
@@ -48,19 +48,31 @@ export class DeleteRepositoryCodeReviewParameterUseCase {
     ) {}
 
     async execute(
-        body: DeleteRepositoryCodeReviewParameterDto,
+        body: DeleteRepositoryCodeReviewParameterDto & {
+            organizationAndTeamData?: OrganizationAndTeamData;
+            actor?: {
+                source?: 'cli' | 'web' | 'sync';
+                organizationId?: string;
+                userId?: string;
+                userEmail?: string;
+            };
+        },
     ): Promise<ParametersEntity<ParametersKey.CODE_REVIEW_CONFIG> | boolean> {
         const { teamId, repositoryId, directoryId } = body;
 
         try {
-            const organizationId = this.request.user.organization.uuid;
+            const organizationId =
+                body.organizationAndTeamData?.organizationId ??
+                body.actor?.organizationId ??
+                this.request?.user?.organization?.uuid;
+
             if (!organizationId) {
                 throw new Error('Organization ID not found');
             }
 
             const organizationAndTeamData: OrganizationAndTeamData = {
                 organizationId,
-                teamId,
+                teamId: body.organizationAndTeamData?.teamId ?? teamId,
             };
 
             const codeReviewConfigParam =
@@ -84,12 +96,14 @@ export class DeleteRepositoryCodeReviewParameterUseCase {
                     codeReviewConfig,
                     repositoryId,
                     directoryId,
+                    body.actor,
                 );
             } else if (repositoryId) {
                 result = await this.deleteRepositoryConfig(
                     organizationAndTeamData,
                     codeReviewConfig,
                     repositoryId,
+                    body.actor,
                 );
             } else {
                 throw new Error('RepositoryId is required');
@@ -111,6 +125,12 @@ export class DeleteRepositoryCodeReviewParameterUseCase {
         organizationAndTeamData: OrganizationAndTeamData,
         currentConfig: CodeReviewParameter,
         repositoryId: string,
+        actor?: {
+            source?: 'cli' | 'web' | 'sync';
+            organizationId?: string;
+            userId?: string;
+            userEmail?: string;
+        },
     ) {
         const repositoryIndex = currentConfig.repositories.findIndex(
             (repo) => repo.id === repositoryId,
@@ -147,6 +167,7 @@ export class DeleteRepositoryCodeReviewParameterUseCase {
         await this.handleRepositorySideEffects(
             organizationAndTeamData,
             repositoryToRemove,
+            actor,
         );
 
         return updated;
@@ -157,6 +178,12 @@ export class DeleteRepositoryCodeReviewParameterUseCase {
         currentConfig: CodeReviewParameter,
         repositoryId: string,
         directoryId: string,
+        actor?: {
+            source?: 'cli' | 'web' | 'sync';
+            organizationId?: string;
+            userId?: string;
+            userEmail?: string;
+        },
     ) {
         const repositoryIndex = currentConfig.repositories.findIndex(
             (repo) => repo.id === repositoryId,
@@ -205,6 +232,7 @@ export class DeleteRepositoryCodeReviewParameterUseCase {
             organizationAndTeamData,
             repository,
             directoryToRemove,
+            actor,
         );
 
         return updated;
@@ -213,6 +241,12 @@ export class DeleteRepositoryCodeReviewParameterUseCase {
     private async handleRepositorySideEffects(
         orgData: OrganizationAndTeamData,
         repository: { id: string; name: string },
+        actor?: {
+            source?: 'cli' | 'web' | 'sync';
+            organizationId?: string;
+            userId?: string;
+            userEmail?: string;
+        },
     ) {
         await this.deletePullRequestMessagesUseCase.execute({
             organizationId: orgData.organizationId,
@@ -226,11 +260,16 @@ export class DeleteRepositoryCodeReviewParameterUseCase {
             KodyRulesStatus.DELETED,
         );
 
+        const resolvedActor = this.resolveActor(actor);
+        if (!resolvedActor) {
+            return;
+        }
+
         this.eventEmitter.emit(AuditLogEvents.REPOSITORY_CONFIG_REMOVAL, {
             organizationAndTeamData: orgData,
             userInfo: {
-                userId: this.request.user.uuid,
-                userEmail: this.request.user.email,
+                userId: resolvedActor.userId,
+                userEmail: resolvedActor.userEmail,
             },
             repository,
             actionType: ActionType.DELETE,
@@ -241,6 +280,12 @@ export class DeleteRepositoryCodeReviewParameterUseCase {
         orgData: OrganizationAndTeamData,
         repository: { id: string; name: string },
         directory: { id: string; path: string },
+        actor?: {
+            source?: 'cli' | 'web' | 'sync';
+            organizationId?: string;
+            userId?: string;
+            userEmail?: string;
+        },
     ) {
         await this.deletePullRequestMessagesUseCase.execute({
             organizationId: orgData.organizationId,
@@ -255,15 +300,43 @@ export class DeleteRepositoryCodeReviewParameterUseCase {
             KodyRulesStatus.DELETED,
         );
 
+        const resolvedActor = this.resolveActor(actor);
+        if (!resolvedActor) {
+            return;
+        }
+
         this.eventEmitter.emit(AuditLogEvents.DIRECTORY_CONFIG_REMOVAL, {
             organizationAndTeamData: orgData,
             userInfo: {
-                userId: this.request.user.uuid,
-                userEmail: this.request.user.email,
+                userId: resolvedActor.userId,
+                userEmail: resolvedActor.userEmail,
             },
             repository,
             directory,
             actionType: ActionType.DELETE,
         });
+    }
+
+    private resolveActor(actor?: {
+        source?: 'cli' | 'web' | 'sync';
+        organizationId?: string;
+        userId?: string;
+        userEmail?: string;
+    }) {
+        const resolvedActor = actor ?? {
+            organizationId: this.request?.user?.organization?.uuid,
+            userId: this.request?.user?.uuid,
+            userEmail: this.request?.user?.email,
+        };
+
+        if (
+            !resolvedActor.organizationId ||
+            !resolvedActor.userId ||
+            !resolvedActor.userEmail
+        ) {
+            return null;
+        }
+
+        return resolvedActor;
     }
 }

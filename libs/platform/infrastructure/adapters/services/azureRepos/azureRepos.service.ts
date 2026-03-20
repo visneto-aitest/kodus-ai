@@ -45,9 +45,26 @@ import {
     ReactionsInComments,
 } from '@libs/platform/domain/platformIntegrations/types/codeManagement/pullRequests.type';
 
-import { Repositories } from '@libs/platform/domain/platformIntegrations/types/codeManagement/repositories.type';
-import { AzureReposRequestHelper } from './azure-repos-request-helper';
+import { createLogger } from '@kodus/flow';
+import { hasKodyMarker } from '@libs/common/utils/codeManagement/codeCommentMarkers';
+import { getCodeReviewBadge } from '@libs/common/utils/codeManagement/codeReviewBadge';
+import { getLabelShield } from '@libs/common/utils/codeManagement/labels';
+import { getSeverityLevelShield } from '@libs/common/utils/codeManagement/severityLevel';
+import { decrypt, encrypt } from '@libs/common/utils/crypto';
+import { IntegrationServiceDecorator } from '@libs/common/utils/decorators/integration-service.decorator';
+import {
+    isFileMatchingGlob,
+    isFileMatchingGlobCaseInsensitive,
+} from '@libs/common/utils/glob-utils';
+import {
+    getTranslationsForLanguageByCategory,
+    TranslationsCategory,
+} from '@libs/common/utils/translations/translations';
+import { generateWebhookToken } from '@libs/common/utils/webhooks/webhookTokenCrypto';
+import { AzureReposAuthDetail } from '@libs/integrations/domain/authIntegrations/types/azure-repos-auth-detail';
 import { IntegrationConfigEntity } from '@libs/integrations/domain/integrationConfigs/entities/integration-config.entity';
+import { IntegrationEntity } from '@libs/integrations/domain/integrations/entities/integration.entity';
+import { MCPManagerService } from '@libs/mcp-server/services/mcp-manager.service';
 import {
     AzurePullRequestVote,
     AzureRepoCommit,
@@ -55,33 +72,16 @@ import {
     AzureRepoPRThread,
     EventConfig,
 } from '@libs/platform/domain/azure/entities/azureRepoExtras.type';
-import axios, { AxiosInstance } from 'axios';
-import { createLogger } from '@kodus/flow';
-import { IntegrationServiceDecorator } from '@libs/common/utils/decorators/integration-service.decorator';
-import { MCPManagerService } from '@libs/mcp-server/services/mcp-manager.service';
-import {
-    getTranslationsForLanguageByCategory,
-    TranslationsCategory,
-} from '@libs/common/utils/translations/translations';
-import { decrypt, encrypt } from '@libs/common/utils/crypto';
-import { hasKodyMarker } from '@libs/common/utils/codeManagement/codeCommentMarkers';
-import { AzureReposAuthDetail } from '@libs/integrations/domain/authIntegrations/types/azure-repos-auth-detail';
-import { AuthMode } from '@libs/platform/domain/platformIntegrations/enums/codeManagement/authMode.enum';
-import { IntegrationEntity } from '@libs/integrations/domain/integrations/entities/integration.entity';
 import {
     AzurePRStatus,
     AzureRepoPullRequest,
 } from '@libs/platform/domain/azure/entities/azureRepoPullRequest.type';
-import { generateWebhookToken } from '@libs/common/utils/webhooks/webhookTokenCrypto';
+import { AuthMode } from '@libs/platform/domain/platformIntegrations/enums/codeManagement/authMode.enum';
 import { CodeManagementConnectionStatus } from '@libs/platform/domain/platformIntegrations/interfaces/code-management.interface';
-import { getSeverityLevelShield } from '@libs/common/utils/codeManagement/severityLevel';
-import { getCodeReviewBadge } from '@libs/common/utils/codeManagement/codeReviewBadge';
-import { getLabelShield } from '@libs/common/utils/codeManagement/labels';
+import { Repositories } from '@libs/platform/domain/platformIntegrations/types/codeManagement/repositories.type';
 import { RepositoryFile } from '@libs/platform/domain/platformIntegrations/types/codeManagement/repositoryFile.type';
-import {
-    isFileMatchingGlob,
-    isFileMatchingGlobCaseInsensitive,
-} from '@libs/common/utils/glob-utils';
+import axios, { AxiosInstance } from 'axios';
+import { AzureReposRequestHelper } from './azure-repos-request-helper';
 
 @IntegrationServiceDecorator(PlatformType.AZURE_REPOS, 'codeManagement')
 export class AzureReposService implements Omit<
@@ -3512,6 +3512,10 @@ export class AzureReposService implements Omit<
             { type: 'git.pullrequest.updated', resourceVersion: '1.0' },
             {
                 type: 'ms.vss-code.git-pullrequest-comment-event',
+                resourceVersion: '2.0',
+            },
+            {
+                type: 'git.push',
                 resourceVersion: '2.0',
             },
         ];

@@ -11,6 +11,8 @@ import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 
 import { Reaction } from '@libs/code-review/domain/codeReviewFeedback/enums/codeReviewCommentReaction.enum';
+import { decrypt, encrypt } from '@libs/common/utils/crypto';
+import { IntegrationServiceDecorator } from '@libs/common/utils/decorators/integration-service.decorator';
 import { CacheService } from '@libs/core/cache/cache.service';
 import {
     CreateAuthIntegrationStatus,
@@ -28,23 +30,39 @@ import {
 import { Commit } from '@libs/core/infrastructure/config/types/general/commit.type';
 import { OrganizationAndTeamData } from '@libs/core/infrastructure/config/types/general/organizationAndTeamData';
 import { TreeItem } from '@libs/core/infrastructure/config/types/general/tree.type';
-import { MCPManagerService } from '@libs/mcp-server/services/mcp-manager.service';
-import { decrypt, encrypt } from '@libs/common/utils/crypto';
-import { IntegrationServiceDecorator } from '@libs/common/utils/decorators/integration-service.decorator';
-import { ICodeManagementService } from '@libs/platform/domain/platformIntegrations/interfaces/code-management.interface';
 import {
-    IIntegrationService,
-    INTEGRATION_SERVICE_TOKEN,
-} from '@libs/integrations/domain/integrations/contracts/integration.service.contracts';
+    AUTH_INTEGRATION_SERVICE_TOKEN,
+    IAuthIntegrationService,
+} from '@libs/integrations/domain/authIntegrations/contracts/auth-integration.service.contracts';
 import {
     IIntegrationConfigService,
     INTEGRATION_CONFIG_SERVICE_TOKEN,
 } from '@libs/integrations/domain/integrationConfigs/contracts/integration-config.service.contracts';
 import {
-    AUTH_INTEGRATION_SERVICE_TOKEN,
-    IAuthIntegrationService,
-} from '@libs/integrations/domain/authIntegrations/contracts/auth-integration.service.contracts';
+    IIntegrationService,
+    INTEGRATION_SERVICE_TOKEN,
+} from '@libs/integrations/domain/integrations/contracts/integration.service.contracts';
+import { MCPManagerService } from '@libs/mcp-server/services/mcp-manager.service';
+import { ICodeManagementService } from '@libs/platform/domain/platformIntegrations/interfaces/code-management.interface';
 
+import { createLogger } from '@kodus/flow';
+import { hasKodyMarker } from '@libs/common/utils/codeManagement/codeCommentMarkers';
+import { getCodeReviewBadge } from '@libs/common/utils/codeManagement/codeReviewBadge';
+import { getLabelShield } from '@libs/common/utils/codeManagement/labels';
+import { getSeverityLevelShield } from '@libs/common/utils/codeManagement/severityLevel';
+import {
+    isFileMatchingGlob,
+    isFileMatchingGlobCaseInsensitive,
+} from '@libs/common/utils/glob-utils';
+import {
+    getTranslationsForLanguageByCategory,
+    TranslationsCategory,
+} from '@libs/common/utils/translations/translations';
+import { GitlabAuthDetail } from '@libs/integrations/domain/authIntegrations/types/gitlab-auth-detail.type';
+import { IntegrationConfigEntity } from '@libs/integrations/domain/integrationConfigs/entities/integration-config.entity';
+import { IntegrationEntity } from '@libs/integrations/domain/integrations/entities/integration.entity';
+import { AuthMode } from '@libs/platform/domain/platformIntegrations/enums/codeManagement/authMode.enum';
+import { CodeManagementConnectionStatus } from '@libs/platform/domain/platformIntegrations/interfaces/code-management.interface';
 import { GitCloneParams } from '@libs/platform/domain/platformIntegrations/types/codeManagement/gitCloneParams.type';
 import {
     PullRequest,
@@ -54,26 +72,8 @@ import {
     PullRequestReviewState,
     PullRequestWithFiles,
 } from '@libs/platform/domain/platformIntegrations/types/codeManagement/pullRequests.type';
-import { GitlabAuthDetail } from '@libs/integrations/domain/authIntegrations/types/gitlab-auth-detail.type';
-import { AuthMode } from '@libs/platform/domain/platformIntegrations/enums/codeManagement/authMode.enum';
 import { Repositories } from '@libs/platform/domain/platformIntegrations/types/codeManagement/repositories.type';
-import { CodeManagementConnectionStatus } from '@libs/platform/domain/platformIntegrations/interfaces/code-management.interface';
-import { IntegrationEntity } from '@libs/integrations/domain/integrations/entities/integration.entity';
-import { getSeverityLevelShield } from '@libs/common/utils/codeManagement/severityLevel';
-import { getCodeReviewBadge } from '@libs/common/utils/codeManagement/codeReviewBadge';
-import { getLabelShield } from '@libs/common/utils/codeManagement/labels';
-import {
-    getTranslationsForLanguageByCategory,
-    TranslationsCategory,
-} from '@libs/common/utils/translations/translations';
-import { IntegrationConfigEntity } from '@libs/integrations/domain/integrationConfigs/entities/integration-config.entity';
 import { RepositoryFile } from '@libs/platform/domain/platformIntegrations/types/codeManagement/repositoryFile.type';
-import { createLogger } from '@kodus/flow';
-import { hasKodyMarker } from '@libs/common/utils/codeManagement/codeCommentMarkers';
-import {
-    isFileMatchingGlob,
-    isFileMatchingGlobCaseInsensitive,
-} from '@libs/common/utils/glob-utils';
 
 @Injectable()
 @IntegrationServiceDecorator(PlatformType.GITLAB, 'codeManagement')
@@ -2161,7 +2161,7 @@ export class GitlabService implements Omit<
                         enableSslVerification: true,
                         noteEvents: true,
                         issuesEvents: true,
-                        pushEvents: false,
+                        pushEvents: true,
                     });
                     console.log(`Webhook added to project ${repo.id}`);
                 } else {

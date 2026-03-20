@@ -10,36 +10,37 @@ import {
 } from '@nestjs/common';
 import { REQUEST } from '@nestjs/core';
 import {
-    ApiBody,
-    ApiBearerAuth,
     ApiBadRequestResponse,
+    ApiBearerAuth,
+    ApiBody,
     ApiCreatedResponse,
     ApiOkResponse,
     ApiOperation,
     ApiQuery,
     ApiTags,
 } from '@nestjs/swagger';
-import { ApiStandardResponses } from '../docs/api-standard-responses.decorator';
 import { Response } from 'express';
+import { ApiStandardResponses } from '../docs/api-standard-responses.decorator';
 import {
     ApiStringResponseDto,
     ApiYamlStringResponseDto,
 } from '../dtos/api-response.dto';
 import {
     CodeReviewAutomationLabelsResponseDto,
+    CodeReviewConfigResponseDto,
     CodeReviewParameterResponseDto,
     CodeReviewPresetResponseDto,
-    CodeReviewConfigResponseDto,
     ParametersStoredResponseDto,
 } from '../dtos/parameters-response.dto';
 
+import { ApplyCodeReviewPresetUseCase } from '@libs/code-review/application/use-cases/configuration/apply-code-review-preset.use-case';
+import { SyncCentralizedConfigUseCase } from '@libs/code-review/application/use-cases/configuration/sync-centralized-config.use-case';
 import {
     CODE_BASE_CONFIG_SERVICE_TOKEN,
     ICodeBaseConfigService,
 } from '@libs/code-review/domain/contracts/CodeBaseConfigService.contract';
 import { CodeReviewVersion } from '@libs/core/infrastructure/config/types/general/codeReview.type';
 import { UserRequest } from '@libs/core/infrastructure/config/types/http/user-request.type';
-import { ApplyCodeReviewPresetUseCase } from '@libs/code-review/application/use-cases/configuration/apply-code-review-preset.use-case';
 import {
     Action,
     ResourceType,
@@ -49,25 +50,25 @@ import {
     PolicyGuard,
 } from '@libs/identity/infrastructure/adapters/services/permissions/policy.guard';
 
-import { CreateOrUpdateParametersUseCase } from '@libs/organization/application/use-cases/parameters/create-or-update-use-case';
-import { FindByKeyParametersUseCase } from '@libs/organization/application/use-cases/parameters/find-by-key-use-case';
-import { UpdateOrCreateCodeReviewParameterUseCase } from '@libs/code-review/application/use-cases/configuration/update-or-create-code-review-parameter-use-case';
-import { UpdateCodeReviewParameterRepositoriesUseCase } from '@libs/code-review/application/use-cases/configuration/update-code-review-parameter-repositories-use-case';
-import { GenerateKodusConfigFileUseCase } from '@libs/code-review/application/use-cases/configuration/generate-kodus-config-file.use-case';
 import { DeleteRepositoryCodeReviewParameterUseCase } from '@libs/code-review/application/use-cases/configuration/delete-repository-code-review-parameter.use-case';
-import { PreviewPrSummaryUseCase } from '@libs/code-review/application/use-cases/summary/preview-pr-summary.use-case';
-import { ListCodeReviewAutomationLabelsWithStatusUseCase } from '@libs/code-review/application/use-cases/configuration/list-code-review-automation-labels-with-status.use-case';
-import { GetDefaultConfigUseCase } from '@libs/organization/application/use-cases/parameters/get-default-config.use-case';
+import { GenerateKodusConfigFileUseCase } from '@libs/code-review/application/use-cases/configuration/generate-kodus-config-file.use-case';
 import { GetCodeReviewParameterUseCase } from '@libs/code-review/application/use-cases/configuration/get-code-review-parameter.use-case';
+import { ListCodeReviewAutomationLabelsWithStatusUseCase } from '@libs/code-review/application/use-cases/configuration/list-code-review-automation-labels-with-status.use-case';
+import { UpdateCodeReviewParameterRepositoriesUseCase } from '@libs/code-review/application/use-cases/configuration/update-code-review-parameter-repositories-use-case';
+import { UpdateOrCreateCodeReviewParameterUseCase } from '@libs/code-review/application/use-cases/configuration/update-or-create-code-review-parameter-use-case';
+import { PreviewPrSummaryUseCase } from '@libs/code-review/application/use-cases/summary/preview-pr-summary.use-case';
 import { ParametersKey } from '@libs/core/domain/enums';
 import {
     checkPermissions,
     checkRepoPermissions,
 } from '@libs/identity/infrastructure/adapters/services/permissions/policy.handlers';
-import { PreviewPrSummaryDto } from '@libs/organization/dtos/preview-pr-summary.dto';
-import { DeleteRepositoryCodeReviewParameterDto } from '@libs/organization/dtos/delete-repository-code-review-parameter.dto';
-import { ApplyCodeReviewPresetDto } from '../dtos/apply-code-review-preset.dto';
+import { CreateOrUpdateParametersUseCase } from '@libs/organization/application/use-cases/parameters/create-or-update-use-case';
+import { FindByKeyParametersUseCase } from '@libs/organization/application/use-cases/parameters/find-by-key-use-case';
+import { GetDefaultConfigUseCase } from '@libs/organization/application/use-cases/parameters/get-default-config.use-case';
 import { CreateOrUpdateCodeReviewParameterDto } from '@libs/organization/dtos/create-or-update-code-review-parameter.dto';
+import { DeleteRepositoryCodeReviewParameterDto } from '@libs/organization/dtos/delete-repository-code-review-parameter.dto';
+import { PreviewPrSummaryDto } from '@libs/organization/dtos/preview-pr-summary.dto';
+import { ApplyCodeReviewPresetDto } from '../dtos/apply-code-review-preset.dto';
 
 @ApiTags('Parameters')
 @ApiBearerAuth('jwt')
@@ -89,6 +90,7 @@ export class ParametersController {
         private readonly getDefaultConfigUseCase: GetDefaultConfigUseCase,
         private readonly getCodeReviewParameterUseCase: GetCodeReviewParameterUseCase,
         private readonly applyCodeReviewPresetUseCase: ApplyCodeReviewPresetUseCase,
+        private readonly syncCentralizedConfigUseCase: SyncCentralizedConfigUseCase,
 
         @Inject(CODE_BASE_CONFIG_SERVICE_TOKEN)
         private readonly codeBaseConfigService: ICodeBaseConfigService,
@@ -424,6 +426,49 @@ export class ParametersController {
         body: DeleteRepositoryCodeReviewParameterDto,
     ) {
         return this.deleteRepositoryCodeReviewParameterUseCase.execute(body);
+    }
+
+    @Post('/sync-centralized-config')
+    @UseGuards(PolicyGuard)
+    @CheckPolicies(
+        checkPermissions({
+            action: Action.Update,
+            resource: ResourceType.CodeReviewSettings,
+        }),
+    )
+    @ApiOperation({
+        summary: 'Run centralized config sync',
+        description:
+            'Runs an on-demand centralized config sync for a team after enabling centralized config.',
+    })
+    @ApiCreatedResponse({
+        schema: {
+            type: 'object',
+            properties: {
+                success: { type: 'boolean', example: true },
+            },
+        },
+    })
+    public async syncCentralizedConfig(
+        @Body()
+        body: {
+            teamId: string;
+        },
+    ) {
+        const organizationId = this.request?.user?.organization?.uuid;
+
+        if (!organizationId) {
+            throw new Error('Organization ID is missing from request');
+        }
+
+        await this.syncCentralizedConfigUseCase.execute({
+            organizationAndTeamData: {
+                organizationId,
+                teamId: body.teamId,
+            },
+        });
+
+        return { success: true };
     }
     //#endregion
 

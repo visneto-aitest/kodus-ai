@@ -4,10 +4,9 @@ import { Reaction } from '@libs/code-review/domain/codeReviewFeedback/enums/code
 import { hasKodyMarker } from '@libs/common/utils/codeManagement/codeCommentMarkers';
 import { decrypt, encrypt } from '@libs/common/utils/crypto';
 import { IntegrationServiceDecorator } from '@libs/common/utils/decorators/integration-service.decorator';
-import { CodeManagementConnectionStatus } from '@libs/platform/domain/platformIntegrations/interfaces/code-management.interface';
 import {
-    isFileMatchingGlobCaseInsensitive,
     isFileMatchingGlob,
+    isFileMatchingGlobCaseInsensitive,
 } from '@libs/common/utils/glob-utils';
 import { CacheService } from '@libs/core/cache/cache.service';
 import {
@@ -18,8 +17,8 @@ import {
     PullRequestState,
 } from '@libs/core/domain/enums';
 import {
-    FileChange,
     CommentResult,
+    FileChange,
     Repository,
 } from '@libs/core/infrastructure/config/types/general/codeReview.type';
 import { Commit } from '@libs/core/infrastructure/config/types/general/commit.type';
@@ -41,20 +40,21 @@ import {
 } from '@libs/integrations/domain/integrations/contracts/integration.service.contracts';
 import { IntegrationEntity } from '@libs/integrations/domain/integrations/entities/integration.entity';
 import { MCPManagerService } from '@libs/mcp-server/services/mcp-manager.service';
+import { CodeManagementConnectionStatus } from '@libs/platform/domain/platformIntegrations/interfaces/code-management.interface';
 
 import { AuthMode } from '@libs/platform/domain/platformIntegrations/enums/codeManagement/authMode.enum';
 import { ICodeManagementService } from '@libs/platform/domain/platformIntegrations/interfaces/code-management.interface';
 import { GitCloneParams } from '@libs/platform/domain/platformIntegrations/types/codeManagement/gitCloneParams.type';
 import {
-    PullRequestAuthor,
-    PullRequestsWithChangesRequested,
-    PullRequestReviewState,
-    PullRequest,
-    PullRequestWithFiles,
-    PullRequestFile,
-    PullRequestCodeReviewTime,
     OneSentenceSummaryItem,
+    PullRequest,
+    PullRequestAuthor,
+    PullRequestCodeReviewTime,
+    PullRequestFile,
     PullRequestReviewComment,
+    PullRequestReviewState,
+    PullRequestsWithChangesRequested,
+    PullRequestWithFiles,
     ReactionsInComments,
 } from '@libs/platform/domain/platformIntegrations/types/codeManagement/pullRequests.type';
 import { Repositories } from '@libs/platform/domain/platformIntegrations/types/codeManagement/repositories.type';
@@ -2884,6 +2884,7 @@ export class BitbucketService implements Omit<
                             url: webhookUrl,
                             active: true,
                             events: [
+                                'repo:push',
                                 'pullrequest:created',
                                 'pullrequest:updated',
                                 'pullrequest:rejected',

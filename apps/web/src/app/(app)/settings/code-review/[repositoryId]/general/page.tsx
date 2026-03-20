@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import { Alert, AlertDescription } from "@components/ui/alert";
 import { Button } from "@components/ui/button";
 import { Page } from "@components/ui/page";
 import { toast } from "@components/ui/toaster/use-toast";
@@ -7,13 +9,21 @@ import {
     createOrUpdateParameter,
     getGenerateKodusConfigFile,
 } from "@services/parameters/fetch";
+import { useOptionalParameterQuery } from "@services/parameters/hooks";
 import {
     KodyLearningStatus,
     ParametersConfigKey,
+    type CentralizedConfigValue,
 } from "@services/parameters/types";
 import { usePermission } from "@services/permissions/hooks";
 import { Action, ResourceType } from "@services/permissions/types";
-import { DownloadIcon, RotateCcwIcon, SaveIcon } from "lucide-react";
+import {
+    AlertCircleIcon,
+    DownloadIcon,
+    RotateCcwIcon,
+    SaveIcon,
+    Settings2Icon,
+} from "lucide-react";
 import { FormProvider, useFormContext } from "react-hook-form";
 import { AsyncBoundary } from "src/core/components/async-boundary";
 import { useSelectedTeamId } from "src/core/providers/selected-team-context";
@@ -24,13 +34,17 @@ import GeneratingConfig from "../../_components/generating-config";
 import { CodeReviewSaveButton } from "../../_components/save-button";
 import { useCodeReviewSettingsMutation } from "../../_hooks/use-code-review-settings-mutation";
 import { FormattedConfigLevel, type CodeReviewFormType } from "../../_types";
-import { usePlatformConfig } from "../../../_components/context";
+import {
+    useFeatureFlags,
+    usePlatformConfig,
+} from "../../../_components/context";
 import {
     useCodeReviewRouteParams,
     useCurrentConfigLevel,
 } from "../../../_hooks";
 import { AutomatedReviewActive } from "./_components/automated-review-active";
 import { BaseBranches } from "./_components/base-branches";
+import { CentralizedConfigModal } from "./_components/centralized-config-modal";
 import { CrossfileDependenciesAnalysis } from "./_components/crossfile-dependencies-analysis";
 import { EnableCommittableSuggestions } from "./_components/enable-committable-suggestions";
 import { IgnorePaths } from "./_components/ignore-paths";
@@ -44,10 +58,12 @@ import { ShowStatusFeedback } from "./_components/show-status-feedback";
 
 export default function General() {
     const platformConfig = usePlatformConfig();
+    const { centralizedConfigParameter } = useFeatureFlags();
     const form = useFormContext<CodeReviewFormType>();
     const { teamId } = useSelectedTeamId();
     const { repositoryId, directoryId } = useCodeReviewRouteParams();
     const currentLevel = useCurrentConfigLevel();
+    const [isCentralizedModalOpen, setIsCentralizedModalOpen] = useState(false);
     const { saveSettings } = useCodeReviewSettingsMutation({
         teamId,
         repositoryId,
@@ -60,6 +76,74 @@ export default function General() {
         ResourceType.CodeReviewSettings,
         repositoryId,
     );
+
+    const centralizedConfig = useOptionalParameterQuery<CentralizedConfigValue>(
+        ParametersConfigKey.CENTRALIZED_CONFIG,
+        teamId,
+        {
+            uuid: "",
+            configKey: ParametersConfigKey.CENTRALIZED_CONFIG,
+            configValue: {
+                enabled: false,
+                repository: {
+                    id: "",
+                    name: "",
+                },
+            },
+        },
+    );
+
+    const isCentralizedConfigEnabled =
+        centralizedConfigParameter === true &&
+        centralizedConfig.data?.configValue?.enabled === true;
+    const isGlobalGeneralView =
+        repositoryId === "global" &&
+        currentLevel === FormattedConfigLevel.GLOBAL;
+    const isCentralizedReadOnly = isCentralizedConfigEnabled;
+
+    const downloadFileText =
+        currentLevel === FormattedConfigLevel.GLOBAL
+            ? "default"
+            : currentLevel === FormattedConfigLevel.REPOSITORY
+              ? "repository"
+              : "directory";
+
+    const handleFileDownload = async () => {
+        try {
+            const downloadFile = await getGenerateKodusConfigFile(
+                teamId,
+                repositoryId,
+                directoryId,
+            );
+
+            const blob = new Blob([downloadFile], { type: "text/yaml" });
+            const url = window.URL.createObjectURL(blob);
+
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "kodus-config.yml";
+
+            document.body.appendChild(a);
+            a.click();
+
+            a.remove();
+            window.URL.revokeObjectURL(url);
+
+            toast({
+                description: "File downloaded",
+                variant: "success",
+            });
+        } catch (error) {
+            console.error("Error saving settings:", error);
+
+            toast({
+                title: "Error",
+                description:
+                    "An error occurred while generating the yml file. Please try again.",
+                variant: "danger",
+            });
+        }
+    };
 
     const handleSubmit = form.handleSubmit(async (formData) => {
         const { language, ...config } = formData;
@@ -107,44 +191,6 @@ export default function General() {
         }
     });
 
-    const handleFileDownload = async () => {
-        try {
-            const downloadFile = await getGenerateKodusConfigFile(
-                teamId,
-                repositoryId,
-                directoryId,
-            );
-
-            const blob = new Blob([downloadFile], { type: "text/yaml" });
-            const url = window.URL.createObjectURL(blob);
-
-            const a = document.createElement("a");
-            a.href = url;
-
-            a.download = "kodus-config.yml";
-
-            document.body.appendChild(a);
-            a.click();
-
-            a.remove();
-            window.URL.revokeObjectURL(url);
-
-            toast({
-                description: "File downloaded",
-                variant: "success",
-            });
-        } catch (error) {
-            console.error("Error saving settings:", error);
-
-            toast({
-                title: "Error",
-                description:
-                    "An error occurred while generating the yml file. Please try again.",
-                variant: "danger",
-            });
-        }
-    };
-
     const {
         isDirty: formIsDirty,
         isValid: formIsValid,
@@ -158,13 +204,6 @@ export default function General() {
         return <GeneratingConfig />;
     }
 
-    const downloadFileText =
-        currentLevel === FormattedConfigLevel.GLOBAL
-            ? "default"
-            : currentLevel === FormattedConfigLevel.REPOSITORY
-              ? "repository"
-              : "directory";
-
     return (
         <Page.Root>
             <Page.Header>
@@ -174,16 +213,29 @@ export default function General() {
             <Page.Header>
                 <Page.Title>General settings</Page.Title>
                 <Page.HeaderActions>
-                    <Button
-                        size="md"
-                        leftIcon={<DownloadIcon />}
-                        onClick={async () => await handleFileDownload()}
-                        variant="secondary"
-                        loading={formIsSubmitting}>
-                        Download {downloadFileText} YML configuration file
-                    </Button>
+                    {centralizedConfigParameter && isGlobalGeneralView && (
+                        <Button
+                            size="md"
+                            leftIcon={<Settings2Icon />}
+                            onClick={() => setIsCentralizedModalOpen(true)}
+                            variant="secondary"
+                            disabled={!canEdit}>
+                            Configure centralized config
+                        </Button>
+                    )}
 
-                    {formIsDirty && (
+                    {!centralizedConfigParameter && (
+                        <Button
+                            size="md"
+                            leftIcon={<DownloadIcon />}
+                            onClick={async () => await handleFileDownload()}
+                            variant="secondary"
+                            loading={formIsSubmitting}>
+                            Download {downloadFileText} YML configuration file
+                        </Button>
+                    )}
+
+                    {formIsDirty && !isCentralizedReadOnly && (
                         <Button
                             size="md"
                             variant="cancel"
@@ -199,7 +251,12 @@ export default function General() {
                         variant="primary"
                         leftIcon={<SaveIcon />}
                         onClick={handleSubmit}
-                        disabled={!canEdit || !formIsDirty || !formIsValid}
+                        disabled={
+                            !canEdit ||
+                            !formIsDirty ||
+                            !formIsValid ||
+                            isCentralizedReadOnly
+                        }
                         loading={formIsSubmitting}>
                         Save settings
                     </CodeReviewSaveButton>
@@ -207,52 +264,83 @@ export default function General() {
             </Page.Header>
 
             <Page.Content>
-                <div data-field-name="automatedReviewActive">
-                    <AutomatedReviewActive />
-                </div>
-                <div data-field-name="kodusConfigFileOverridesWebPreferences">
-                    <KodusConfigFileOverridesWebPreferences />
-                </div>
-                <div data-field-name="pullRequestApprovalActive">
-                    <PullRequestApprovalActive />
-                </div>
-                <AsyncBoundary errorVariant="minimal">
-                    <div data-field-name="isRequestChangesActive">
-                        <IsRequestChangesActive />
-                    </div>
-                </AsyncBoundary>
-                <div data-field-name="runOnDraft">
-                    <RunOnDraft />
-                </div>
-                <div data-field-name="showStatusFeedback">
-                    <ShowStatusFeedback />
-                </div>
-                <AsyncBoundary errorVariant="minimal">
-                    <div data-field-name="enableCommittableSuggestions">
-                        <EnableCommittableSuggestions />
-                    </div>
-                </AsyncBoundary>
-                <AsyncBoundary errorVariant="minimal">
-                    <div data-field-name="crossFileDependenciesAnalysis">
-                        <CrossfileDependenciesAnalysis />
-                    </div>
-                </AsyncBoundary>
-                <div data-field-name="ignorePaths">
-                    <IgnorePaths />
-                </div>
-                <div data-field-name="ignoredTitleKeywords">
-                    <IgnoredTitleKeywords />
-                </div>
-                <div data-field-name="baseBranches">
-                    <BaseBranches />
-                </div>
+                {isCentralizedReadOnly && (
+                    <Alert variant="warning">
+                        <AlertCircleIcon />
+                        <AlertDescription>
+                            Centralized config is enabled. Code review parameter
+                            fields on this page are read-only and controlled by
+                            the <code>kodus</code> repository.
+                        </AlertDescription>
+                    </Alert>
+                )}
 
-                {repositoryId === "global" && (
-                    <div data-field-name="language">
-                        <FormProvider {...form}>
-                            <LanguageSelector />
-                        </FormProvider>
+                <fieldset disabled={isCentralizedReadOnly} className="contents">
+                    <div data-field-name="automatedReviewActive">
+                        <AutomatedReviewActive />
                     </div>
+                    <div data-field-name="kodusConfigFileOverridesWebPreferences">
+                        <KodusConfigFileOverridesWebPreferences />
+                    </div>
+                    <div data-field-name="pullRequestApprovalActive">
+                        <PullRequestApprovalActive />
+                    </div>
+                    <AsyncBoundary errorVariant="minimal">
+                        <div data-field-name="isRequestChangesActive">
+                            <IsRequestChangesActive />
+                        </div>
+                    </AsyncBoundary>
+                    <div data-field-name="runOnDraft">
+                        <RunOnDraft />
+                    </div>
+                    <div data-field-name="showStatusFeedback">
+                        <ShowStatusFeedback />
+                    </div>
+                    <AsyncBoundary errorVariant="minimal">
+                        <div data-field-name="enableCommittableSuggestions">
+                            <EnableCommittableSuggestions />
+                        </div>
+                    </AsyncBoundary>
+                    <AsyncBoundary errorVariant="minimal">
+                        <div data-field-name="crossFileDependenciesAnalysis">
+                            <CrossfileDependenciesAnalysis />
+                        </div>
+                    </AsyncBoundary>
+                    <div data-field-name="ignorePaths">
+                        <IgnorePaths />
+                    </div>
+                    <div data-field-name="ignoredTitleKeywords">
+                        <IgnoredTitleKeywords />
+                    </div>
+                    <div data-field-name="baseBranches">
+                        <BaseBranches />
+                    </div>
+
+                    {repositoryId === "global" && (
+                        <div data-field-name="language">
+                            <FormProvider {...form}>
+                                <LanguageSelector />
+                            </FormProvider>
+                        </div>
+                    )}
+                </fieldset>
+
+                {centralizedConfigParameter && isGlobalGeneralView && (
+                    <CentralizedConfigModal
+                        open={isCentralizedModalOpen}
+                        onOpenChange={setIsCentralizedModalOpen}
+                        teamId={teamId}
+                        centralizedConfig={
+                            centralizedConfig.data?.configValue ?? {
+                                enabled: false,
+                                repository: {
+                                    id: "",
+                                    name: "",
+                                },
+                            }
+                        }
+                        onSaved={centralizedConfig.refetch}
+                    />
                 )}
             </Page.Content>
         </Page.Root>

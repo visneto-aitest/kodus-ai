@@ -2,25 +2,26 @@ import { createLogger } from '@kodus/flow';
 import { Injectable } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
-import { PlatformType } from '@libs/core/domain/enums/platform-type.enum';
-import { GenerateIssuesFromPrClosedUseCase } from '@libs/issues/application/use-cases/generate-issues-from-pr-closed.use-case';
-import { ChatWithKodyFromGitUseCase } from '@libs/platform/application/use-cases/codeManagement/chatWithKodyFromGit.use-case';
-import {
-    IWebhookEventHandler,
-    IWebhookEventParams,
-} from '@libs/platform/domain/platformIntegrations/interfaces/webhook-event-handler.interface';
-import { CodeManagementService } from '../../adapters/services/codeManagement.service';
-import { getMappedPlatform } from '@libs/common/utils/webhooks';
+import { SyncCentralizedConfigUseCase } from '@libs/code-review/application/use-cases/configuration/sync-centralized-config.use-case';
+import { EnqueueImplementationCheckUseCase } from '@libs/code-review/application/use-cases/enqueue-implementation-check.use-case';
 import {
     hasReviewMarker,
     isKodyMentionNonReview,
     isReviewCommand,
 } from '@libs/common/utils/codeManagement/codeCommentMarkers';
-import { SavePullRequestUseCase } from '@libs/platformData/application/use-cases/pullRequests/save.use-case';
+import { getMappedPlatform } from '@libs/common/utils/webhooks';
+import { PlatformType } from '@libs/core/domain/enums/platform-type.enum';
 import { PullRequestClosedEvent } from '@libs/core/domain/events/pull-request-closed.event';
 import { EnqueueCodeReviewJobUseCase } from '@libs/core/workflow/application/use-cases/enqueue-code-review-job.use-case';
-import { EnqueueImplementationCheckUseCase } from '@libs/code-review/application/use-cases/enqueue-implementation-check.use-case';
+import { GenerateIssuesFromPrClosedUseCase } from '@libs/issues/application/use-cases/generate-issues-from-pr-closed.use-case';
 import { WebhookContextService } from '@libs/platform/application/services/webhook-context.service';
+import { ChatWithKodyFromGitUseCase } from '@libs/platform/application/use-cases/codeManagement/chatWithKodyFromGit.use-case';
+import {
+    IWebhookEventHandler,
+    IWebhookEventParams,
+} from '@libs/platform/domain/platformIntegrations/interfaces/webhook-event-handler.interface';
+import { SavePullRequestUseCase } from '@libs/platformData/application/use-cases/pullRequests/save.use-case';
+import { CodeManagementService } from '../../adapters/services/codeManagement.service';
 
 /**
  * Handler for GitLab webhook events.
@@ -38,6 +39,7 @@ export class GitLabMergeRequestHandler implements IWebhookEventHandler {
         private readonly codeManagement: CodeManagementService,
         private readonly enqueueCodeReviewJobUseCase: EnqueueCodeReviewJobUseCase,
         private readonly enqueueImplementationCheckUseCase: EnqueueImplementationCheckUseCase,
+        private readonly syncCentralizedConfigUseCase: SyncCentralizedConfigUseCase,
     ) {}
 
     /**
@@ -48,7 +50,9 @@ export class GitLabMergeRequestHandler implements IWebhookEventHandler {
     public canHandle(params: IWebhookEventParams): boolean {
         return (
             params.platformType === PlatformType.GITLAB &&
-            ['Merge Request Hook', 'Note Hook'].includes(params.event)
+            ['Merge Request Hook', 'Note Hook', 'Push Hook'].includes(
+                params.event,
+            )
         );
     }
 
@@ -66,6 +70,9 @@ export class GitLabMergeRequestHandler implements IWebhookEventHandler {
                 break;
             case 'Note Hook':
                 await this.handleComment(params);
+                break;
+            case 'Push Hook':
+                await this.handlePush(params);
                 break;
             default:
                 this.logger.warn({
@@ -94,6 +101,19 @@ export class GitLabMergeRequestHandler implements IWebhookEventHandler {
             name: payload?.project?.name || payload?.project?.path,
             fullName: payload?.project?.path_with_namespace,
         } as any;
+
+        if (repository.name === 'kodus') {
+            this.logger.log({
+                message: `Merge request event for 'kodus' repository detected, skipping processing.`,
+                context: GitLabMergeRequestHandler.name,
+                metadata: {
+                    mrNumber,
+                    repositoryId: repository.id,
+                    repositoryName: repository.name,
+                },
+            });
+            return;
+        }
 
         const mappedPlatform = getMappedPlatform(PlatformType.GITLAB);
         if (!mappedPlatform) {
@@ -331,6 +351,20 @@ export class GitLabMergeRequestHandler implements IWebhookEventHandler {
     private async handleComment(params: IWebhookEventParams): Promise<void> {
         const { payload } = params;
         const mrNumber = payload?.object_attributes?.iid;
+        const repositoryName = payload?.project?.name;
+
+        if (repositoryName === 'kodus') {
+            this.logger.log({
+                message: `Comment event for 'kodus' repository detected, skipping processing.`,
+                context: GitLabMergeRequestHandler.name,
+                metadata: {
+                    mrNumber,
+                    repositoryId: payload?.project?.id,
+                    repositoryName,
+                },
+            });
+            return;
+        }
 
         const mappedPlatform = getMappedPlatform(PlatformType.GITLAB);
         if (!mappedPlatform) {
@@ -481,5 +515,42 @@ export class GitLabMergeRequestHandler implements IWebhookEventHandler {
         const oldRev = objectAttributes.oldrev;
 
         return !!(lastCommitId && oldRev && lastCommitId !== oldRev);
+    }
+
+    private async handlePush(params: IWebhookEventParams): Promise<void> {
+        const { payload } = params;
+        const repositoryName = payload?.project?.name;
+        const repositoryId = payload?.project?.id;
+        const ref = payload?.ref;
+
+        if (repositoryName === 'kodus' && ref === 'refs/heads/main') {
+            this.logger.log({
+                message: `Push event to 'kodus' repository on 'main' branch detected.`,
+                context: GitLabMergeRequestHandler.name,
+                metadata: { repositoryName, ref, repositoryId },
+            });
+
+            const context = await this.webhookContextService.getContext(
+                PlatformType.GITLAB,
+                String(repositoryId),
+            );
+
+            if (!context?.organizationAndTeamData) {
+                this.logger.warn({
+                    message: `No active automation found for repository, completing webhook processing`,
+                    context: GitLabMergeRequestHandler.name,
+                    metadata: {
+                        repositoryName,
+                        ref,
+                        repositoryId,
+                    },
+                });
+                return;
+            }
+
+            await this.syncCentralizedConfigUseCase.execute({
+                organizationAndTeamData: context.organizationAndTeamData,
+            });
+        }
     }
 }

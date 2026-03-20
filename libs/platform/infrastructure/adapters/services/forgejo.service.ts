@@ -3,6 +3,21 @@ import { ConfigService } from '@nestjs/config';
 import { v4 as uuidv4 } from 'uuid';
 
 import { createLogger } from '@kodus/flow';
+import { hasKodyMarker } from '@libs/common/utils/codeManagement/codeCommentMarkers';
+import { getCodeReviewBadge } from '@libs/common/utils/codeManagement/codeReviewBadge';
+import { getLabelShield } from '@libs/common/utils/codeManagement/labels';
+import { getSeverityLevelShield } from '@libs/common/utils/codeManagement/severityLevel';
+import { decrypt, encrypt } from '@libs/common/utils/crypto';
+import { IntegrationServiceDecorator } from '@libs/common/utils/decorators/integration-service.decorator';
+import {
+    isFileMatchingGlob,
+    isFileMatchingGlobCaseInsensitive,
+} from '@libs/common/utils/glob-utils';
+import { extractOwnerAndRepo } from '@libs/common/utils/helpers';
+import {
+    getTranslationsForLanguageByCategory,
+    TranslationsCategory,
+} from '@libs/common/utils/translations/translations';
 import {
     CreateAuthIntegrationStatus,
     IntegrationCategory,
@@ -12,107 +27,92 @@ import {
     PullRequestState,
 } from '@libs/core/domain/enums';
 import {
+    CommentResult,
     Repository,
     ReviewComment,
-    CommentResult,
 } from '@libs/core/infrastructure/config/types/general/codeReview.type';
 import { Commit } from '@libs/core/infrastructure/config/types/general/commit.type';
 import { OrganizationAndTeamData } from '@libs/core/infrastructure/config/types/general/organizationAndTeamData';
 import { TreeItem } from '@libs/core/infrastructure/config/types/general/tree.type';
-import { decrypt, encrypt } from '@libs/common/utils/crypto';
-import { IntegrationServiceDecorator } from '@libs/common/utils/decorators/integration-service.decorator';
-import { extractOwnerAndRepo } from '@libs/common/utils/helpers';
-import { getCodeReviewBadge } from '@libs/common/utils/codeManagement/codeReviewBadge';
-import { getSeverityLevelShield } from '@libs/common/utils/codeManagement/severityLevel';
-import { getLabelShield } from '@libs/common/utils/codeManagement/labels';
-import { hasKodyMarker } from '@libs/common/utils/codeManagement/codeCommentMarkers';
-import {
-    isFileMatchingGlob,
-    isFileMatchingGlobCaseInsensitive,
-} from '@libs/common/utils/glob-utils';
-import {
-    getTranslationsForLanguageByCategory,
-    TranslationsCategory,
-} from '@libs/common/utils/translations/translations';
 
-import {
-    IIntegrationService,
-    INTEGRATION_SERVICE_TOKEN,
-} from '@libs/integrations/domain/integrations/contracts/integration.service.contracts';
-import {
-    IIntegrationConfigService,
-    INTEGRATION_CONFIG_SERVICE_TOKEN,
-} from '@libs/integrations/domain/integrationConfigs/contracts/integration-config.service.contracts';
 import {
     AUTH_INTEGRATION_SERVICE_TOKEN,
     IAuthIntegrationService,
 } from '@libs/integrations/domain/authIntegrations/contracts/auth-integration.service.contracts';
-import { IntegrationConfigEntity } from '@libs/integrations/domain/integrationConfigs/entities/integration-config.entity';
 import { ForgejoAuthDetail } from '@libs/integrations/domain/authIntegrations/types/forgejo-auth-detail.type';
-
 import {
-    ICodeManagementService,
-    CodeManagementConnectionStatus,
-} from '@libs/platform/domain/platformIntegrations/interfaces/code-management.interface';
+    IIntegrationConfigService,
+    INTEGRATION_CONFIG_SERVICE_TOKEN,
+} from '@libs/integrations/domain/integrationConfigs/contracts/integration-config.service.contracts';
+import { IntegrationConfigEntity } from '@libs/integrations/domain/integrationConfigs/entities/integration-config.entity';
+import {
+    IIntegrationService,
+    INTEGRATION_SERVICE_TOKEN,
+} from '@libs/integrations/domain/integrations/contracts/integration.service.contracts';
+
 import { AuthMode } from '@libs/platform/domain/platformIntegrations/enums/codeManagement/authMode.enum';
+import {
+    CodeManagementConnectionStatus,
+    ICodeManagementService,
+} from '@libs/platform/domain/platformIntegrations/interfaces/code-management.interface';
 import { GitCloneParams } from '@libs/platform/domain/platformIntegrations/types/codeManagement/gitCloneParams.type';
+import { Organization } from '@libs/platform/domain/platformIntegrations/types/codeManagement/organization.type';
 import {
     PullRequest,
     PullRequestAuthor,
     PullRequestCodeReviewTime,
     PullRequestReviewComment,
     PullRequestReviewState,
-    PullRequestWithFiles,
     PullRequestsWithChangesRequested,
+    PullRequestWithFiles,
 } from '@libs/platform/domain/platformIntegrations/types/codeManagement/pullRequests.type';
 import { Repositories } from '@libs/platform/domain/platformIntegrations/types/codeManagement/repositories.type';
 import { RepositoryFile } from '@libs/platform/domain/platformIntegrations/types/codeManagement/repositoryFile.type';
-import { Organization } from '@libs/platform/domain/platformIntegrations/types/codeManagement/organization.type';
 
-import { createClient, Client } from '@llamaduck/forgejo-ts/client';
+import { Reaction } from '@libs/code-review/domain/codeReviewFeedback/enums/codeReviewCommentReaction.enum';
 import {
-    type PullRequest as ForgejoPullRequest,
-    type Repository as ForgejoRepository,
-    type Commit as ForgejoCommit,
-    type PullReview as ForgejoPullReview,
-    type Organization as ForgejoOrganization,
     type ChangedFile as ForgejoChangedFile,
+    type Commit as ForgejoCommit,
+    type Organization as ForgejoOrganization,
+    type PullRequest as ForgejoPullRequest,
+    type PullReview as ForgejoPullReview,
+    type Repository as ForgejoRepository,
     type User as ForgejoUser,
-    userGetCurrent,
-    userCurrentListRepos,
-    userSearch,
-    userGet,
-    orgListCurrentUserOrgs,
-    orgListRepos,
-    orgListMembers,
-    repoGet,
-    repoGetLanguages,
-    repoListHooks,
-    repoCreateHook,
-    repoDeleteHook,
-    repoGetContents,
-    repoGetAllCommits,
     getTree,
-    repoGetPullRequest,
-    repoListPullRequests,
-    repoGetPullRequestFiles,
-    repoGetPullRequestCommits,
-    repoDownloadPullDiffOrPatch,
-    repoCreatePullReview,
-    repoListPullReviews,
-    repoGetPullReviewComments,
-    repoEditPullRequest,
-    repoMergePullRequest,
     issueCreateComment,
+    issueDeleteCommentReaction,
+    issueDeleteIssueReaction,
     issueEditComment,
     issueGetComments,
-    issuePostIssueReaction,
-    issuePostCommentReaction,
-    issueDeleteIssueReaction,
-    issueDeleteCommentReaction,
     issueGetIssueReactions,
+    issuePostCommentReaction,
+    issuePostIssueReaction,
+    orgListCurrentUserOrgs,
+    orgListMembers,
+    orgListRepos,
+    repoCreateHook,
+    repoCreatePullReview,
+    repoDeleteHook,
+    repoDownloadPullDiffOrPatch,
+    repoEditPullRequest,
+    repoGet,
+    repoGetAllCommits,
+    repoGetContents,
+    repoGetLanguages,
+    repoGetPullRequest,
+    repoGetPullRequestCommits,
+    repoGetPullRequestFiles,
+    repoGetPullReviewComments,
+    repoListHooks,
+    repoListPullRequests,
+    repoListPullReviews,
+    repoMergePullRequest,
+    userCurrentListRepos,
+    userGet,
+    userGetCurrent,
+    userSearch,
 } from '@llamaduck/forgejo-ts';
-import { Reaction } from '@libs/code-review/domain/codeReviewFeedback/enums/codeReviewCommentReaction.enum';
+import { Client, createClient } from '@llamaduck/forgejo-ts/client';
 
 @Injectable()
 @IntegrationServiceDecorator(PlatformType.FORGEJO, 'codeManagement')
@@ -3286,6 +3286,7 @@ export class ForgejoService implements Omit<
                                     'issue_comment',
                                     'pull_request_review',
                                     'pull_request_review_comment',
+                                    'push',
                                 ],
                                 active: true,
                             },

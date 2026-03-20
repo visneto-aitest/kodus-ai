@@ -2,29 +2,30 @@ import { createLogger } from '@kodus/flow';
 import { Inject, Injectable } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
+import { SyncCentralizedConfigUseCase } from '@libs/code-review/application/use-cases/configuration/sync-centralized-config.use-case';
+import { EnqueueImplementationCheckUseCase } from '@libs/code-review/application/use-cases/enqueue-implementation-check.use-case';
 import {
-    IPullRequestsService,
-    PULL_REQUESTS_SERVICE_TOKEN,
-} from '@libs/platformData/domain/pullRequests/contracts/pullRequests.service.contracts';
+    isKodyMentionNonReview,
+    isReviewCommand,
+} from '@libs/common/utils/codeManagement/codeCommentMarkers';
+import { getMappedPlatform } from '@libs/common/utils/webhooks';
 import { PlatformType } from '@libs/core/domain/enums/platform-type.enum';
+import { PullRequestClosedEvent } from '@libs/core/domain/events/pull-request-closed.event';
+import { EnqueueCodeReviewJobUseCase } from '@libs/core/workflow/application/use-cases/enqueue-code-review-job.use-case';
 import { GenerateIssuesFromPrClosedUseCase } from '@libs/issues/application/use-cases/generate-issues-from-pr-closed.use-case';
+import { WebhookContextService } from '@libs/platform/application/services/webhook-context.service';
 import { ChatWithKodyFromGitUseCase } from '@libs/platform/application/use-cases/codeManagement/chatWithKodyFromGit.use-case';
 import {
     IWebhookEventHandler,
     IWebhookEventParams,
 } from '@libs/platform/domain/platformIntegrations/interfaces/webhook-event-handler.interface';
 import { IWebhookBitbucketPullRequestEvent } from '@libs/platform/domain/platformIntegrations/types/webhooks/webhooks-bitbucket.type';
-import { CodeManagementService } from '../../adapters/services/codeManagement.service';
 import { SavePullRequestUseCase } from '@libs/platformData/application/use-cases/pullRequests/save.use-case';
-import { getMappedPlatform } from '@libs/common/utils/webhooks';
 import {
-    isKodyMentionNonReview,
-    isReviewCommand,
-} from '@libs/common/utils/codeManagement/codeCommentMarkers';
-import { PullRequestClosedEvent } from '@libs/core/domain/events/pull-request-closed.event';
-import { EnqueueCodeReviewJobUseCase } from '@libs/core/workflow/application/use-cases/enqueue-code-review-job.use-case';
-import { EnqueueImplementationCheckUseCase } from '@libs/code-review/application/use-cases/enqueue-implementation-check.use-case';
-import { WebhookContextService } from '@libs/platform/application/services/webhook-context.service';
+    IPullRequestsService,
+    PULL_REQUESTS_SERVICE_TOKEN,
+} from '@libs/platformData/domain/pullRequests/contracts/pullRequests.service.contracts';
+import { CodeManagementService } from '../../adapters/services/codeManagement.service';
 
 /**
  * Handler for Bitbucket webhook events.
@@ -44,6 +45,7 @@ export class BitbucketPullRequestHandler implements IWebhookEventHandler {
         private readonly eventEmitter: EventEmitter2,
         private readonly enqueueCodeReviewJobUseCase: EnqueueCodeReviewJobUseCase,
         private readonly enqueueImplementationCheckUseCase: EnqueueImplementationCheckUseCase,
+        private readonly syncCentralizedConfigUseCase: SyncCentralizedConfigUseCase,
     ) {}
 
     /**
@@ -55,6 +57,7 @@ export class BitbucketPullRequestHandler implements IWebhookEventHandler {
         return (
             params.platformType === PlatformType.BITBUCKET &&
             [
+                'repo:push',
                 'pullrequest:created',
                 'pullrequest:updated',
                 'pullrequest:fulfilled',
@@ -71,10 +74,28 @@ export class BitbucketPullRequestHandler implements IWebhookEventHandler {
     public async execute(params: IWebhookEventParams): Promise<void> {
         const { event } = params;
 
-        if (event === 'pullrequest:comment_created') {
-            await this.handleComment(params);
-        } else {
-            await this.handlePullRequest(params);
+        switch (event) {
+            case 'pullrequest:comment_created':
+                await this.handleComment(params);
+                break;
+            case 'pullrequest:created':
+            case 'pullrequest:updated':
+            case 'pullrequest:fulfilled':
+            case 'pullrequest:rejected':
+                await this.handlePullRequest(params);
+                break;
+            case 'repo:push':
+                await this.handlePush(params);
+                break;
+            default:
+                this.logger.warn({
+                    message: `Unsupported Bitbucket event: ${event}`,
+                    serviceName: BitbucketPullRequestHandler.name,
+                    context: BitbucketPullRequestHandler.name,
+                    metadata: {
+                        event,
+                    },
+                });
         }
     }
 
@@ -103,6 +124,19 @@ export class BitbucketPullRequestHandler implements IWebhookEventHandler {
             name: payload?.repository?.name,
             fullName: payload?.repository?.full_name,
         } as any;
+
+        if (repository.name === 'kodus') {
+            this.logger.log({
+                message: `Pull request event for 'kodus' repository detected, skipping processing.`,
+                context: BitbucketPullRequestHandler.name,
+                serviceName: BitbucketPullRequestHandler.name,
+                metadata: {
+                    repositoryName: repository.name,
+                    prId,
+                },
+            });
+            return;
+        }
 
         const context = await this.webhookContextService.getContext(
             PlatformType.BITBUCKET,
@@ -318,6 +352,19 @@ export class BitbucketPullRequestHandler implements IWebhookEventHandler {
             id: payload?.repository?.uuid?.replace(/[{}]/g, ''),
             name: payload?.repository?.name,
         } as any;
+
+        if (repository.name === 'kodus') {
+            this.logger.log({
+                message: `Comment event for 'kodus' repository detected, skipping processing.`,
+                context: BitbucketPullRequestHandler.name,
+                serviceName: BitbucketPullRequestHandler.name,
+                metadata: {
+                    repositoryName: repository.name,
+                    prId,
+                },
+            });
+            return;
+        }
 
         const context = await this.webhookContextService.getContext(
             PlatformType.BITBUCKET,
@@ -541,5 +588,47 @@ export class BitbucketPullRequestHandler implements IWebhookEventHandler {
         }
 
         return true;
+    }
+
+    private async handlePush(params: IWebhookEventParams): Promise<void> {
+        const { payload } = params;
+        const repositoryName = payload?.repository?.name;
+        const repositoryId = payload?.repository?.uuid?.replace(/[{}]/g, '');
+        const ref = payload?.push?.changes?.[0]?.new?.name;
+
+        if (repositoryName === 'kodus' && ref === 'main') {
+            this.logger.log({
+                message: `Push event to 'kodus' repository on 'main' branch detected.`,
+                context: BitbucketPullRequestHandler.name,
+                serviceName: BitbucketPullRequestHandler.name,
+                metadata: {
+                    repositoryName,
+                    ref,
+                    repositoryId,
+                },
+            });
+
+            const context = await this.webhookContextService.getContext(
+                PlatformType.BITBUCKET,
+                String(repositoryId),
+            );
+
+            if (!context?.organizationAndTeamData) {
+                this.logger.warn({
+                    message: `No active automation found for repository, completing webhook processing`,
+                    context: BitbucketPullRequestHandler.name,
+                    metadata: {
+                        repositoryName,
+                        ref,
+                        repositoryId,
+                    },
+                });
+                return;
+            }
+
+            await this.syncCentralizedConfigUseCase.execute({
+                organizationAndTeamData: context.organizationAndTeamData,
+            });
+        }
     }
 }

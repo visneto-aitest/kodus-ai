@@ -194,3 +194,16 @@ export const applyCodeReviewPreset = async (params: {
         return { error: error.response?.status || "Erro desconhecido" };
     }
 };
+
+export const syncCentralizedConfig = async (teamId: string) => {
+    try {
+        const response = await axiosAuthorized.post<any>(
+            PARAMETERS_PATHS.SYNC_CENTRALIZED_CONFIG,
+            { teamId },
+        );
+
+        return response.data;
+    } catch (error: any) {
+        return { error: error.response?.status || "Erro desconhecido" };
+    }
+};
