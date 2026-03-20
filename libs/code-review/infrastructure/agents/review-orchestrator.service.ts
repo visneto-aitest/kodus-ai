@@ -1,13 +1,15 @@
 import { createLogger } from '@kodus/flow';
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 
 import {
     CodeSuggestion,
     ReviewOptions,
 } from '@libs/core/infrastructure/config/types/general/codeReview.type';
+import { IKodyRule } from '@libs/kodyRules/domain/interfaces/kodyRules.interface';
 import { BugAgentProvider } from './bug-agent.provider';
 import { SecurityAgentProvider } from './security-agent.provider';
 import { PerformanceAgentProvider } from './performance-agent.provider';
+import { KodyRulesAgentProvider } from './kody-rules-agent.provider';
 import {
     ReviewAgentInput,
     ReviewAgentOutput,
@@ -15,6 +17,7 @@ import {
 
 export interface OrchestratorInput extends ReviewAgentInput {
     reviewOptions: ReviewOptions;
+    kodyRules?: Partial<IKodyRule>[];
 }
 
 export interface OrchestratorOutput {
@@ -38,16 +41,18 @@ export class ReviewOrchestratorService {
         private readonly bugAgent: BugAgentProvider,
         private readonly securityAgent: SecurityAgentProvider,
         private readonly performanceAgent: PerformanceAgentProvider,
+        @Optional()
+        private readonly kodyRulesAgent?: KodyRulesAgentProvider,
     ) {}
 
     async execute(input: OrchestratorInput): Promise<OrchestratorOutput> {
         const startTime = Date.now();
-        const { reviewOptions, ...agentInput } = input;
+        const { reviewOptions, kodyRules, ...agentInput } = input;
 
         // Determine which agents to run based on review options
         const agentTasks: Array<{
             name: string;
-            provider: BugAgentProvider | SecurityAgentProvider | PerformanceAgentProvider;
+            provider: { execute: (input: any) => Promise<ReviewAgentOutput> };
         }> = [];
 
         if (reviewOptions.bug !== false) {
@@ -63,6 +68,24 @@ export class ReviewOrchestratorService {
             agentTasks.push({
                 name: 'performance',
                 provider: this.performanceAgent,
+            });
+        }
+
+        // Add Kody Rules agent if there are active standard rules
+        if (
+            this.kodyRulesAgent &&
+            kodyRules &&
+            kodyRules.length > 0
+        ) {
+            agentTasks.push({
+                name: 'kody-rules',
+                provider: {
+                    execute: (inp: ReviewAgentInput) =>
+                        this.kodyRulesAgent!.execute({
+                            ...inp,
+                            kodyRules,
+                        }),
+                },
             });
         }
 

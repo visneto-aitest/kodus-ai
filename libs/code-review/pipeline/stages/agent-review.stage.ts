@@ -261,6 +261,7 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                     this.documentationSearchService || undefined,
                 prTitle: context.pullRequest?.title,
                 prBody: context.pullRequest?.body,
+                kodyRules: context.codeReviewConfig?.kodyRules,
                 reviewOptions,
                 onAgentProgress,
             });

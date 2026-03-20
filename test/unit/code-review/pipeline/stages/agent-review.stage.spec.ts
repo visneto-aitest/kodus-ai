@@ -116,7 +116,7 @@ describe('AgentReviewStage', () => {
                 changedFiles: [{ filename: 'src/index.ts' } as any],
                 sandboxHandle: {
                     remoteCommands: { grep: jest.fn(), read: jest.fn(), listDir: jest.fn() },
-                    cleanup: jest.fn(),
+                    cleanup: jest.fn(), type: 'e2b' as const,
                 },
             });
 
@@ -161,7 +161,7 @@ describe('AgentReviewStage', () => {
                         read: jest.fn(),
                         listDir: jest.fn(),
                     },
-                    cleanup: jest.fn(),
+                    cleanup: jest.fn(), type: 'e2b' as const,
                 },
                 codeReviewConfig: {
                     codeReviewVersion: CodeReviewVersion.V3_AGENT,
@@ -196,7 +196,7 @@ describe('AgentReviewStage', () => {
                         read: jest.fn(),
                         listDir: jest.fn(),
                     },
-                    cleanup: jest.fn(),
+                    cleanup: jest.fn(), type: 'e2b' as const,
                 },
             });
 
@@ -226,7 +226,7 @@ describe('AgentReviewStage', () => {
                         read: jest.fn(),
                         listDir: jest.fn(),
                     },
-                    cleanup: jest.fn(),
+                    cleanup: jest.fn(), type: 'e2b' as const,
                 },
             });
 
@@ -252,7 +252,7 @@ describe('AgentReviewStage', () => {
                         read: jest.fn(),
                         listDir: jest.fn(),
                     },
-                    cleanup: jest.fn(),
+                    cleanup: jest.fn(), type: 'e2b' as const,
                 },
             });
 
