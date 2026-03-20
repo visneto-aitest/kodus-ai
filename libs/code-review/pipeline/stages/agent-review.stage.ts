@@ -615,12 +615,17 @@ ${summaries}
                     prompt: `You have ${fileSuggestions.length} code review suggestions for file "${filename}". Remove duplicates and return the indices to KEEP. You MUST keep at least 1 suggestion.
 
 Two suggestions are DUPLICATES if:
-- They point to the same lines AND the fix is the same (e.g., both say "use Regexp.escape" — keep only the more detailed one)
-- They describe the same problem from different angles (e.g., "ReDoS vulnerability" and "regex injection" on the same line — same root cause, same fix)
+- They describe the same underlying problem, even if labeled differently (e.g., one says "bug: race condition" and another says "security: concurrent access bypass" — same root cause)
+- They point to the same or overlapping lines AND describe the same issue from different angles
+- They propose the same fix, even with different wording
+- **IGNORE the category label** (bug/security/performance/kody_rules) when deciding — two agents can find the same issue independently
 
 Two suggestions are NOT duplicates if:
-- They point to different lines
-- They require different fixes (e.g., one says "add nil check" and another says "add SQL parameterization" — different problems even if nearby)
+- They point to different lines or different code sections
+- They require different fixes (e.g., "add nil check" vs "add SQL parameterization" — different problems)
+- They describe genuinely different issues even if on nearby lines
+
+When keeping one of two duplicates, prefer the one with more detail or a clearer fix.
 
 ${summaries}`,
                 });

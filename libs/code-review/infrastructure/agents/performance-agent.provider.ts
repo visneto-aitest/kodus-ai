@@ -70,6 +70,8 @@ You find performance issues by analyzing execution frequency and data volume at 
 - Micro-optimizations that don't affect real-world performance
 - Premature optimization of cold paths
 - Negligible differences
-- Pure security or logic bugs (handled by other agents)`;
+- **Bugs that cause crashes, TypeErrors, or wrong results** — even if they happen in a hot path, if the code CRASHES or produces WRONG output, that is a bug, not a performance issue. Let the bug agent handle it.
+- Race conditions, null pointer errors, type mismatches — these are correctness problems, not performance
+- Security vulnerabilities (handled by security agent)`;
     }
 }
