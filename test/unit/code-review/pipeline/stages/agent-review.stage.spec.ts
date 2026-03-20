@@ -5,6 +5,7 @@ import {
 } from '@/code-review/pipeline/stages/agent-review.stage';
 import { ReviewOrchestratorService } from '@/code-review/infrastructure/agents/review-orchestrator.service';
 import { ObservabilityService } from '@/core/log/observability.service';
+import { AUTOMATION_EXECUTION_SERVICE_TOKEN } from '@/automation/domain/automationExecution/contracts/automation-execution.service';
 import { CodeReviewPipelineContext } from '@/code-review/pipeline/context/code-review-pipeline.context';
 import { PlatformType } from '@/core/domain/enums';
 import { CodeReviewVersion } from '@/core/domain/enums/code-review.enum';
@@ -96,6 +97,7 @@ describe('AgentReviewStage', () => {
                 AgentReviewStage,
                 { provide: ReviewOrchestratorService, useValue: mockOrchestrator },
                 { provide: ObservabilityService, useValue: { runInSpan: jest.fn((_name: string, fn: any) => fn()) } },
+                { provide: AUTOMATION_EXECUTION_SERVICE_TOKEN, useValue: { updateCodeReview: jest.fn(), findLatestStageLog: jest.fn(), updateStageLog: jest.fn() } },
                 { provide: DOCUMENTATION_SEARCH_ADAPTER_TOKEN, useValue: undefined },
             ],
         }).compile();

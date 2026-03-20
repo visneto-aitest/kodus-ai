@@ -10,6 +10,12 @@ import { CodeSuggestion } from '@libs/core/infrastructure/config/types/general/c
 import { ReviewOrchestratorService } from '@libs/code-review/infrastructure/agents/review-orchestrator.service';
 import { DocumentationSearchAdapter } from '@libs/code-review/infrastructure/agents/tools/sandbox-tools';
 import { ObservabilityService } from '@libs/core/log/observability.service';
+import {
+    AUTOMATION_EXECUTION_SERVICE_TOKEN,
+    IAutomationExecutionService,
+} from '@libs/automation/domain/automationExecution/contracts/automation-execution.service';
+import { AutomationStatus } from '@libs/automation/domain/automation/enum/automation-status';
+import { AgentProgressEvent } from '@libs/code-review/infrastructure/agents/base-code-review-agent.provider';
 import { CodeReviewPipelineContext } from '../context/code-review-pipeline.context';
 
 /**
@@ -159,6 +165,8 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
     constructor(
         private readonly reviewOrchestrator: ReviewOrchestratorService,
         private readonly observabilityService: ObservabilityService,
+        @Inject(AUTOMATION_EXECUTION_SERVICE_TOKEN)
+        private readonly automationExecutionService: IAutomationExecutionService,
         @Optional()
         @Inject(DOCUMENTATION_SEARCH_ADAPTER_TOKEN)
         private readonly documentationSearchService?: DocumentationSearchAdapter,
@@ -221,6 +229,18 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
         });
 
         try {
+            // Build progress callback for real-time agent traces in PR timeline
+            const executionUuid =
+                context.pipelineMetadata?.lastExecution?.uuid ||
+                context.correlationId;
+            const repositoryId = context.repository?.id;
+
+            const onAgentProgress = this.createAgentProgressCallback(
+                executionUuid,
+                prNumber,
+                repositoryId,
+            );
+
             const result = await this.reviewOrchestrator.execute({
                 organizationAndTeamData: context.organizationAndTeamData,
                 changedFiles,
@@ -242,6 +262,7 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                 prTitle: context.pullRequest?.title,
                 prBody: context.pullRequest?.body,
                 reviewOptions,
+                onAgentProgress,
             });
 
             const durationMs = Date.now() - startTime;
@@ -667,5 +688,141 @@ ${summaries}`,
         }
 
         return result;
+    }
+
+    /**
+     * Creates a callback that writes agent progress to the PR timeline.
+     * Each agent gets its own timeline entry (visibility: secondary).
+     * Tool calls are batched — updates happen every 5 steps, not every call.
+     */
+    private createAgentProgressCallback(
+        executionUuid: string | undefined,
+        prNumber: number | undefined,
+        repositoryId: string | undefined,
+    ): (event: AgentProgressEvent) => void {
+        // Track accumulated tool calls per agent for the final entry
+        const agentToolCalls = new Map<
+            string,
+            Array<{ tool: string; args: string }>
+        >();
+
+        return (event: AgentProgressEvent) => {
+            const stageName = `AgentReview::${event.agentName.replace('kodus-', '').replace('-review-agent', '')}`;
+            const label = this.formatAgentLabel(event);
+
+            // Fire-and-forget — don't block the agent loop
+            this.writeAgentTrace(
+                executionUuid,
+                prNumber,
+                repositoryId,
+                stageName,
+                event,
+                label,
+                agentToolCalls,
+            ).catch(() => {
+                // Best effort — don't fail the review if timeline write fails
+            });
+        };
+    }
+
+    private formatAgentLabel(event: AgentProgressEvent): string {
+        const name = event.agentName
+            .replace('kodus-', '')
+            .replace('-review-agent', '');
+        const icon =
+            name === 'bug'
+                ? 'Bug'
+                : name === 'security'
+                  ? 'Security'
+                  : 'Performance';
+
+        switch (event.status) {
+            case 'started':
+                return `${icon} Agent — investigating...`;
+            case 'investigating':
+                return `${icon} Agent — step ${event.step}, ${event.toolCalls?.length ?? 0} tool calls`;
+            case 'completed':
+                return `${icon} Agent — ${event.findings ?? 0} findings in ${Math.round((event.durationMs ?? 0) / 1000)}s`;
+            case 'error':
+                return `${icon} Agent — failed`;
+            default:
+                return `${icon} Agent`;
+        }
+    }
+
+    private async writeAgentTrace(
+        executionUuid: string | undefined,
+        prNumber: number | undefined,
+        repositoryId: string | undefined,
+        stageName: string,
+        event: AgentProgressEvent,
+        label: string,
+        agentToolCalls: Map<
+            string,
+            Array<{ tool: string; args: string }>
+        >,
+    ): Promise<void> {
+        if (!executionUuid && !prNumber) return;
+
+        // Accumulate tool calls
+        if (event.toolCalls) {
+            const existing = agentToolCalls.get(event.agentName) || [];
+            existing.push(...event.toolCalls);
+            agentToolCalls.set(event.agentName, existing);
+        }
+
+        const status =
+            event.status === 'completed'
+                ? AutomationStatus.SUCCESS
+                : event.status === 'error'
+                  ? AutomationStatus.ERROR
+                  : AutomationStatus.IN_PROGRESS;
+
+        const metadata: Record<string, any> = {
+            visibility: 'secondary',
+            label,
+        };
+
+        // On completion/error, include full tool trace summary
+        if (
+            event.status === 'completed' ||
+            event.status === 'error'
+        ) {
+            const allCalls = agentToolCalls.get(event.agentName) || [];
+            metadata.agentTrace = {
+                steps: event.step,
+                findings: event.findings,
+                durationMs: event.durationMs,
+                totalTokens: event.totalTokens,
+                toolCalls: allCalls.slice(-30), // Keep last 30 to avoid huge payloads
+                toolSummary: this.summarizeToolCalls(allCalls),
+            };
+        }
+
+        const filter = executionUuid
+            ? { uuid: executionUuid }
+            : { pullRequestNumber: prNumber, repositoryId };
+
+        try {
+            await this.automationExecutionService.updateCodeReview(
+                filter,
+                { status },
+                label,
+                stageName,
+                metadata,
+            );
+        } catch {
+            // Best effort
+        }
+    }
+
+    private summarizeToolCalls(
+        calls: Array<{ tool: string; args: string }>,
+    ): Record<string, number> {
+        const summary: Record<string, number> = {};
+        for (const c of calls) {
+            summary[c.tool] = (summary[c.tool] || 0) + 1;
+        }
+        return summary;
     }
 }

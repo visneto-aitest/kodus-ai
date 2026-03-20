@@ -29,6 +29,19 @@ export interface ReviewAgentIdentity {
 /**
  * Input passed to the agent for a single review execution.
  */
+/**
+ * Progress event emitted by agents during investigation.
+ */
+export interface AgentProgressEvent {
+    agentName: string;
+    status: 'started' | 'investigating' | 'completed' | 'error';
+    step?: number;
+    toolCalls?: Array<{ tool: string; args: string; durationMs?: number }>;
+    findings?: number;
+    durationMs?: number;
+    totalTokens?: number;
+}
+
 export interface ReviewAgentInput {
     organizationAndTeamData: OrganizationAndTeamData;
     changedFiles: FileChange[];
@@ -42,6 +55,7 @@ export interface ReviewAgentInput {
     documentationSearchService?: DocumentationSearchAdapter;
     prTitle?: string;
     prBody?: string;
+    onAgentProgress?: (event: AgentProgressEvent) => void;
 }
 
 /**
@@ -121,7 +135,18 @@ export abstract class BaseCodeReviewAgentProvider {
             context: identity.name,
         });
 
+        // Emit progress: agent started
+        input.onAgentProgress?.({
+            agentName: identity.name,
+            status: 'started',
+        });
+
         try {
+            // Accumulate tool calls for batch progress updates
+            const recentToolCalls: AgentProgressEvent['toolCalls'] = [];
+            let stepCount = 0;
+            const PROGRESS_BATCH_SIZE = 5;
+
             const agentResult = await runAgentLoop({
                 model,
                 systemPrompt,
@@ -134,13 +159,33 @@ export abstract class BaseCodeReviewAgentProvider {
                 },
                 byokConfig: byokConfig,
                 onStepFinish: (step: any) => {
+                    stepCount++;
                     if (step.toolCalls) {
                         for (const tc of step.toolCalls) {
                             this.agentLogger.log({
                                 message: `[AGENT-TOOL] PR#${input.prNumber} ${identity.name} tool=${tc.toolName}`,
                                 context: identity.name,
                             });
+                            recentToolCalls.push({
+                                tool: tc.toolName,
+                                args: JSON.stringify(
+                                    tc.args || tc.input || {},
+                                ).substring(0, 100),
+                            });
                         }
+                    }
+                    // Batch progress update every N steps
+                    if (
+                        stepCount % PROGRESS_BATCH_SIZE === 0 &&
+                        recentToolCalls.length > 0
+                    ) {
+                        input.onAgentProgress?.({
+                            agentName: identity.name,
+                            status: 'investigating',
+                            step: stepCount,
+                            toolCalls: [...recentToolCalls],
+                        });
+                        recentToolCalls.length = 0; // Clear after sending
                     }
                 },
             });
@@ -206,6 +251,20 @@ export abstract class BaseCodeReviewAgentProvider {
                 llmPrompt: s.suggestionContent,
             }));
 
+            // Emit progress: agent completed
+            input.onAgentProgress?.({
+                agentName: identity.name,
+                status: 'completed',
+                findings: suggestions.length,
+                durationMs,
+                totalTokens: agentResult.usage.totalTokens,
+                step: agentResult.steps,
+                toolCalls: agentResult.toolCalls.map((tc) => ({
+                    tool: tc.toolName || tc.tool,
+                    args: JSON.stringify(tc.args).substring(0, 100),
+                })),
+            });
+
             this.agentLogger.log({
                 message: `[AGENT] ${identity.name} completed for PR#${input.prNumber}: ${suggestions.length} suggestions in ${durationMs}ms (source=${agentResult.source}, steps=${agentResult.steps}, tools=${agentResult.toolCalls.length}, input=${agentResult.usage.inputTokens}, output=${agentResult.usage.outputTokens}, total=${agentResult.usage.totalTokens})`,
                 context: identity.name,
@@ -234,6 +293,11 @@ export abstract class BaseCodeReviewAgentProvider {
             };
         } catch (error) {
             const durationMs = Date.now() - startTime;
+            input.onAgentProgress?.({
+                agentName: identity.name,
+                status: 'error',
+                durationMs,
+            });
             this.agentLogger.error({
                 message: `[AGENT] ${identity.name} failed for PR#${input.prNumber} after ${durationMs}ms: ${error instanceof Error ? error.message : String(error)}`,
                 context: identity.name,
