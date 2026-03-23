@@ -300,7 +300,9 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                 return snapped;
             });
 
-            // Reflection: optional second pass to validate findings and discover missed issues
+            // Reflection: Sentry-inspired verify + discover pattern
+            // Phase 1 (VERIFY): One call per finding, in parallel — deep-dive into each hypothesis
+            // Phase 2 (DISCOVER): One call with the full diff — find issues nobody caught
             let reflectedSuggestions = validatedSuggestions;
             if (
                 context.codeReviewConfig?.enableReflection &&
@@ -308,64 +310,127 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                 validatedSuggestions.length > 0
             ) {
                 try {
-                    // Only validate bug/security/performance findings, not kody_rules
-                    const toValidate = validatedSuggestions.filter(
+                    // Only verify bug/security/performance findings, not kody_rules
+                    const toVerify = validatedSuggestions.filter(
                         (s) => s.label !== 'kody_rules',
                     );
                     const rulesFindings = validatedSuggestions.filter(
                         (s) => s.label === 'kody_rules',
                     );
 
-                    if (toValidate.length > 0) {
+                    if (toVerify.length > 0) {
+                        const baseInput: ReviewAgentInput = {
+                            organizationAndTeamData:
+                                context.organizationAndTeamData,
+                            changedFiles,
+                            remoteCommands:
+                                context.sandboxHandle.remoteCommands,
+                            prNumber,
+                            repositoryFullName:
+                                context.repository?.fullName ||
+                                context.pullRequest?.base?.repo
+                                    ?.fullName ||
+                                '',
+                            languageResultPrompt:
+                                context.codeReviewConfig
+                                    ?.languageResultPrompt || 'en-US',
+                            prTitle: context.pullRequest?.title,
+                            prBody: context.pullRequest?.body,
+                            onAgentProgress: onAgentProgress,
+                            gitHubToken:
+                                await this.resolveGitHubToken(context),
+                        };
+
+                        // ── Phase 1: VERIFY (parallel, 1 per finding) ──
                         this.logger.log({
-                            message: `[REFLECTION] Starting reflection for PR#${prNumber}: ${toValidate.length} findings to validate`,
+                            message: `[VERIFY] PR#${prNumber}: verifying ${toVerify.length} findings in parallel`,
                             context: this.stageName,
                         });
 
-                        const reflectionResult =
-                            await this.reflectionAgent.executeReflection(
-                                {
-                                    organizationAndTeamData:
-                                        context.organizationAndTeamData,
-                                    changedFiles,
-                                    remoteCommands:
-                                        context.sandboxHandle.remoteCommands,
-                                    prNumber,
-                                    repositoryFullName:
-                                        context.repository?.fullName ||
-                                        context.pullRequest?.base?.repo
-                                            ?.fullName ||
-                                        '',
-                                    languageResultPrompt:
-                                        context.codeReviewConfig
-                                            ?.languageResultPrompt || 'en-US',
-                                    prTitle: context.pullRequest?.title,
-                                    prBody: context.pullRequest?.body,
-                                    onAgentProgress: onAgentProgress,
-                                    gitHubToken:
-                                        await this.resolveGitHubToken(context),
-                                },
-                                toValidate,
-                            );
+                        const verifyResults = await Promise.allSettled(
+                            toVerify.map((finding, index) =>
+                                this.reflectionAgent.verifySingle(
+                                    baseInput,
+                                    finding,
+                                    index,
+                                ),
+                            ),
+                        );
 
-                        const confirmed = reflectionResult.suggestions.length;
-                        const rejected =
-                            toValidate.length - confirmed;
+                        const confirmedFindings: Partial<CodeSuggestion>[] = [];
+                        let rejectedCount = 0;
+                        let totalVerifyTools = 0;
+
+                        for (let i = 0; i < verifyResults.length; i++) {
+                            const result = verifyResults[i];
+                            if (result.status === 'rejected') {
+                                // Promise rejected (error) — keep original finding as precaution
+                                confirmedFindings.push(toVerify[i]);
+                                this.logger.warn({
+                                    message: `[VERIFY] PR#${prNumber} [${i}] verification error — keeping finding`,
+                                    context: this.stageName,
+                                });
+                                continue;
+                            }
+
+                            const vr = result.value;
+                            totalVerifyTools += vr.turnsUsed;
+
+                            if (vr.status === 'confirmed') {
+                                confirmedFindings.push(
+                                    vr.suggestion || toVerify[i],
+                                );
+                                this.logger.log({
+                                    message: `[VERIFY] PR#${prNumber} [${i}] CONFIRMED (${vr.turnsUsed} steps, ${vr.durationMs}ms): ${vr.reason.substring(0, 120)}`,
+                                    context: this.stageName,
+                                });
+                            } else {
+                                rejectedCount++;
+                                this.logger.log({
+                                    message: `[VERIFY-REJECTED] PR#${prNumber} [${i}] ${toVerify[i]?.relevantFile}:${toVerify[i]?.relevantLinesStart}-${toVerify[i]?.relevantLinesEnd} | ${toVerify[i]?.oneSentenceSummary?.substring(0, 80)} | Reason: ${vr.reason.substring(0, 120)}`,
+                                    context: this.stageName,
+                                });
+                            }
+                        }
 
                         this.logger.log({
-                            message: `[REFLECTION] PR#${prNumber}: ${confirmed} confirmed, ${rejected} rejected, ${reflectionResult.suggestions.length - toValidate.length > 0 ? reflectionResult.suggestions.length - toValidate.length : 0} new findings`,
+                            message: `[VERIFY] PR#${prNumber}: ${confirmedFindings.length} confirmed, ${rejectedCount} rejected (${totalVerifyTools} total steps)`,
                             context: this.stageName,
                         });
 
-                        // Merge: validated findings + rules findings (untouched)
+                        // ── Phase 2: DISCOVER (optional, single call) ──
+                        let discoveredFindings: Partial<CodeSuggestion>[] = [];
+                        try {
+                            this.logger.log({
+                                message: `[DISCOVER] PR#${prNumber}: searching for missed issues`,
+                                context: this.stageName,
+                            });
+                            const discoverResult =
+                                await this.reflectionAgent.discover(baseInput);
+
+                            discoveredFindings = discoverResult.suggestions;
+                            this.logger.log({
+                                message: `[DISCOVER] PR#${prNumber}: found ${discoveredFindings.length} new issues (${discoverResult.turnsUsed} steps, ${discoverResult.durationMs}ms)`,
+                                context: this.stageName,
+                            });
+                        } catch (discoverError) {
+                            this.logger.warn({
+                                message: `[DISCOVER] PR#${prNumber}: failed — continuing without new discoveries`,
+                                context: this.stageName,
+                                error: discoverError,
+                            });
+                        }
+
+                        // Merge: verified findings + discoveries + rules (untouched)
                         reflectedSuggestions = [
-                            ...reflectionResult.suggestions,
+                            ...confirmedFindings,
+                            ...discoveredFindings,
                             ...rulesFindings,
                         ];
                     }
                 } catch (reflectionError) {
                     this.logger.warn({
-                        message: `[REFLECTION] Failed for PR#${prNumber}, using original findings`,
+                        message: `[VERIFY] Failed for PR#${prNumber}, using original findings`,
                         context: this.stageName,
                         error: reflectionError,
                     });

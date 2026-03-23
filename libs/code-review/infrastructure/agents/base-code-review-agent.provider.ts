@@ -71,6 +71,12 @@ export interface ReviewAgentOutput {
     agentName: string;
     turnsUsed: number;
     durationMs: number;
+    /** Reflection-only: per-finding validation decisions (confirmed/rejected + reason). */
+    validationResults?: Array<{
+        index: number;
+        status: 'confirmed' | 'rejected';
+        reason: string;
+    }>;
 }
 
 /**
@@ -309,6 +315,9 @@ export abstract class BaseCodeReviewAgentProvider {
                 agentName: identity.name,
                 turnsUsed: agentResult.steps,
                 durationMs,
+                // Reflection agent returns validationResults with per-finding decisions
+                validationResults:
+                    agentResult.findings?.validationResults ?? undefined,
             };
         } catch (error) {
             const durationMs = Date.now() - startTime;
