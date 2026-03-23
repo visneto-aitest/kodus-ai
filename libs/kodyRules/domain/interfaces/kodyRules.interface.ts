@@ -56,6 +56,7 @@ export interface IKodyRule {
     sourceAnchor?: string;
     status: KodyRulesStatus;
     severity: string;
+    severityLevel?: SeverityLevel;
     label?: string;
     type?: KodyRulesType;
     extendedContext?: IKodyRulesExtendedContext;
@@ -153,6 +154,26 @@ export enum KodyRuleRequestType {
     MEMORY_UPDATE = 'memory_update',
 }
 
+export enum SeverityLevel {
+    WARNING = 'warning',
+    ISSUE = 'issue',
+    CRITICAL = 'critical',
+}
+
+/**
+ * Resolves the effective SeverityLevel for a Kody Rule.
+ * - If severityLevel is already set, returns it directly.
+ * - Legacy mapping: severity "critical" → CRITICAL, anything else → ISSUE.
+ */
+export function resolveKodyRuleSeverityLevel(
+    rule: Partial<IKodyRule>,
+): SeverityLevel {
+    if (rule.severityLevel) return rule.severityLevel;
+    return rule.severity === 'critical'
+        ? SeverityLevel.CRITICAL
+        : SeverityLevel.ISSUE;
+}
+
 export const kodyRulesTypeSchema = z.enum([...Object.values(KodyRulesType)] as [
     KodyRulesType,
     ...KodyRulesType[],
@@ -229,6 +250,11 @@ const kodyRuleRequestTypeSchema = z.enum([
     ...Object.values(KodyRuleRequestType),
 ] as [KodyRuleRequestType, ...KodyRuleRequestType[]]);
 
+const severityLevelSchema = z.enum([...Object.values(SeverityLevel)] as [
+    SeverityLevel,
+    ...SeverityLevel[],
+]);
+
 export const kodyRuleSchema = z.object({
     uuid: z.string().optional(),
     title: z.string(),
@@ -238,6 +264,7 @@ export const kodyRuleSchema = z.object({
     sourceAnchor: z.string().optional(),
     status: kodyRulesStatusSchema,
     severity: z.string(),
+    severityLevel: severityLevelSchema.optional(),
     label: z.string().optional(),
     type: kodyRulesTypeSchema.optional(),
     extendedContext: kodyRulesExtendedContextSchema.optional(),

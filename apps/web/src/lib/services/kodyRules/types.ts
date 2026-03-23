@@ -6,6 +6,8 @@ export enum KodyRuleInheritanceOrigin {
     DIRECTORY = "directory",
 }
 
+export type KodyRuleSeverityLevel = "warning" | "issue" | "critical";
+
 export type KodyRule = {
     uuid?: string;
     status: KodyRulesStatus;
@@ -15,6 +17,7 @@ export type KodyRule = {
     path: string;
     scope: "file" | "pull-request";
     severity: "low" | "medium" | "high" | "critical";
+    severityLevel?: KodyRuleSeverityLevel;
     repositoryId?: string;
     directoryId?: string;
     sourcePath?: string;
