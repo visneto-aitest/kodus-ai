@@ -11,7 +11,7 @@ import {
     DistributedLock,
     DistributedLockService,
 } from '@libs/core/workflow/infrastructure/distributed-lock.service';
-import { formatHeartbeatContext } from '../incident/heartbeat-context.util';
+import { buildHeartbeatContext } from '../incident/heartbeat-context.util';
 
 @Injectable()
 export class ReviewResponseMonitorService {
@@ -99,13 +99,22 @@ export class ReviewResponseMonitorService {
             if (avg >= this.avgThresholdMs) {
                 const severity =
                     avg >= this.avgCriticalMs ? 'critical' : 'warning';
+
+                const context = this.buildContext({
+                    monitor: 'review_response_time',
+                    windowStart: since,
+                    windowEnd: now,
+                    severity,
+                    avg_ms: avg,
+                    p50_ms: p50,
+                    p95_ms: p95,
+                    count: values.length,
+                });
+
                 await this.incidentManager.failHeartbeat(
                     'API_BETTERSTACK_HEARTBEAT_REVIEW_MONITOR_URL',
-                    `Code review average response time is ${this.formatDuration(avg)} (${severity} threshold: ${this.formatDuration(this.avgThresholdMs)}, critical: ${this.formatDuration(this.avgCriticalMs)}). p50=${this.formatDuration(p50)}, p95=${this.formatDuration(p95)}, count=${values.length} in last 30 minutes. ${this.formatContext({
-                        monitor: 'review_response_time',
-                        windowStart: since,
-                        windowEnd: now,
-                    })}`,
+                    `Code review average response time is ${this.formatDuration(avg)} (${severity} threshold: ${this.formatDuration(this.avgThresholdMs)}, critical: ${this.formatDuration(this.avgCriticalMs)}). p50=${this.formatDuration(p50)}, p95=${this.formatDuration(p95)}, count=${values.length} in last 30 minutes.`,
+                    context,
                 );
             } else {
                 await this.incidentManager.pingHeartbeat(
@@ -170,8 +179,8 @@ export class ReviewResponseMonitorService {
         return `${(ms / 60_000).toFixed(1)}min`;
     }
 
-    private formatContext(extra: Record<string, Date | number | string>) {
-        return formatHeartbeatContext(
+    private buildContext(extra: Record<string, Date | number | string>) {
+        return buildHeartbeatContext(
             this.configService.get<string>('API_NODE_ENV'),
             this.configService.get<string>('COMPONENT_TYPE', 'worker'),
             extra,

@@ -41,11 +41,15 @@ export class IncidentManagerService implements OnModuleDestroy {
         await this.betterStackClient.pingHeartbeat(url);
     }
 
-    async failHeartbeat(envKey: string, message: string): Promise<void> {
+    async failHeartbeat(
+        envKey: string,
+        message: string,
+        context?: Record<string, unknown>,
+    ): Promise<void> {
         const url = this.resolveHeartbeat(envKey);
         if (!url) return;
 
-        await this.betterStackClient.failHeartbeat(url, message);
+        await this.betterStackClient.failHeartbeat(url, message, context);
     }
 
     async reportCritical(params: ReportParams): Promise<void> {

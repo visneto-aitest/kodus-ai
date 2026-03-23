@@ -186,18 +186,29 @@ export class BetterStackClient {
         }
     }
 
-    async failHeartbeat(heartbeatUrl: string, message?: string): Promise<void> {
+    async failHeartbeat(
+        heartbeatUrl: string,
+        message?: string,
+        context?: Record<string, unknown>,
+    ): Promise<void> {
         const heartbeatTarget = this.redactHeartbeatUrl(heartbeatUrl);
         try {
+            // O Better Stack /fail exibe qualquer campo extra na UI,
+            // e os valores "extra" e "context" muitas vezes ganham tratamento especial.
+            const payload = {
+                ...(message ? { message } : {}),
+                context: context || {},
+            };
+
             await axios.post(
                 `${heartbeatUrl}/fail`,
-                message ? { message } : undefined,
+                Object.keys(payload).length > 0 ? payload : undefined,
                 { timeout: 10_000 },
             );
             this.logger.warn({
                 message: 'Heartbeat fail reported',
                 context: BetterStackClient.name,
-                metadata: { heartbeatTarget, failMessage: message },
+                metadata: { heartbeatTarget, failMessage: message, ...context },
             });
         } catch (error) {
             this.logger.error({

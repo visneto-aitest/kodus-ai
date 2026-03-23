@@ -14,11 +14,11 @@ function normalizeHeartbeatValue(value: HeartbeatValue): string | undefined {
     return String(value);
 }
 
-export function formatHeartbeatContext(
+export function buildHeartbeatContext(
     env?: string,
     component?: string,
     extra: Record<string, HeartbeatValue> = {},
-): string {
+): Record<string, string> {
     const context = {
         env,
         component,
@@ -26,9 +26,28 @@ export function formatHeartbeatContext(
         ...extra,
     };
 
+    const formatted: Record<string, string> = {};
+    for (const [key, value] of Object.entries(context)) {
+        const normalized = normalizeHeartbeatValue(value);
+        if (normalized && normalized.length > 0) {
+            formatted[key] = normalized;
+        }
+    }
+
+    return formatted;
+}
+
+/**
+ * @deprecated Use buildHeartbeatContext to pass a JSON context to failHeartbeat instead
+ */
+export function formatHeartbeatContext(
+    env?: string,
+    component?: string,
+    extra: Record<string, HeartbeatValue> = {},
+): string {
+    const context = buildHeartbeatContext(env, component, extra);
+
     return Object.entries(context)
-        .map(([key, value]) => [key, normalizeHeartbeatValue(value)] as const)
-        .filter(([, value]) => value && value.length > 0)
         .map(([key, value]) => `${key}=${value}`)
         .join(' ');
 }

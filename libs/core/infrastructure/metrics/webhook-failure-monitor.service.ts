@@ -11,7 +11,7 @@ import {
     DistributedLock,
     DistributedLockService,
 } from '@libs/core/workflow/infrastructure/distributed-lock.service';
-import { formatHeartbeatContext } from '../incident/heartbeat-context.util';
+import { buildHeartbeatContext } from '../incident/heartbeat-context.util';
 
 @Injectable()
 export class WebhookFailureMonitorService {
@@ -80,18 +80,20 @@ export class WebhookFailureMonitorService {
 
             if (failureRate >= this.thresholdPercent) {
                 const breakdown = await this.getFailureBreakdown(since);
+                const context = this.buildContext({
+                    monitor: 'webhook_failure_rate',
+                    windowStart: since,
+                    windowEnd: now,
+                    topErrors: breakdown.topErrors.join(' | '),
+                    topPlatforms: breakdown.topPlatforms.join(' | '),
+                    topEvents: breakdown.topEvents.join(' | '),
+                    sampleJobIds: breakdown.sampleJobIds.join(','),
+                    sampledFailures: breakdown.sampledFailures,
+                });
                 await this.incidentManager.failHeartbeat(
                     'API_BETTERSTACK_HEARTBEAT_WEBHOOK_URL',
-                    `Webhook failure rate is ${failureRate.toFixed(1)}% (threshold: ${this.thresholdPercent}%) over the last ${this.windowMinutes} minutes. Failed: ${failed}, Total: ${total}. ${this.formatContext({
-                        monitor: 'webhook_failure_rate',
-                        windowStart: since,
-                        windowEnd: now,
-                        topErrors: breakdown.topErrors.join(' | '),
-                        topPlatforms: breakdown.topPlatforms.join(' | '),
-                        topEvents: breakdown.topEvents.join(' | '),
-                        sampleJobIds: breakdown.sampleJobIds.join(','),
-                        sampledFailures: breakdown.sampledFailures,
-                    })}`,
+                    `Webhook failure rate is ${failureRate.toFixed(1)}% (threshold: ${this.thresholdPercent}%) over the last ${this.windowMinutes} minutes. Failed: ${failed}, Total: ${total}.`,
+                    context,
                 );
             } else {
                 await this.incidentManager.pingHeartbeat(
@@ -113,9 +115,7 @@ export class WebhookFailureMonitorService {
         }
     }
 
-    private async getFailureBreakdown(
-        since: Date,
-    ): Promise<{
+    private async getFailureBreakdown(since: Date): Promise<{
         topErrors: string[];
         topPlatforms: string[];
         topEvents: string[];
@@ -211,8 +211,8 @@ export class WebhookFailureMonitorService {
         }
     }
 
-    private formatContext(extra: Record<string, Date | number | string>) {
-        return formatHeartbeatContext(
+    private buildContext(extra: Record<string, Date | number | string>) {
+        return buildHeartbeatContext(
             this.configService.get<string>('API_NODE_ENV'),
             this.configService.get<string>('COMPONENT_TYPE', 'worker'),
             extra,
