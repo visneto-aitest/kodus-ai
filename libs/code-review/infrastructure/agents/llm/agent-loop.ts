@@ -45,6 +45,7 @@ const suggestionSchema = z.object({
     relevantLinesEnd: z.number().optional(),
     severity: z.enum(['critical', 'high', 'medium', 'low']).optional(), // V2 compat
     level: z.enum(['issue', 'warning']).optional(), // V3: binary classification
+    ruleUuid: z.string().optional(), // Kody Rules: UUID of the violated rule
 });
 
 const findingsSchema = z.object({

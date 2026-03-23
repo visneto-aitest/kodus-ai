@@ -159,6 +159,7 @@ After investigating with tools, respond with ONLY a JSON block:
   "reasoning": "Summary of which rules you checked and what you found",
   "suggestions": [
     {
+      "ruleUuid": "uuid-of-the-violated-rule",
       "relevantFile": "path/to/file.ts",
       "language": "typescript",
       "suggestionContent": "Violates rule 'Rule Title': description of violation with evidence",
@@ -172,6 +173,8 @@ After investigating with tools, respond with ONLY a JSON block:
   ]
 }
 \`\`\`
+
+IMPORTANT: "ruleUuid" MUST be the exact UUID provided for the violated rule. This is required for tracking.
 
 If no violations found, respond with \`{"reasoning": "Checked all rules, no violations found", "suggestions": []}\`.
   </OutputFormat>
@@ -212,12 +215,9 @@ If no violations found, respond with \`{"reasoning": "Checked all rules, no viol
         const formatted = applicableRules.map((rule, i) => {
             const parts = [
                 `### Rule ${i + 1}: ${rule.title}`,
+                `**UUID**: \`${rule.uuid}\``,
                 `**Description**: ${rule.rule}`,
             ];
-
-            if (rule.severity) {
-                parts.push(`**Severity**: ${rule.severity}`);
-            }
 
             if (rule.path) {
                 parts.push(`**Applies to**: files matching \`${rule.path}\``);

@@ -14,8 +14,9 @@ import {
     IAutomationExecutionService,
 } from '@libs/automation/domain/automationExecution/contracts/automation-execution.service';
 import { AutomationStatus } from '@libs/automation/domain/automation/enum/automation-status';
-import { AgentProgressEvent } from '@libs/code-review/infrastructure/agents/base-code-review-agent.provider';
+import { AgentProgressEvent, ReviewAgentInput } from '@libs/code-review/infrastructure/agents/base-code-review-agent.provider';
 import { ReflectionAgentProvider } from '@libs/code-review/infrastructure/agents/reflection-agent.provider';
+import { resolveKodyRuleSeverityLevel, SeverityLevel } from '@libs/kodyRules/domain/interfaces/kodyRules.interface';
 import { CodeReviewPipelineContext } from '../context/code-review-pipeline.context';
 
 /**
@@ -441,6 +442,34 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
             // Classify level (issue/warning) using Gemini 3 Flash
             // Separated from agent generation for consistency — BYOK models
             // are unreliable at classification but good at finding bugs.
+            //
+            // Kody Rules suggestions skip LLM classification — their level comes
+            // directly from the severityLevel configured by the user on the rule.
+            const kodyRulesSuggestions = reflectedSuggestions.filter(
+                (s) => s.label === 'kody_rules',
+            );
+            const nonKodyRulesSuggestions = reflectedSuggestions.filter(
+                (s) => s.label !== 'kody_rules',
+            );
+
+            // Map Kody Rules severity to level using the rule's configured severityLevel.
+            // The agent returns the rule UUID in brokenKodyRulesIds — use it for exact matching.
+            const kodyRulesById = new Map(
+                (context.codeReviewConfig?.kodyRules ?? [])
+                    .filter((r) => r.uuid)
+                    .map((r) => [r.uuid!, r]),
+            );
+            const kodyRulesWithLevel = kodyRulesSuggestions.map((s) => {
+                const ruleUuid = s.brokenKodyRulesIds?.[0];
+                const matchedRule = ruleUuid
+                    ? kodyRulesById.get(ruleUuid)
+                    : undefined;
+                const severityLevel = matchedRule
+                    ? resolveKodyRuleSeverityLevel(matchedRule)
+                    : SeverityLevel.ISSUE;
+                return { ...s, level: severityLevel };
+            });
+
             const prContext = [
                 context.pullRequest?.title
                     ? `PR: ${context.pullRequest.title}`
@@ -453,12 +482,15 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                 .join('\n');
 
             const levelOverrides = context.codeReviewConfig?.v2PromptOverrides?.level;
-            const classified = await this.classifyLevels(
-                reflectedSuggestions,
+            const classifiedNonRules = await this.classifyLevels(
+                nonKodyRulesSuggestions,
                 prNumber,
                 prContext,
                 levelOverrides,
             );
+
+            // Merge back: classified non-rules + kody rules with user-defined levels
+            const classified = [...classifiedNonRules, ...kodyRulesWithLevel];
 
             // Deduplicate suggestions that describe the same issue
             let deduped = classified;

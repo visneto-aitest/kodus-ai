@@ -265,6 +265,7 @@ export abstract class BaseCodeReviewAgentProvider {
                 severity: s.severity || 'medium',
                 level: s.level || 'issue', // Default to issue — if agent didn't classify, assume it's real
                 llmPrompt: s.suggestionContent,
+                ...(s.ruleUuid && { brokenKodyRulesIds: [s.ruleUuid] }),
             }));
 
             // Emit progress: agent completed
