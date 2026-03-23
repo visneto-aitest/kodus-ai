@@ -394,4 +394,137 @@ describe('UpdateOrCreateCodeReviewParameterUseCase', () => {
             repoIds: ['repo-1'],
         });
     });
+
+    it('blocks manual updates when centralized configuration is enabled', async () => {
+        const createOrUpdateParametersUseCase = {
+            execute: jest.fn().mockResolvedValue(true),
+        };
+
+        const useCase = new UpdateOrCreateCodeReviewParameterUseCase(
+            {
+                findByKey: jest.fn().mockImplementation((key: string) => {
+                    if (key === 'centralized_config') {
+                        return Promise.resolve({
+                            configValue: {
+                                enabled: true,
+                            },
+                        });
+                    }
+
+                    return Promise.resolve({
+                        configValue: {
+                            id: 'global',
+                            name: 'Global',
+                            isSelected: true,
+                            configs: {},
+                            repositories: [],
+                        },
+                    });
+                }),
+            } as any,
+            createOrUpdateParametersUseCase as any,
+            {
+                findIntegrationConfigFormatted: jest.fn().mockResolvedValue([]),
+            } as any,
+            {
+                emit: jest.fn(),
+            } as any,
+            {} as any,
+            {
+                ensure: jest.fn(),
+            } as any,
+            {
+                detectAndSaveReferences: jest.fn(),
+            } as any,
+            {
+                buildConfigKey: jest.fn().mockReturnValue('config-key'),
+            } as any,
+        );
+
+        await expect(
+            useCase.execute({
+                actor: {
+                    source: 'web',
+                },
+                configValue: {
+                    automatedReviewActive: false,
+                },
+                organizationAndTeamData: {
+                    organizationId: 'org-1',
+                    teamId: 'team-1',
+                },
+                skipAuthorization: true,
+            } as any),
+        ).rejects.toThrow(
+            'Code review settings are locked while centralized configuration is enabled.',
+        );
+
+        expect(createOrUpdateParametersUseCase.execute).not.toHaveBeenCalled();
+    });
+
+    it('allows sync updates when centralized configuration is enabled', async () => {
+        const createOrUpdateParametersUseCase = {
+            execute: jest.fn().mockResolvedValue(true),
+        };
+
+        const useCase = new UpdateOrCreateCodeReviewParameterUseCase(
+            {
+                findByKey: jest.fn().mockImplementation((key: string) => {
+                    if (key === 'centralized_config') {
+                        return Promise.resolve({
+                            configValue: {
+                                enabled: true,
+                            },
+                        });
+                    }
+
+                    return Promise.resolve({
+                        configValue: {
+                            id: 'global',
+                            name: 'Global',
+                            isSelected: true,
+                            configs: {},
+                            repositories: [],
+                        },
+                    });
+                }),
+            } as any,
+            createOrUpdateParametersUseCase as any,
+            {
+                findIntegrationConfigFormatted: jest.fn().mockResolvedValue([]),
+            } as any,
+            {
+                emit: jest.fn(),
+            } as any,
+            {} as any,
+            {
+                ensure: jest.fn(),
+            } as any,
+            {
+                detectAndSaveReferences: jest.fn(),
+            } as any,
+            {
+                buildConfigKey: jest.fn().mockReturnValue('config-key'),
+            } as any,
+        );
+
+        await expect(
+            useCase.execute({
+                actor: {
+                    source: 'sync',
+                    organizationId: 'org-1',
+                },
+                configValue: {
+                    automatedReviewActive: false,
+                },
+                organizationAndTeamData: {
+                    organizationId: 'org-1',
+                    teamId: 'team-1',
+                },
+                skipAuthorization: true,
+            } as any),
+        ).resolves.toBe(true);
+
+        expect(createOrUpdateParametersUseCase.execute).toHaveBeenCalled();
+    });
 });

@@ -156,6 +156,20 @@ export class ParametersController {
             throw new Error('Organization ID is missing from request');
         }
 
+        if (body.key === ParametersKey.CODE_REVIEW_CONFIG) {
+            return await this.updateOrCreateCodeReviewParameterUseCase.execute({
+                actor: {
+                    source: 'web',
+                    organizationId,
+                },
+                configValue: body.configValue,
+                organizationAndTeamData: {
+                    organizationId,
+                    teamId: body.organizationAndTeamData.teamId,
+                },
+            } as any);
+        }
+
         return await this.createOrUpdateParametersUseCase.execute(
             body.key,
             body.configValue,

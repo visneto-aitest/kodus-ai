@@ -1,5 +1,5 @@
 import { CreateOrUpdateParametersUseCase } from '@libs/organization/application/use-cases/parameters/create-or-update-use-case';
-import { Inject, Injectable } from '@nestjs/common';
+import { ForbiddenException, Inject, Injectable } from '@nestjs/common';
 import { REQUEST } from '@nestjs/core';
 
 import { produce } from 'immer';
@@ -110,6 +110,11 @@ export class UpdateOrCreateCodeReviewParameterUseCase {
                     this.request?.user?.organization?.uuid;
             }
 
+            await this.ensureManualChangesAllowed(
+                organizationAndTeamData,
+                body.actor?.source,
+            );
+
             if (!body.skipAuthorization) {
                 await this.authorizationService.ensure({
                     user: this.request?.user,
@@ -199,10 +204,34 @@ export class UpdateOrCreateCodeReviewParameterUseCase {
 
             return result;
         } catch (error) {
+            if (error instanceof ForbiddenException) {
+                throw error;
+            }
+
             this.handleError(error, body);
             throw new Error('Error creating or updating parameters', {
                 cause: error,
             });
+        }
+    }
+
+    private async ensureManualChangesAllowed(
+        organizationAndTeamData: OrganizationAndTeamData,
+        source?: 'cli' | 'web' | 'sync',
+    ): Promise<void> {
+        if (source === 'sync') {
+            return;
+        }
+
+        const centralizedConfig = await this.parametersService.findByKey(
+            ParametersKey.CENTRALIZED_CONFIG,
+            organizationAndTeamData,
+        );
+
+        if (centralizedConfig?.configValue?.enabled === true) {
+            throw new ForbiddenException(
+                'Code review settings are locked while centralized configuration is enabled.',
+            );
         }
     }
 
