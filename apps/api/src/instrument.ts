@@ -1,5 +1,5 @@
 import 'dotenv/config';
 
-import { setupSentryAndOpenTelemetry } from '@libs/core/infrastructure/config/log/otel';
+import { setupSentry } from '@libs/core/infrastructure/config/log/sentry';
 
-setupSentryAndOpenTelemetry({ componentType: 'api' });
+setupSentry('api');
