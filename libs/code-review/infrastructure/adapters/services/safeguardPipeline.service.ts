@@ -102,6 +102,7 @@ export class SafeguardPipelineService {
             byokConfig,
         );
 
+
         const pipelineStart = Date.now();
         const fileLabel = file?.filename || 'unknown';
 
@@ -280,6 +281,7 @@ export class SafeguardPipelineService {
                             prNumber,
                             params.memories,
                             params.documentationContext,
+                            byokConfig,
                         );
 
                         if (
@@ -326,6 +328,8 @@ export class SafeguardPipelineService {
                                 organizationAndTeamData,
                                 prNumber,
                                 params.memories,
+                                undefined,
+                                byokConfig,
                             );
                         } catch (retryError) {
                             this.logger.warn({
@@ -468,6 +472,7 @@ export class SafeguardPipelineService {
             languageResultPrompt,
             reviewMode,
             crossFileSnippets,
+            byokConfig,
         } = params;
 
         const runName = 'safeguardFeatureExtraction';
@@ -523,6 +528,7 @@ export class SafeguardPipelineService {
             spanName,
             runName,
             attrs: spanAttrs,
+            byokConfig,
             exec: async (callbacks) => {
                 return await promptRunner
                     .builder()
@@ -630,6 +636,7 @@ Evidence field in ${params.languageResultPrompt}.`;
                 prNumber: params.prNumber,
                 suggestionId: suggestion.id,
             },
+            byokConfig: params.byokConfig,
             exec: async (callbacks) => {
                 return await promptRunner
                     .builder()
@@ -685,6 +692,7 @@ Evidence field in ${params.languageResultPrompt}.`;
         prNumber: number,
         memories?: Array<Partial<{ title?: string; rule?: string }>>,
         documentationContext?: DocumentationContextItem[],
+        byokConfig?: BYOKConfig,
     ): Promise<{
         verified: boolean;
         action: string;
@@ -738,6 +746,7 @@ Evidence field in ${params.languageResultPrompt}.`;
                     turn,
                     suggestionId: suggestion.id,
                 },
+                byokConfig,
                 exec: async (callbacks) => {
                     let builder = promptRunner
                         .builder()
