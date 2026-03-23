@@ -3514,10 +3514,6 @@ export class AzureReposService implements Omit<
                 type: 'ms.vss-code.git-pullrequest-comment-event',
                 resourceVersion: '2.0',
             },
-            {
-                type: 'git.push',
-                resourceVersion: '2.0',
-            },
         ];
 
         const webhookUrl =

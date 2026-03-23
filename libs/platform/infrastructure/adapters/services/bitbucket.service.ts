@@ -2884,7 +2884,6 @@ export class BitbucketService implements Omit<
                             url: webhookUrl,
                             active: true,
                             events: [
-                                'repo:push',
                                 'pullrequest:created',
                                 'pullrequest:updated',
                                 'pullrequest:rejected',

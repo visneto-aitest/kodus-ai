@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@components/ui/alert";
 import { Button } from "@components/ui/button";
 import {
@@ -13,7 +13,9 @@ import {
 } from "@components/ui/dialog";
 import { Switch } from "@components/ui/switch";
 import { toast } from "@components/ui/toaster/use-toast";
+import { useReactQueryInvalidateQueries } from "@hooks/use-invalidate-queries";
 import { useGetSelectedRepositories } from "@services/codeManagement/hooks";
+import { PARAMETERS_PATHS } from "@services/parameters";
 import {
     createOrUpdateParameter,
     syncCentralizedConfig,
@@ -39,6 +41,7 @@ export const CentralizedConfigModal = ({
     centralizedConfig,
     onSaved,
 }: CentralizedConfigModalProps) => {
+    const { resetQueries, generateQueryKey } = useReactQueryInvalidateQueries();
     const [enabled, setEnabled] = useState(centralizedConfig.enabled);
     const [loading, setLoading] = useState(false);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -55,6 +58,12 @@ export const CentralizedConfigModal = ({
     );
 
     const hasKodusRepository = Boolean(kodusRepository);
+
+    useEffect(() => {
+        if (open) {
+            setEnabled(centralizedConfig.enabled);
+        }
+    }, [open, centralizedConfig.enabled]);
 
     const hasChanges =
         enabled !== centralizedConfig.enabled ||
@@ -101,11 +110,49 @@ export const CentralizedConfigModal = ({
             }
 
             if (shouldRunInitialSync) {
+                toast({
+                    description:
+                        "Initial centralized sync started. This may take a few moments.",
+                    variant: "success",
+                });
+
                 const syncResult = await syncCentralizedConfig(teamId);
                 if (syncResult?.error) {
                     throw new Error("Failed to run initial centralized sync.");
                 }
+
+                toast({
+                    description: "Initial centralized sync completed.",
+                    variant: "success",
+                });
             }
+
+            await Promise.all([
+                resetQueries({
+                    queryKey: generateQueryKey(PARAMETERS_PATHS.GET_BY_KEY, {
+                        params: {
+                            key: ParametersConfigKey.CENTRALIZED_CONFIG,
+                            teamId,
+                        },
+                    }),
+                }),
+                resetQueries({
+                    queryKey: generateQueryKey(PARAMETERS_PATHS.GET_BY_KEY, {
+                        params: {
+                            key: ParametersConfigKey.CODE_REVIEW_CONFIG,
+                            teamId,
+                        },
+                    }),
+                }),
+                resetQueries({
+                    queryKey: generateQueryKey(
+                        PARAMETERS_PATHS.GET_CODE_REVIEW_PARAMETER,
+                        {
+                            params: { teamId },
+                        },
+                    ),
+                }),
+            ]);
 
             await onSaved();
             handleClose(false);

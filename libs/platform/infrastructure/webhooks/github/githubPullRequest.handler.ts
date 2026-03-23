@@ -1,5 +1,4 @@
 import { createLogger } from '@kodus/flow';
-import { SyncCentralizedConfigUseCase } from '@libs/code-review/application/use-cases/configuration/sync-centralized-config.use-case';
 import { EnqueueImplementationCheckUseCase } from '@libs/code-review/application/use-cases/enqueue-implementation-check.use-case';
 import {
     hasReviewMarker,
@@ -38,7 +37,6 @@ export class GitHubPullRequestHandler implements IWebhookEventHandler {
         private readonly eventEmitter: EventEmitter2,
         private readonly enqueueCodeReviewJobUseCase: EnqueueCodeReviewJobUseCase,
         private readonly enqueueImplementationCheckUseCase: EnqueueImplementationCheckUseCase,
-        private readonly syncCentralizedConfigUseCase: SyncCentralizedConfigUseCase,
     ) {}
 
     public canHandle(params: IWebhookEventParams): boolean {
@@ -52,7 +50,6 @@ export class GitHubPullRequestHandler implements IWebhookEventHandler {
             'pull_request',
             'issue_comment',
             'pull_request_review_comment',
-            'push',
         ];
         if (!supportedEvents.includes(params.event)) {
             return false;
@@ -88,9 +85,6 @@ export class GitHubPullRequestHandler implements IWebhookEventHandler {
             case 'pull_request_review_comment':
                 await this.handleComment(params);
                 break;
-            case 'push':
-                await this.handlePush(params);
-                break;
             default:
                 this.logger.warn({
                     message: `Unsupported GitHub event: ${event}`,
@@ -124,19 +118,6 @@ export class GitHubPullRequestHandler implements IWebhookEventHandler {
             name: payload?.repository?.name,
             fullName: payload?.repository?.full_name,
         };
-
-        if (repository.name === 'kodus') {
-            this.logger.log({
-                message: `Pull request event for 'kodus' repository detected, skipping processing.`,
-                context: GitHubPullRequestHandler.name,
-                metadata: {
-                    prNumber,
-                    repositoryId: repository.id,
-                    repositoryName: repository.name,
-                },
-            });
-            return;
-        }
 
         const context = await this.webhookContextService.getContext(
             PlatformType.GITHUB,
@@ -311,18 +292,6 @@ export class GitHubPullRequestHandler implements IWebhookEventHandler {
         const { payload, event } = params;
         const prNumber = payload?.object_attributes?.iid;
         const repositoryName = payload?.repository?.name;
-
-        if (repositoryName === 'kodus') {
-            this.logger.log({
-                message: `Comment event for 'kodus' repository detected, skipping processing.`,
-                context: GitHubPullRequestHandler.name,
-                metadata: {
-                    prNumber,
-                    repositoryName,
-                },
-            });
-            return;
-        }
 
         try {
             // Extract comment data
@@ -526,48 +495,6 @@ export class GitHubPullRequestHandler implements IWebhookEventHandler {
                 },
                 context: GitHubPullRequestHandler.name,
                 error,
-            });
-        }
-    }
-
-    private async handlePush(params: IWebhookEventParams): Promise<void> {
-        const { payload } = params;
-        const repositoryName = payload?.repository?.name;
-        const repositoryId = payload?.repository?.id;
-        const ref = payload?.ref;
-
-        if (repositoryName === 'kodus' && ref === 'refs/heads/main') {
-            this.logger.log({
-                message: `Push event to 'kodus' repository on 'main' branch detected.`,
-                serviceName: GitHubPullRequestHandler.name,
-                metadata: {
-                    repositoryName,
-                    ref,
-                    repositoryId,
-                },
-                context: GitHubPullRequestHandler.name,
-            });
-
-            const context = await this.webhookContextService.getContext(
-                PlatformType.GITHUB,
-                String(repositoryId),
-            );
-
-            if (!context?.organizationAndTeamData) {
-                this.logger.warn({
-                    message: `No active automation found for repository, completing webhook processing`,
-                    context: GitHubPullRequestHandler.name,
-                    metadata: {
-                        repositoryName,
-                        ref,
-                        repositoryId,
-                    },
-                });
-                return;
-            }
-
-            await this.syncCentralizedConfigUseCase.execute({
-                organizationAndTeamData: context.organizationAndTeamData,
             });
         }
     }

@@ -2161,7 +2161,6 @@ export class GitlabService implements Omit<
                         enableSslVerification: true,
                         noteEvents: true,
                         issuesEvents: true,
-                        pushEvents: true,
                     });
                     console.log(`Webhook added to project ${repo.id}`);
                 } else {

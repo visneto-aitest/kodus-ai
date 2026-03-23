@@ -1,5 +1,4 @@
 import { createLogger } from '@kodus/flow';
-import { SyncCentralizedConfigUseCase } from '@libs/code-review/application/use-cases/configuration/sync-centralized-config.use-case';
 import { EnqueueImplementationCheckUseCase } from '@libs/code-review/application/use-cases/enqueue-implementation-check.use-case';
 import {
     hasReviewMarker,
@@ -44,7 +43,6 @@ export class ForgejoPullRequestHandler implements IWebhookEventHandler {
         private readonly eventEmitter: EventEmitter2,
         private readonly enqueueCodeReviewJobUseCase: EnqueueCodeReviewJobUseCase,
         private readonly enqueueImplementationCheckUseCase: EnqueueImplementationCheckUseCase,
-        private readonly syncCentralizedConfigUseCase: SyncCentralizedConfigUseCase,
     ) {}
 
     public canHandle(params: IWebhookEventParams): boolean {
@@ -56,7 +54,6 @@ export class ForgejoPullRequestHandler implements IWebhookEventHandler {
             WebhookForgejoEvent.PULL_REQUEST,
             WebhookForgejoEvent.ISSUE_COMMENT,
             WebhookForgejoEvent.PULL_REQUEST_REVIEW_COMMENT,
-            WebhookForgejoEvent.PUSH,
         ];
 
         if (!supportedEvents.includes(params.event)) {
@@ -87,9 +84,6 @@ export class ForgejoPullRequestHandler implements IWebhookEventHandler {
             case WebhookForgejoEvent.ISSUE_COMMENT:
             case WebhookForgejoEvent.PULL_REQUEST_REVIEW_COMMENT:
                 await this.handleComment(params);
-                break;
-            case WebhookForgejoEvent.PUSH:
-                await this.handlePush(params);
                 break;
             default:
                 this.logger.warn({
@@ -122,19 +116,6 @@ export class ForgejoPullRequestHandler implements IWebhookEventHandler {
             id: String(payload?.repository?.id),
             name: payload?.repository?.full_name,
         };
-
-        if (payload?.repository?.name === 'kodus') {
-            this.logger.log({
-                message: `Pull request event for 'kodus' repository detected, skipping processing.`,
-                context: ForgejoPullRequestHandler.name,
-                metadata: {
-                    repositoryId: repository.id,
-                    repositoryName: repository.name,
-                    prNumber,
-                },
-            });
-            return;
-        }
 
         const context = await this.webhookContextService.getContext(
             PlatformType.FORGEJO,
@@ -315,18 +296,6 @@ export class ForgejoPullRequestHandler implements IWebhookEventHandler {
 
         const prNumber = payload?.pull_request?.id;
         const repositoryName = payload?.repository?.name;
-
-        if (repositoryName === 'kodus') {
-            this.logger.log({
-                message: `Comment event for 'kodus' repository detected, skipping processing.`,
-                context: ForgejoPullRequestHandler.name,
-                metadata: {
-                    repositoryName,
-                    prNumber,
-                },
-            });
-            return;
-        }
 
         try {
             // Extract comment data
@@ -530,47 +499,6 @@ export class ForgejoPullRequestHandler implements IWebhookEventHandler {
                 },
                 context: ForgejoPullRequestHandler.name,
                 error,
-            });
-        }
-    }
-
-    private async handlePush(params: IWebhookEventParams): Promise<void> {
-        const { payload } = params;
-        const repositoryName = payload?.repository?.name;
-        const repositoryId = payload?.repository?.id;
-        const ref = payload?.ref;
-
-        if (repositoryName === 'kodus' && ref === 'refs/heads/main') {
-            this.logger.log({
-                message: `Push event to 'kodus' repository on 'main' branch detected.`,
-                context: ForgejoPullRequestHandler.name,
-                metadata: {
-                    repositoryName,
-                    ref,
-                    repositoryId,
-                },
-            });
-
-            const context = await this.webhookContextService.getContext(
-                PlatformType.FORGEJO,
-                String(repositoryId),
-            );
-
-            if (!context?.organizationAndTeamData) {
-                this.logger.warn({
-                    message: `No active automation found for repository, completing webhook processing`,
-                    context: ForgejoPullRequestHandler.name,
-                    metadata: {
-                        repositoryName,
-                        ref,
-                        repositoryId,
-                    },
-                });
-                return;
-            }
-
-            await this.syncCentralizedConfigUseCase.execute({
-                organizationAndTeamData: context.organizationAndTeamData,
             });
         }
     }

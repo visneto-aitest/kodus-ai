@@ -4,7 +4,6 @@ import { createLogger } from '@kodus/flow';
 import { Inject, Injectable } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
-import { SyncCentralizedConfigUseCase } from '@libs/code-review/application/use-cases/configuration/sync-centralized-config.use-case';
 import { EnqueueImplementationCheckUseCase } from '@libs/code-review/application/use-cases/enqueue-implementation-check.use-case';
 import {
     hasReviewMarker,
@@ -46,7 +45,6 @@ export class AzureReposPullRequestHandler implements IWebhookEventHandler {
         private readonly enqueueImplementationCheckUseCase: EnqueueImplementationCheckUseCase,
         @Inject(PULL_REQUESTS_SERVICE_TOKEN)
         private readonly pullRequestsService: IPullRequestsService,
-        private readonly syncCentralizedConfigUseCase: SyncCentralizedConfigUseCase,
     ) {}
 
     /**
@@ -64,7 +62,6 @@ export class AzureReposPullRequestHandler implements IWebhookEventHandler {
             'git.pullrequest.updated',
             'git.pullrequest.merge.attempted',
             'ms.vss-code.git-pullrequest-comment-event',
-            'git.push',
         ];
         return supportedEvents.includes(params.event);
     }
@@ -103,9 +100,6 @@ export class AzureReposPullRequestHandler implements IWebhookEventHandler {
             case 'ms.vss-code.git-pullrequest-comment-event':
                 await this.handleComment(params);
                 break;
-            case 'git.push':
-                await this.handlePush(params);
-                break;
             default:
                 this.logger.warn({
                     message: `Unsupported Azure Repos event: ${event}`,
@@ -127,15 +121,6 @@ export class AzureReposPullRequestHandler implements IWebhookEventHandler {
         const eventType = params.event;
         const repoName =
             params.payload?.resource?.repository?.name || 'UNKNOWN_REPO';
-
-        if (repoName === 'kodus') {
-            this.logger.log({
-                message: `Pull request event for 'kodus' repository detected, skipping processing.`,
-                context: AzureReposPullRequestHandler.name,
-                metadata: { prId, eventType, repoName },
-            });
-            return;
-        }
 
         this.logger.log({
             context: AzureReposPullRequestHandler.name,
@@ -386,15 +371,6 @@ export class AzureReposPullRequestHandler implements IWebhookEventHandler {
                 payload?.resource?.pullRequest?.repository?.name ||
                 payload?.resource?.repository?.name,
         } as any;
-
-        if (repository.name === 'kodus') {
-            this.logger.log({
-                message: `Comment event for 'kodus' repository detected, skipping processing.`,
-                context: AzureReposPullRequestHandler.name,
-                metadata: { prId, repository },
-            });
-            return;
-        }
 
         const mappedPlatform = getMappedPlatform(PlatformType.AZURE_REPOS);
         if (!mappedPlatform) {
@@ -652,43 +628,6 @@ export class AzureReposPullRequestHandler implements IWebhookEventHandler {
             });
             // Fail safe: process it if check fails
             return true;
-        }
-    }
-
-    private async handlePush(params: IWebhookEventParams): Promise<void> {
-        const { payload } = params;
-        const repositoryName = payload?.resource?.repository?.name;
-        const repositoryId = payload?.resource?.repository?.id;
-        const ref = payload?.resource?.refUpdates?.[0]?.name;
-
-        if (repositoryName === 'kodus' && ref === 'refs/heads/main') {
-            this.logger.log({
-                message: `Push event to 'kodus' repository on 'main' branch detected.`,
-                context: AzureReposPullRequestHandler.name,
-                metadata: { repositoryName, ref, repositoryId },
-            });
-
-            const context = await this.webhookContextService.getContext(
-                PlatformType.AZURE_REPOS,
-                String(repositoryId),
-            );
-
-            if (!context?.organizationAndTeamData) {
-                this.logger.warn({
-                    message: `No active automation found for repository, completing webhook processing`,
-                    context: AzureReposPullRequestHandler.name,
-                    metadata: {
-                        repositoryName,
-                        ref,
-                        repositoryId,
-                    },
-                });
-                return;
-            }
-
-            await this.syncCentralizedConfigUseCase.execute({
-                organizationAndTeamData: context.organizationAndTeamData,
-            });
         }
     }
 }

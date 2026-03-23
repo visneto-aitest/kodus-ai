@@ -22,6 +22,7 @@ import { UpdateCliRepositorySettingsUseCase } from '../application/use-cases/con
 import { UpdateCodeReviewParameterRepositoriesUseCase } from '../application/use-cases/configuration/update-code-review-parameter-repositories-use-case';
 import { UpdateOrCreateCodeReviewParameterUseCase } from '../application/use-cases/configuration/update-or-create-code-review-parameter-use-case';
 import { PreviewPrSummaryUseCase } from '../application/use-cases/summary/preview-pr-summary.use-case'; // Added
+import { CentralizedConfigSyncListener } from '../infrastructure/adapters/listeners/centralized-config-sync.listener';
 
 @Module({
     imports: [
@@ -49,6 +50,7 @@ import { PreviewPrSummaryUseCase } from '../application/use-cases/summary/previe
         UpdateOrCreateCodeReviewParameterUseCase,
         PreviewPrSummaryUseCase, // Added
         SyncCentralizedConfigUseCase,
+        CentralizedConfigSyncListener,
     ],
     exports: [
         ApplyCodeReviewPresetUseCase,

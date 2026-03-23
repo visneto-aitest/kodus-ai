@@ -2,7 +2,6 @@ import { createLogger } from '@kodus/flow';
 import { Inject, Injectable } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
-import { SyncCentralizedConfigUseCase } from '@libs/code-review/application/use-cases/configuration/sync-centralized-config.use-case';
 import { EnqueueImplementationCheckUseCase } from '@libs/code-review/application/use-cases/enqueue-implementation-check.use-case';
 import {
     isKodyMentionNonReview,
@@ -45,7 +44,6 @@ export class BitbucketPullRequestHandler implements IWebhookEventHandler {
         private readonly eventEmitter: EventEmitter2,
         private readonly enqueueCodeReviewJobUseCase: EnqueueCodeReviewJobUseCase,
         private readonly enqueueImplementationCheckUseCase: EnqueueImplementationCheckUseCase,
-        private readonly syncCentralizedConfigUseCase: SyncCentralizedConfigUseCase,
     ) {}
 
     /**
@@ -57,7 +55,6 @@ export class BitbucketPullRequestHandler implements IWebhookEventHandler {
         return (
             params.platformType === PlatformType.BITBUCKET &&
             [
-                'repo:push',
                 'pullrequest:created',
                 'pullrequest:updated',
                 'pullrequest:fulfilled',
@@ -83,9 +80,6 @@ export class BitbucketPullRequestHandler implements IWebhookEventHandler {
             case 'pullrequest:fulfilled':
             case 'pullrequest:rejected':
                 await this.handlePullRequest(params);
-                break;
-            case 'repo:push':
-                await this.handlePush(params);
                 break;
             default:
                 this.logger.warn({
@@ -124,19 +118,6 @@ export class BitbucketPullRequestHandler implements IWebhookEventHandler {
             name: payload?.repository?.name,
             fullName: payload?.repository?.full_name,
         } as any;
-
-        if (repository.name === 'kodus') {
-            this.logger.log({
-                message: `Pull request event for 'kodus' repository detected, skipping processing.`,
-                context: BitbucketPullRequestHandler.name,
-                serviceName: BitbucketPullRequestHandler.name,
-                metadata: {
-                    repositoryName: repository.name,
-                    prId,
-                },
-            });
-            return;
-        }
 
         const context = await this.webhookContextService.getContext(
             PlatformType.BITBUCKET,
@@ -352,19 +333,6 @@ export class BitbucketPullRequestHandler implements IWebhookEventHandler {
             id: payload?.repository?.uuid?.replace(/[{}]/g, ''),
             name: payload?.repository?.name,
         } as any;
-
-        if (repository.name === 'kodus') {
-            this.logger.log({
-                message: `Comment event for 'kodus' repository detected, skipping processing.`,
-                context: BitbucketPullRequestHandler.name,
-                serviceName: BitbucketPullRequestHandler.name,
-                metadata: {
-                    repositoryName: repository.name,
-                    prId,
-                },
-            });
-            return;
-        }
 
         const context = await this.webhookContextService.getContext(
             PlatformType.BITBUCKET,
@@ -588,47 +556,5 @@ export class BitbucketPullRequestHandler implements IWebhookEventHandler {
         }
 
         return true;
-    }
-
-    private async handlePush(params: IWebhookEventParams): Promise<void> {
-        const { payload } = params;
-        const repositoryName = payload?.repository?.name;
-        const repositoryId = payload?.repository?.uuid?.replace(/[{}]/g, '');
-        const ref = payload?.push?.changes?.[0]?.new?.name;
-
-        if (repositoryName === 'kodus' && ref === 'main') {
-            this.logger.log({
-                message: `Push event to 'kodus' repository on 'main' branch detected.`,
-                context: BitbucketPullRequestHandler.name,
-                serviceName: BitbucketPullRequestHandler.name,
-                metadata: {
-                    repositoryName,
-                    ref,
-                    repositoryId,
-                },
-            });
-
-            const context = await this.webhookContextService.getContext(
-                PlatformType.BITBUCKET,
-                String(repositoryId),
-            );
-
-            if (!context?.organizationAndTeamData) {
-                this.logger.warn({
-                    message: `No active automation found for repository, completing webhook processing`,
-                    context: BitbucketPullRequestHandler.name,
-                    metadata: {
-                        repositoryName,
-                        ref,
-                        repositoryId,
-                    },
-                });
-                return;
-            }
-
-            await this.syncCentralizedConfigUseCase.execute({
-                organizationAndTeamData: context.organizationAndTeamData,
-            });
-        }
     }
 }

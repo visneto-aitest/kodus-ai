@@ -3286,7 +3286,6 @@ export class ForgejoService implements Omit<
                                     'issue_comment',
                                     'pull_request_review',
                                     'pull_request_review_comment',
-                                    'push',
                                 ],
                                 active: true,
                             },

@@ -1,4 +1,3 @@
-import { SyncCentralizedConfigUseCase } from '@libs/code-review/application/use-cases/configuration/sync-centralized-config.use-case';
 import { EnqueueImplementationCheckUseCase } from '@libs/code-review/application/use-cases/enqueue-implementation-check.use-case';
 import { CacheService } from '@libs/core/cache/cache.service';
 import { EnqueueCodeReviewJobUseCase } from '@libs/core/workflow/application/use-cases/enqueue-code-review-job.use-case';
@@ -43,10 +42,6 @@ describe('AzureReposPullRequestHandler', () => {
                 {
                     provide: PULL_REQUESTS_SERVICE_TOKEN,
                     useValue: pullRequestsService,
-                },
-                {
-                    provide: SyncCentralizedConfigUseCase,
-                    useValue: {},
                 },
             ],
         }).compile();
