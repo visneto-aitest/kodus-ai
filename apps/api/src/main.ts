@@ -1,3 +1,4 @@
+import './instrument';
 import 'source-map-support/register';
 import { environment } from '@libs/ee/configs/environment';
 import { initPyroscope } from '@libs/core/infrastructure/config/profiling/pyroscope';

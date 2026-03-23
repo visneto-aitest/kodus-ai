@@ -1,6 +1,5 @@
+import './instrument';
 import 'source-map-support/register';
-import * as dotenv from 'dotenv';
-dotenv.config();
 
 import { initPyroscope } from '@libs/core/infrastructure/config/profiling/pyroscope';
 
