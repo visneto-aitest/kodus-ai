@@ -79,6 +79,7 @@ export interface AgentLoopOutput {
     usage: {
         inputTokens: number;
         outputTokens: number;
+        reasoningTokens: number;
         totalTokens: number;
     };
 }
@@ -102,6 +103,7 @@ export async function runAgentLoop(
     const allStepTexts: string[] = []; // Accumulate ALL text steps for better timeout recovery
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
+    let totalReasoningTokens = 0;
 
     // Timeout: 8 minutes max per agent — some models need many tool calls
     const abortController = new AbortController();
@@ -193,6 +195,7 @@ export async function runAgentLoop(
                 if (event.usage) {
                     totalInputTokens += event.usage.inputTokens ?? 0;
                     totalOutputTokens += event.usage.outputTokens ?? 0;
+                    totalReasoningTokens += event.usage.reasoningTokens ?? 0;
                 }
 
                 input.onStepFinish?.(event);
@@ -276,6 +279,7 @@ export async function runAgentLoop(
                 usage: {
                     inputTokens: totalInputTokens,
                     outputTokens: totalOutputTokens,
+                    reasoningTokens: totalReasoningTokens,
                     totalTokens: totalInputTokens + totalOutputTokens,
                 },
             };
@@ -442,6 +446,10 @@ If no issues were found during investigation, respond with \`{"reasoning": "..."
         (result as any).totalUsage?.outputTokens ??
         result.usage?.outputTokens ??
         0;
+    const baseReasoningTokens =
+        (result as any).totalUsage?.reasoningTokens ??
+        result.usage?.reasoningTokens ??
+        0;
 
     // totalInputTokens/totalOutputTokens include second-chance + fallback overhead
     // Subtract the per-step accumulation (already in base) to avoid double-counting,
@@ -450,6 +458,7 @@ If no issues were found during investigation, respond with \`{"reasoning": "..."
     // and baseInputTokens is the SDK's own total, use whichever is larger.
     const finalInputTokens = Math.max(baseInputTokens, totalInputTokens);
     const finalOutputTokens = Math.max(baseOutputTokens, totalOutputTokens);
+    const finalReasoningTokens = Math.max(baseReasoningTokens, totalReasoningTokens);
 
     return {
         findings,
@@ -461,6 +470,7 @@ If no issues were found during investigation, respond with \`{"reasoning": "..."
         usage: {
             inputTokens: finalInputTokens,
             outputTokens: finalOutputTokens,
+            reasoningTokens: finalReasoningTokens,
             totalTokens: finalInputTokens + finalOutputTokens,
         },
     };
@@ -553,7 +563,7 @@ function looksLikeFindings(text: string): boolean {
 async function structureWithFallbackModel(
     reviewText: string,
     byokConfig?: BYOKConfig,
-): Promise<{ findings: FindingsOutput; usage: { inputTokens: number; outputTokens: number; totalTokens: number } } | null> {
+): Promise<{ findings: FindingsOutput; usage: { inputTokens: number; outputTokens: number; reasoningTokens: number; totalTokens: number } } | null> {
     try {
         const internalModel = getInternalModel(byokConfig);
 
@@ -628,6 +638,7 @@ For each issue found, extract: relevantFile, language, suggestionContent (full d
             usage: {
                 inputTokens: fallbackUsage?.inputTokens ?? 0,
                 outputTokens: fallbackUsage?.outputTokens ?? 0,
+                reasoningTokens: fallbackUsage?.reasoningTokens ?? 0,
                 totalTokens: fallbackUsage?.totalTokens ?? (fallbackUsage?.inputTokens ?? 0) + (fallbackUsage?.outputTokens ?? 0),
             },
         };

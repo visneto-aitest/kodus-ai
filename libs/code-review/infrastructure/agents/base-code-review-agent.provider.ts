@@ -217,6 +217,10 @@ export abstract class BaseCodeReviewAgentProvider {
                             agentResult.usage.outputTokens,
                         'gen_ai.usage.total_tokens':
                             agentResult.usage.totalTokens,
+                        ...(agentResult.usage.reasoningTokens > 0 && {
+                            'gen_ai.usage.reasoning_tokens':
+                                agentResult.usage.reasoningTokens,
+                        }),
                         'gen_ai.response.model': modelName,
                         'gen_ai.run.name': `code-review-${this.getCategoryLabel()}`,
                         'type': byokConfig ? 'byok' : 'system',
