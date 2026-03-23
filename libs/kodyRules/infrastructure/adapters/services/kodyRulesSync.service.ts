@@ -1300,6 +1300,10 @@ export class KodyRulesSyncService {
             byokConfigValue,
         );
 
+        const byokModelName = byokConfigValue?.main
+            ? `${byokConfigValue.main.provider}:${byokConfigValue.main.model}`
+            : undefined;
+
         try {
             const { result } = await this.observabilityService.runLLMInSpan({
                 spanName: `${KodyRulesSyncService.name}::${mainRun}`,
@@ -1310,6 +1314,7 @@ export class KodyRulesSyncService {
                     type: promptRunner.executeMode,
                     fallback: false,
                 },
+                modelName: byokModelName,
                 exec: async (callbacks) => {
                     return await promptRunner
                         .builder()
@@ -1419,6 +1424,7 @@ export class KodyRulesSyncService {
                             type: promptRunner.executeMode,
                             fallback: true,
                         },
+                        modelName: byokModelName,
                         exec: async (callbacks) => {
                             return await promptRunner
                                 .builder()
@@ -1506,6 +1512,10 @@ export class KodyRulesSyncService {
             byokConfigValue,
         );
 
+        const byokModelName = byokConfigValue?.main
+            ? `${byokConfigValue.main.provider}:${byokConfigValue.main.model}`
+            : undefined;
+
         const userPrompt = params.files
             .map(
                 (file) =>
@@ -1523,6 +1533,7 @@ export class KodyRulesSyncService {
                     type: promptRunner.executeMode,
                     fallback: false,
                 },
+                modelName: byokModelName,
                 exec: async (callbacks) => {
                     return await promptRunner
                         .builder()
@@ -1598,6 +1609,7 @@ export class KodyRulesSyncService {
                             type: promptRunner.executeMode,
                             fallback: true,
                         },
+                        modelName: byokModelName,
                         exec: async (callbacks) => {
                             return await promptRunner
                                 .builder()
@@ -1673,6 +1685,10 @@ export class KodyRulesSyncService {
             byokConfigValue,
         );
 
+        const byokModelName = byokConfigValue?.main
+            ? `${byokConfigValue.main.provider}:${byokConfigValue.main.model}`
+            : undefined;
+
         const userPrompt = params.files
             .map(
                 (file) =>
@@ -1690,6 +1706,7 @@ export class KodyRulesSyncService {
                     type: promptRunner.executeMode,
                     fallback: false,
                 },
+                modelName: byokModelName,
                 exec: async (callbacks) => {
                     return await promptRunner
                         .builder()
@@ -1760,6 +1777,7 @@ export class KodyRulesSyncService {
                             type: promptRunner.executeMode,
                             fallback: true,
                         },
+                        modelName: byokModelName,
                         exec: async (callbacks) => {
                             return await promptRunner
                                 .builder()

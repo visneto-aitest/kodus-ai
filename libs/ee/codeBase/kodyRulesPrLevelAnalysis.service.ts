@@ -1180,12 +1180,18 @@ export class KodyRulesPrLevelAnalysisService implements IKodyRulesAnalysisServic
                 context?.codeReviewConfig?.byokConfig?.fallback?.model,
         };
 
+        const byokConfigRef = context?.codeReviewConfig?.byokConfig;
+        const byokModelName = byokConfigRef?.main
+            ? `${byokConfigRef.main.provider}:${byokConfigRef.main.model}`
+            : undefined;
+
         try {
             const { result: analysis } =
                 await this.observabilityService.runLLMInSpan({
                     spanName,
                     runName,
                     attrs: spanAttrs,
+                    modelName: byokModelName,
                     exec: async (callbacks) => {
                         return await promptRunner
                             .builder()
@@ -1541,12 +1547,17 @@ export class KodyRulesPrLevelAnalysisService implements IKodyRulesAnalysisServic
             })),
         };
 
+        const byokModelName = byokConfig?.main
+            ? `${byokConfig.main.provider}:${byokConfig.main.model}`
+            : undefined;
+
         try {
             const { result: grouping } =
                 await this.observabilityService.runLLMInSpan({
                     spanName,
                     runName,
                     attrs: spanAttrs,
+                    modelName: byokModelName,
                     exec: async (callbacks) => {
                         return await promptRunner
                             .builder()

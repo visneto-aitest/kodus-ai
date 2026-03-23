@@ -234,6 +234,9 @@ export class CommentManagerService implements ICommentManagerService {
 
                 const runName = 'generateSummaryPR';
                 const spanName = `${CommentManagerService.name}::${runName}`;
+                const byokModelName = byokConfigValue?.main
+                    ? `${byokConfigValue.main.provider}:${byokConfigValue.main.model}`
+                    : undefined;
                 const spanAttrs = {
                     type: promptRunner.executeMode,
                     organizationId: organizationAndTeamData?.organizationId,
@@ -293,6 +296,7 @@ export class CommentManagerService implements ICommentManagerService {
                             spanName,
                             runName,
                             attrs: spanAttrs,
+                            modelName: byokModelName,
                             exec: async (callbacks) => {
                                 return await promptRunner
                                     .builder()
@@ -349,6 +353,7 @@ export class CommentManagerService implements ICommentManagerService {
                                         chunkIndex: i,
                                         totalChunks: fileChunks.length,
                                     },
+                                    modelName: byokModelName,
                                     exec: async (callbacks) => {
                                         return await promptRunner
                                             .builder()
@@ -413,6 +418,7 @@ You must always respond in ${languageResultPrompt}.`;
                             spanName: consolidationSpanName,
                             runName: consolidationRunName,
                             attrs: spanAttrs,
+                            modelName: byokModelName,
                             exec: async (callbacks) => {
                                 return await promptRunner
                                     .builder()
@@ -1567,6 +1573,9 @@ ${reviewOptions}
 
             const runName = 'repeatedCodeReviewSuggestionClustering';
             const spanName = `${CommentManagerService.name}::${runName}`;
+            const byokModelName = byokConfig?.main
+                ? `${byokConfig.main.provider}:${byokConfig.main.model}`
+                : undefined;
             const spanAttrs = {
                 type: promptRunner.executeMode,
                 organizationId: organizationAndTeamData?.organizationId,
@@ -1578,6 +1587,7 @@ ${reviewOptions}
                     spanName,
                     runName,
                     attrs: spanAttrs,
+                    modelName: byokModelName,
                     exec: async (callbacks) => {
                         return await promptRunner
                             .builder()

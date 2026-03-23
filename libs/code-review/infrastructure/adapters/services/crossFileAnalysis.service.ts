@@ -535,11 +535,17 @@ export class CrossFileAnalysisService {
                     runName,
                 });
 
+            const byokConfigRef = context?.codeReviewConfig?.byokConfig;
+            const byokModelName = byokConfigRef?.main
+                ? `${byokConfigRef.main.provider}:${byokConfigRef.main.model}`
+                : undefined;
+
             const { result: analysis } =
                 await this.observabilityService.runLLMInSpan({
                     spanName,
                     runName,
                     attrs: spanAttrs,
+                    modelName: byokModelName,
                     exec: (callbacks) =>
                         analysisBuilder.addCallbacks(callbacks).execute(),
                 });

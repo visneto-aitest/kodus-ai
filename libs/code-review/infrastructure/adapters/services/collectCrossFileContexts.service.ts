@@ -452,10 +452,15 @@ export class CollectCrossFileContextsService {
                 runName,
             });
 
+        const byokModelName = byokConfig?.main
+            ? `${byokConfig.main.provider}:${byokConfig.main.model}`
+            : undefined;
+
         const { result } = await this.observabilityService.runLLMInSpan({
             spanName,
             runName,
             attrs: spanAttrs,
+            modelName: byokModelName,
             exec: (callbacks) => builder.addCallbacks(callbacks).execute(),
         });
 
@@ -1215,10 +1220,15 @@ export class CollectCrossFileContextsService {
                     runName,
                 });
 
+            const byokModelName = byokConfig?.main
+                ? `${byokConfig.main.provider}:${byokConfig.main.model}`
+                : undefined;
+
             const { result } = await this.observabilityService.runLLMInSpan({
                 spanName,
                 runName,
                 attrs: spanAttrs,
+                modelName: byokModelName,
                 exec: (callbacks) => builder.addCallbacks(callbacks).execute(),
             });
 

@@ -93,11 +93,16 @@ export abstract class BaseAgentProvider {
                     // prNumber: this?.number,
                 };
 
+                const byokModelName = this.byokConfig?.main
+                    ? `${this.byokConfig.main.provider}:${this.byokConfig.main.model}`
+                    : undefined;
+
                 const { result } = await this.observabilityService.runLLMInSpan(
                     {
                         spanName,
                         runName,
                         attrs: spanAttrs,
+                        modelName: byokModelName,
                         exec: async (callbacks) => {
                             let builder = promptRunner
                                 .builder()

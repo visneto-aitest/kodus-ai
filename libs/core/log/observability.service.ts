@@ -278,10 +278,12 @@ export class ObservabilityService implements OnModuleInit {
             metadata,
             runName: explicitName,
             reset,
+            modelName: explicitModelName,
         }: {
             metadata?: Record<string, any>;
             runName?: string;
             reset?: boolean;
+            modelName?: string;
         } = {}) => {
             const obs = this.getObsInstance();
             const span = obs.getCurrentSpan();
@@ -294,6 +296,10 @@ export class ObservabilityService implements OnModuleInit {
 
             const s = this.summarize(usages);
 
+            // Use explicit model name when provided (e.g. from BYOK config),
+            // falling back to model names extracted from LLM responses
+            const resolvedModel = explicitModelName || (s.modelsArr.length ? s.modelsArr.join(',') : undefined);
+
             if (span) {
                 span.setAttributes({
                     'gen_ai.usage.total_tokens': s.totalTokens,
@@ -302,8 +308,8 @@ export class ObservabilityService implements OnModuleInit {
                     ...(s.reasoningTokens > 0 && {
                         'gen_ai.usage.reasoning_tokens': s.reasoningTokens,
                     }),
-                    ...(s.modelsArr.length && {
-                        'gen_ai.response.model': s.modelsArr.join(','),
+                    ...(resolvedModel && {
+                        'gen_ai.response.model': resolvedModel,
                     }),
                     ...(runKey && { 'gen_ai.run.id': runKey }),
                     ...((explicitName ?? runName ?? resolvedName) && {
@@ -342,9 +348,10 @@ export class ObservabilityService implements OnModuleInit {
         spanName: string;
         runName?: string;
         attrs?: Record<string, any>;
+        modelName?: string;
         exec: (callbacks: any[]) => Promise<T>;
     }): Promise<{ result: T; usage: any }> {
-        const { spanName, runName, attrs, exec } = params;
+        const { spanName, runName, attrs, modelName, exec } = params;
         const obs = this.getObsInstance();
         const span = obs.startSpan(spanName);
 
@@ -365,6 +372,7 @@ export class ObservabilityService implements OnModuleInit {
                 const usage = await finalize({
                     metadata: attrs,
                     reset: true,
+                    modelName,
                 });
                 return { result, usage };
             });
