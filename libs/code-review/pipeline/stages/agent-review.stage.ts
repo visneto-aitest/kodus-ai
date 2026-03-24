@@ -1,7 +1,8 @@
 import { createLogger } from '@kodus/flow';
-import { generateText, Output, jsonSchema } from 'ai';
+import { Output, jsonSchema } from 'ai';
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import { getInternalModel } from '@libs/code-review/infrastructure/agents/llm/byok-to-vercel';
+import { tracedGenerateText } from '@libs/code-review/infrastructure/agents/llm/agent-loop';
 
 import { BasePipelineStage } from '@libs/core/infrastructure/pipeline/abstracts/base-stage.abstract';
 import { StageVisibility } from '@libs/core/infrastructure/pipeline/enums/stage-visibility.enum';
@@ -469,8 +470,13 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                 )
                 .join('\n\n');
 
-            const classifyResult: any = await generateText({
+            const classifyResult: any = await tracedGenerateText({
                 model: model as any,
+                experimental_telemetry: {
+                    isEnabled: true,
+                    functionId: 'code-review-classify-levels',
+                    metadata: { prNumber },
+                },
                 output: Output.object({
                     schema: jsonSchema({
                         type: 'object',
@@ -643,8 +649,13 @@ ${summaries}
                     )
                     .join('\n');
 
-                const dedupResult: any = await generateText({
+                const dedupResult: any = await tracedGenerateText({
                     model: model as any,
+                    experimental_telemetry: {
+                        isEnabled: true,
+                        functionId: 'code-review-dedup',
+                        metadata: { prNumber, file: filename },
+                    },
                     output: Output.object({
                         schema: jsonSchema({
                             type: 'object',

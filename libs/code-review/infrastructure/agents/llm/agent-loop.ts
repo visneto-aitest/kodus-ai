@@ -20,6 +20,9 @@ if (process.env.LANGCHAIN_TRACING_V2 === 'true') {
         // LangSmith wrapping not available — use original
     }
 }
+
+/** Re-export the LangSmith-wrapped generateText for use outside the agent loop. */
+export { generateText as tracedGenerateText };
 import { z } from 'zod';
 import { createLogger } from '@kodus/flow';
 import { EnhancedJSONParser } from '@kodus/flow';
@@ -123,6 +126,10 @@ export async function runAgentLoop(
             abortSignal: abortController.signal,
             system: input.systemPrompt,
             prompt: input.userPrompt,
+            experimental_telemetry: {
+                isEnabled: true,
+                functionId: input.agentName ?? 'agent-loop',
+            },
             tools,
             stopWhen: stepCountIs(input.maxSteps || MAX_STEPS),
             // Last 2 steps: remove tools entirely to force text response.
