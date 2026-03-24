@@ -156,6 +156,7 @@ export abstract class BaseCodeReviewAgentProvider {
                 model,
                 systemPrompt,
                 userPrompt,
+                agentName: identity.name,
                 remoteCommands: input.remoteCommands,
                 documentationSearchService: input.documentationSearchService,
                 documentationSearchOptions: {
@@ -237,13 +238,16 @@ export abstract class BaseCodeReviewAgentProvider {
             const validFiles = new Set(
                 input.changedFiles.map((f) => f.filename),
             );
+            const isKodyRules = this.getCategoryLabel() === 'kody_rules';
             const rawSuggestions = (
                 agentResult.findings?.suggestions || []
             ).filter(
                 (s) =>
-                    s.relevantFile &&
                     s.suggestionContent &&
-                    validFiles.has(s.relevantFile),
+                    // Kody Rules PR-level suggestions may not have a relevantFile
+                    (isKodyRules
+                        ? !s.relevantFile || validFiles.has(s.relevantFile)
+                        : s.relevantFile && validFiles.has(s.relevantFile)),
             );
 
             const suggestions = rawSuggestions.map((s) => ({
