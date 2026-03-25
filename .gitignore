@@ -120,6 +120,8 @@ specs
 .opencode
 .cursor
 .claude
+!.claude/commands/
+!.claude/commands/**
 .codex
 .agents
 skills-lock.json
