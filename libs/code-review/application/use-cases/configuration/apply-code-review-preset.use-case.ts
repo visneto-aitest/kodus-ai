@@ -130,8 +130,7 @@ export class ApplyCodeReviewPresetUseCase implements IUseCase {
                 reviewOptions.bug = true;
                 reviewOptions.security = true;
                 reviewOptions.performance = false;
-                reviewOptions.cross_file = false;
-                reviewOptions.business_logic = false;
+                                reviewOptions.business_logic = false;
 
                 suggestionControl.limitationType = LimitationType.PR;
                 suggestionControl.maxSuggestions = 6;
@@ -152,8 +151,7 @@ export class ApplyCodeReviewPresetUseCase implements IUseCase {
                 reviewOptions.bug = true;
                 reviewOptions.security = true;
                 reviewOptions.performance = true;
-                reviewOptions.cross_file = true;
-                reviewOptions.business_logic = true;
+                                reviewOptions.business_logic = true;
 
                 suggestionControl.limitationType = LimitationType.PR;
                 suggestionControl.maxSuggestions = 20;
@@ -171,8 +169,7 @@ export class ApplyCodeReviewPresetUseCase implements IUseCase {
                 reviewOptions.bug = true;
                 reviewOptions.security = true;
                 reviewOptions.performance = true;
-                reviewOptions.cross_file = true;
-                reviewOptions.business_logic = true;
+                                reviewOptions.business_logic = true;
 
                 suggestionControl.limitationType = LimitationType.PR;
                 suggestionControl.maxSuggestions = 12;

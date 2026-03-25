@@ -28,7 +28,6 @@ reviewOptions:
     bug: true
     performance: true
     security: true
-    cross_file: true
     business_logic: true
 
 # suggestion control

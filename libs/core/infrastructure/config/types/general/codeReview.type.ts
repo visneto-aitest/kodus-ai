@@ -302,7 +302,7 @@ export const reviewOptionsSchema = z.object({
     bug: z.boolean(),
     performance: z.boolean(),
     security: z.boolean(),
-    cross_file: z.boolean(),
+    cross_file: z.boolean().optional(), // Legacy — no longer shown in UI but kept for backward compat
     business_logic: z.boolean().optional(),
 });
 
@@ -310,7 +310,7 @@ export interface ReviewOptions {
     bug?: boolean;
     performance?: boolean;
     security?: boolean;
-    cross_file?: boolean;
+    cross_file?: boolean; // Legacy — no longer shown in UI
     business_logic?: boolean;
 }
 
