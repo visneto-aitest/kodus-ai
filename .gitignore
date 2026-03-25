@@ -129,6 +129,7 @@ skills-lock.json
 # Eval results
 evals/promptfoo/results/
 evals/promptfoo-safeguard/results/
+scripts/benchmark/results/
 
 # ESLint Cache
 .eslintcache
