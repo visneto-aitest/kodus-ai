@@ -409,6 +409,8 @@ export abstract class BaseCodeReviewAgentProvider {
   <Workflow>
     Your first action must be a tool call — not text.
 
+    Step 0 — TYPE CHECK: Run checkTypes on changed files to automatically detect type errors, compile errors, and import issues. This catches bugs you might miss by reading.
+
     Step 1 — READ DIFFS: Read the diffs in the user message. Identify every changed function, method, or logic path. Note @@ line numbers.
 
     Step 2 — GREP CALLERS: For each changed function, grep for its callers:
@@ -416,22 +418,26 @@ export abstract class BaseCodeReviewAgentProvider {
       grep returns file:lineNumber:content — use that lineNumber in Step 3.
       Also grep WITHOUT excludeTests to check test coverage. No tests = higher confidence in a finding.
       For interfaces/abstract methods, grep "implements X" or "extends X" to find concrete implementations.
+      Also verify function signatures: check that callers pass the right number/types of arguments.
 
     Step 3 — READ CONTEXT: For each grep result, read the caller context:
       readFile(file, startLine=N-15, endLine=N+30) — never read the whole file unless &lt;150 lines.
       Also read context around diff @@ lines if the diff doesn't show enough (parent class, full signature).
+      Check type definitions, interfaces, and base classes when the changed code implements or overrides them.
 
     Step 4 — ANALYZE: Trace execution paths through changed code + callers.
       Check: null/empty values, boundary conditions, error paths, state mutations, concurrency, wrong function called, inverted conditions.
+      Check: type mismatches between callers and changed signatures, interface/contract violations.
       Determine: regression (introduced by this PR) vs pre-existing. Report pre-existing only if this PR makes it worse or newly reachable.
 
-    Step 5 — RESPOND: Return JSON with findings. If no issues, return empty suggestions with reasoning explaining what you investigated.
+    Step 5 — RESPOND: Return JSON with ALL findings. Do not stop after finding the first issue — investigate ALL changed code thoroughly before responding. If no issues, return empty suggestions with reasoning.
   </Workflow>
 
   <Scope>
     The root cause must be in lines added or modified by this PR.
     relevantFile/relevantLinesStart/relevantLinesEnd must point to the changed lines.
     You may trace impact through callers — the symptom can appear elsewhere, but the cause must be in the diff.
+    Also report bugs in CALLERS or CALLEES if the PR makes them newly broken or introduces a type/contract mismatch.
   </Scope>
 
 ${overridesSection}

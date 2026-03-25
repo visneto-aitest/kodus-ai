@@ -534,6 +534,152 @@ export function buildAgentTools(
             },
         );
 
+        tools.checkTypes = mkTool(
+            'Run type checker or linter on changed files. Auto-detects language and runs the appropriate tool ' +
+            '(mypy/py_compile for Python, go vet/go build for Go, tsc for TypeScript, dart analyze, cargo check, ' +
+            'php -l, ruby -c, javac, etc.). Use this early to find type errors, compile errors, and import issues.',
+            {
+                type: 'object',
+                properties: {
+                    path: {
+                        type: 'string',
+                        description:
+                            'File or directory to check (default: entire repo). Example: "src/api/paginator.py"',
+                    },
+                },
+            },
+            async (args: any) => {
+                const target =
+                    (args.path || '.').replace(/^\/+/, '') || '.';
+
+                const checks: Array<{
+                    lang: string;
+                    ext: string;
+                    cmds: string[];
+                }> = [
+                    {
+                        lang: 'Python',
+                        ext: '.py',
+                        cmds: [
+                            `python3 -m py_compile ${target.endsWith('.py') ? target : `$(find ${target} -name "*.py" -maxdepth 3 | head -10 | tr '\\n' ' ')`} 2>&1`,
+                            `mypy ${target} --no-error-summary --no-color 2>&1 | head -30`,
+                        ],
+                    },
+                    {
+                        lang: 'Go',
+                        ext: '.go',
+                        cmds: [
+                            `go vet ${target === '.' ? './...' : target} 2>&1 | head -30`,
+                            `go build -o /dev/null ${target === '.' ? './...' : target} 2>&1 | head -30`,
+                        ],
+                    },
+                    {
+                        lang: 'TypeScript',
+                        ext: '.ts',
+                        cmds: [
+                            `npx tsc --noEmit 2>&1 | head -40`,
+                        ],
+                    },
+                    {
+                        lang: 'Ruby',
+                        ext: '.rb',
+                        cmds: [
+                            `ruby -c ${target.endsWith('.rb') ? target : `$(find ${target} -name "*.rb" -maxdepth 3 | head -10 | tr '\\n' ' ')`} 2>&1 | grep -v "Syntax OK" | head -20`,
+                        ],
+                    },
+                    {
+                        lang: 'PHP',
+                        ext: '.php',
+                        cmds: [
+                            `php -l ${target.endsWith('.php') ? target : `$(find ${target} -name "*.php" -maxdepth 3 | head -10 | tr '\\n' ' ')`} 2>&1 | grep -v "No syntax errors" | head -20`,
+                        ],
+                    },
+                    {
+                        lang: 'Dart',
+                        ext: '.dart',
+                        cmds: [`dart analyze ${target} 2>&1 | head -30`],
+                    },
+                    {
+                        lang: 'Rust',
+                        ext: '.rs',
+                        cmds: [`cargo check 2>&1 | head -30`],
+                    },
+                    {
+                        lang: 'C#',
+                        ext: '.cs',
+                        cmds: [
+                            `dotnet build --no-restore 2>&1 | grep -E "error|warning" | head -30`,
+                        ],
+                    },
+                    {
+                        lang: 'Java',
+                        ext: '.java',
+                        cmds: [
+                            `javac -d /tmp/javaout ${target.endsWith('.java') ? target : `$(find ${target} -name "*.java" -maxdepth 3 | head -5 | tr '\\n' ' ')`} 2>&1 | head -30`,
+                        ],
+                    },
+                    {
+                        lang: 'Kotlin',
+                        ext: '.kt',
+                        cmds: [
+                            `kotlinc -script ${target} 2>&1 | head -20`,
+                        ],
+                    },
+                    {
+                        lang: 'Swift',
+                        ext: '.swift',
+                        cmds: [
+                            `swiftc -typecheck ${target.endsWith('.swift') ? target : `$(find ${target} -name "*.swift" -maxdepth 3 | head -5 | tr '\\n' ' ')`} 2>&1 | head -20`,
+                        ],
+                    },
+                ];
+
+                // Detect which languages exist
+                let fileList = '';
+                try {
+                    const { stdout } = await exec(
+                        `find ${target} -maxdepth 3 -type f 2>/dev/null | head -50`,
+                    );
+                    fileList = stdout;
+                } catch {
+                    return 'Could not scan files in target path.';
+                }
+
+                const results: string[] = [];
+                for (const check of checks) {
+                    if (!fileList.includes(check.ext)) continue;
+                    for (const cmd of check.cmds) {
+                        try {
+                            const { stdout } = await exec(cmd);
+                            const output = stdout?.trim();
+                            if (
+                                output &&
+                                !output.includes('command not found') &&
+                                !output.includes('not found')
+                            ) {
+                                results.push(
+                                    `[${check.lang}]\n${output}`,
+                                );
+                            }
+                        } catch {
+                            // Linter not available, skip
+                        }
+                    }
+                }
+
+                if (results.length === 0) {
+                    return 'No type errors or linter issues found (or no supported linter available).';
+                }
+
+                let result = results.join('\n\n');
+                if (result.length > MAX_SHELL_OUTPUT) {
+                    result =
+                        result.substring(0, MAX_SHELL_OUTPUT) +
+                        '\n... (truncated)';
+                }
+                return result;
+            },
+        );
     }
 
     // Add searchDocs if available
