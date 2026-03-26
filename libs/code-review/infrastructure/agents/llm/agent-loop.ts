@@ -230,22 +230,38 @@ export async function runAgentLoop(
                 stepCount++;
 
                 if (event.toolCalls) {
+                    // Build a lookup of tool results — different providers use different structures
+                    const resultLookup = new Map<string, string>();
+                    const toolResults: any[] = event.toolResults || [];
+
+                    for (const tr of toolResults) {
+                        const id = tr?.toolCallId || tr?.id || '';
+                        const val = tr?.result ?? tr?.output ?? tr?.content ?? '';
+                        if (id) resultLookup.set(id, String(val));
+                    }
+
                     for (const tc of event.toolCalls) {
                         const args =
                             (tc as any).args || (tc as any).input || {};
-                        const toolResult = (event.toolResults || []).find(
-                            (tr: any) =>
-                                tr.toolCallId === tc.toolCallId ||
-                                tr.toolCallId === (tc as any).id,
-                        );
-                        const resultStr = toolResult?.result
-                            ? String(toolResult.result)
-                            : '';
+
+                        // Try multiple ID fields to match tool call → result
+                        const callId = tc.toolCallId || (tc as any).id || '';
+                        let resultStr = resultLookup.get(callId) || '';
+
+                        // Fallback: if toolResults has same count as toolCalls, match by index
+                        if (!resultStr && toolResults.length === event.toolCalls.length) {
+                            const idx = event.toolCalls.indexOf(tc);
+                            if (idx >= 0 && toolResults[idx]) {
+                                const tr = toolResults[idx];
+                                resultStr = String(tr?.result ?? tr?.output ?? tr?.content ?? '');
+                            }
+                        }
+
                         allToolCalls.push({
                             tool: tc.toolName,
                             toolName: tc.toolName,
                             args,
-                            result: resultStr.substring(0, 300),
+                            result: resultStr.substring(0, 500),
                         });
 
                         logger.log({
@@ -404,7 +420,7 @@ export async function runAgentLoop(
         });
 
         try {
-            // Build a summary of what the agent investigated
+            // Build a summary of what the agent investigated — include enough result context
             const investigationSummary = allToolCalls
                 .map((tc) => {
                     const args =
@@ -413,7 +429,7 @@ export async function runAgentLoop(
                             : JSON.stringify(tc.args);
                     const resultStr =
                         typeof tc.result === 'string'
-                            ? tc.result?.substring(0, 200)
+                            ? tc.result?.substring(0, 400)
                             : '';
                     return `${tc.toolName}(${args.substring(0, 150)}) → ${resultStr || '(empty)'}`;
                 })

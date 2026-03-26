@@ -538,8 +538,8 @@ export function buildAgentTools(
 
         tools.checkTypes = mkTool(
             'Run type checker or linter on changed files. Auto-detects language and runs the appropriate tool ' +
-            '(mypy/py_compile for Python, go vet/go build for Go, tsc for TypeScript, dart analyze, cargo check, ' +
-            'php -l, ruby -c, javac, etc.). Use this early to find type errors, compile errors, and import issues.',
+                '(mypy/py_compile for Python, go vet/go build for Go, tsc for TypeScript, dart analyze, cargo check, ' +
+                'php -l, ruby -c, javac, etc.). Use this early to find type errors, compile errors, and import issues.',
             {
                 type: 'object',
                 properties: {
@@ -551,8 +551,7 @@ export function buildAgentTools(
                 },
             },
             async (args: any) => {
-                const target =
-                    (args.path || '.').replace(/^\/+/, '') || '.';
+                const target = (args.path || '.').replace(/^\/+/, '') || '.';
 
                 const checks: Array<{
                     lang: string;
@@ -578,9 +577,7 @@ export function buildAgentTools(
                     {
                         lang: 'TypeScript',
                         ext: '.ts',
-                        cmds: [
-                            `npx tsc --noEmit 2>&1 | head -40`,
-                        ],
+                        cmds: [`npx tsc --noEmit 2>&1 | head -40`],
                     },
                     {
                         lang: 'Ruby',
@@ -623,9 +620,7 @@ export function buildAgentTools(
                     {
                         lang: 'Kotlin',
                         ext: '.kt',
-                        cmds: [
-                            `kotlinc -script ${target} 2>&1 | head -20`,
-                        ],
+                        cmds: [`kotlinc -script ${target} 2>&1 | head -20`],
                     },
                     {
                         lang: 'Swift',
@@ -637,7 +632,7 @@ export function buildAgentTools(
                 ];
 
                 // Detect which languages exist
-                let fileList = '';
+                let fileList: string;
                 try {
                     const { stdout } = await exec(
                         `find ${target} -maxdepth 3 -type f 2>/dev/null | head -50`,
@@ -649,7 +644,9 @@ export function buildAgentTools(
 
                 const results: string[] = [];
                 for (const check of checks) {
-                    if (!fileList.includes(check.ext)) continue;
+                    if (!fileList.includes(check.ext)) {
+                        continue;
+                    }
                     for (const cmd of check.cmds) {
                         try {
                             const { stdout } = await exec(cmd);
@@ -659,9 +656,7 @@ export function buildAgentTools(
                                 !output.includes('command not found') &&
                                 !output.includes('not found')
                             ) {
-                                results.push(
-                                    `[${check.lang}]\n${output}`,
-                                );
+                                results.push(`[${check.lang}]\n${output}`);
                             }
                         } catch {
                             // Linter not available, skip
