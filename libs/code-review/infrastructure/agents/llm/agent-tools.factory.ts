@@ -110,7 +110,7 @@ export function buildAgentTools(
                 const excludeTests = args.excludeTests ?? false;
                 if (!pattern) return 'Error: pattern is required';
 
-                // Use rg directly in sandbox for richer output (--heading, -n, -C 3)
+                // Use rg directly in sandbox for richer output (-n, -C 5)
                 if (remoteCommands.exec) {
                     try {
                         const safePattern = pattern.replace(/'/g, "'\\''");

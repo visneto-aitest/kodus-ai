@@ -55,7 +55,8 @@ if [ ! -f "$MANIFEST" ]; then
   echo "Run '$RUN_NAME' not found at $MANIFEST"
   echo ""
   echo "Available runs:"
-  for f in "$RUNS_DIR"/*.json 2>/dev/null; do
+  for f in "$RUNS_DIR"/*.json; do
+    [ -f "$f" ] || continue
     echo "  $(basename "$f" .json)"
   done
   exit 1

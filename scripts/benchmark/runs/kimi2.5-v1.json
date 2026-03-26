@@ -1,0 +1,127 @@
+{
+  "name": "kimi2.5-v1",
+  "created": "2026-03-26T01:23:24.196Z",
+  "totalPrs": 20,
+  "prs": [
+    {
+      "repo": "sentry",
+      "head": "performance-enhancement-complete",
+      "title": "Enhanced Pagination Performance for High-Volume Audit Logs",
+      "prNumber": 316
+    },
+    {
+      "repo": "sentry",
+      "head": "performance-enhancement-complete",
+      "title": "Optimize spans buffer insertion with eviction during insert",
+      "prNumber": 316
+    },
+    {
+      "repo": "sentry",
+      "head": "error-upsampling-race-condition",
+      "title": "feat(upsampling) - Support upsampled error count with performance optimizations",
+      "prNumber": 363
+    },
+    {
+      "repo": "sentry",
+      "head": "oauth-state-secure",
+      "title": "GitHub OAuth Security Enhancement",
+      "prNumber": 364
+    },
+    {
+      "repo": "grafana-codex",
+      "head": "implement-device-limits",
+      "title": "Anonymous: Add configurable device limit",
+      "prNumber": 741
+    },
+    {
+      "repo": "grafana-codex",
+      "head": "authz-service-improve-caching-pr",
+      "title": "AuthZService: improve authz caching",
+      "prNumber": null
+    },
+    {
+      "repo": "grafana-codex",
+      "head": "plugins/rename-instrumentation-middleware-to-metrics-middleware",
+      "title": "Plugins: Chore: Renamed instrumentation middleware to metrics middleware",
+      "prNumber": 769
+    },
+    {
+      "repo": "grafana-codex",
+      "head": "query-splitting-enhancements",
+      "title": "Advanced Query Processing Architecture",
+      "prNumber": 751
+    },
+    {
+      "repo": "discourse-cursor",
+      "head": "large-image-processing",
+      "title": "FEATURE: automatically downsize large images",
+      "prNumber": 437
+    },
+    {
+      "repo": "discourse-cursor",
+      "head": "topic-email-management",
+      "title": "FEATURE: per-topic unsubscribe option in emails",
+      "prNumber": 438
+    },
+    {
+      "repo": "discourse-cursor",
+      "head": "blocked-email-validation-post",
+      "title": "Add comprehensive email validation for blocked users",
+      "prNumber": 432
+    },
+    {
+      "repo": "discourse-cursor",
+      "head": "embed-url-handling-post",
+      "title": "Enhance embed URL handling and validation system",
+      "prNumber": 439
+    },
+    {
+      "repo": "cal.com",
+      "head": "appstore-async-improvements",
+      "title": "Async import of the appStore packages",
+      "prNumber": 386
+    },
+    {
+      "repo": "cal.com",
+      "head": "improve-two-factor-authentication-features",
+      "title": "feat: 2fa backup codes",
+      "prNumber": 387
+    },
+    {
+      "repo": "cal.com",
+      "head": "fix/handle-collective-multiple-host-destinations",
+      "title": "fix: handle collective multiple host on destinationCalendar",
+      "prNumber": 388
+    },
+    {
+      "repo": "cal.com",
+      "head": "insights-performance-optimization",
+      "title": "feat: convert InsightsBookingService to use Prisma.sql raw queries",
+      "prNumber": 389
+    },
+    {
+      "repo": "keycloak",
+      "head": "passkey-integration-buggy",
+      "title": "Fixing Re-authentication with passkeys",
+      "prNumber": 359
+    },
+    {
+      "repo": "keycloak",
+      "head": "feature-idp-cache-implementation",
+      "title": "Add caching support for IdentityProviderStorageProvider.getForLogin operations",
+      "prNumber": 360
+    },
+    {
+      "repo": "keycloak",
+      "head": "feature-authz-crypto-implementation",
+      "title": "Add AuthzClientCryptoProvider for authorization client cryptographic operations",
+      "prNumber": 361
+    },
+    {
+      "repo": "keycloak",
+      "head": "feature-rolling-updates-implementation",
+      "title": "Add rolling-updates feature flag and compatibility framework",
+      "prNumber": 362
+    }
+  ]
+}

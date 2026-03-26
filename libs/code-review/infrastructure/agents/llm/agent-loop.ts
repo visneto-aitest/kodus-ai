@@ -73,7 +73,7 @@ import { RemoteCommands } from '../../adapters/services/collectCrossFileContexts
 const logger = createLogger('AgentLoop');
 
 const MAX_STEPS = 35;
-const AGENT_TIMEOUT_MS = 8 * 60 * 1000; // 8 minutes max per agent — some models (Gemini) need 30+ tool calls
+const AGENT_TIMEOUT_MS = 12 * 60 * 1000; // 12 minutes max per agent — some models need 30+ tool calls
 
 /** Schema for structured output */
 const suggestionSchema = z.object({
@@ -109,7 +109,8 @@ export interface AgentLoopInput {
     telemetryMetadata?: LangSmithTelemetryMetadata;
     maxSteps?: number;
     onStepFinish?: (event: any) => void;
-    gitHubToken?: string; // For cross-repo reference reading
+    /** @deprecated — pass via toolSecrets instead to avoid LangSmith trace leaks */
+    gitHubToken?: string;
     changedFiles?: any[];
     prNumber?: number;
     repositoryFullName?: string;
@@ -144,11 +145,15 @@ export interface AgentLoopOutput {
 export async function runAgentLoop(
     input: AgentLoopInput,
 ): Promise<AgentLoopOutput> {
+    // Extract and redact sensitive token to prevent LangSmith trace leaks
+    const gitHubToken = input.gitHubToken;
+    delete (input as any).gitHubToken;
+
     const tools = buildAgentTools(
         input.remoteCommands,
         input.documentationSearchService,
         input.documentationSearchOptions,
-        input.gitHubToken,
+        gitHubToken,
     );
 
     const allToolCalls: AgentLoopOutput['toolCalls'] = [];
@@ -189,6 +194,7 @@ export async function runAgentLoop(
             prepareStep: ({ stepNumber }: any) => {
                 const maxSteps = input.maxSteps || MAX_STEPS;
                 const forceTextAfter = maxSteps - 2;
+                const MIN_INVESTIGATION_STEPS = 3;
 
                 if (stepNumber >= forceTextAfter) {
                     logger.log({
@@ -198,9 +204,6 @@ export async function runAgentLoop(
                     return {
                         toolChoice: 'none' as const,
                         activeTools: [],
-                        // Override system prompt to remind the model to output JSON, not prose.
-                        // Without this, some models produce free-text which triggers the
-                        // expensive generate-object fallback to re-structure the output.
                         system:
                             input.systemPrompt +
                             '\n\nIMPORTANT: You have reached the final response step. ' +
@@ -215,6 +218,12 @@ export async function runAgentLoop(
                             'If you found no issues, return an empty suggestions array. No prose, no explanation outside the JSON.',
                     };
                 }
+
+                // Force tool usage in early steps — prevent premature text responses
+                if (stepNumber < MIN_INVESTIGATION_STEPS) {
+                    return { toolChoice: 'required' as const };
+                }
+
                 return {};
             },
             onStepFinish: (event: any) => {

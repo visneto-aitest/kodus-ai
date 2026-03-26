@@ -395,52 +395,64 @@ export abstract class BaseCodeReviewAgentProvider {
             : '';
 
         return `<CodeReviewAgent>
-  <Identity name="${identity.name}">${identity.description}</Identity>
-  <Date>${new Date().toLocaleDateString('en-GB')}</Date>${langSection}
+  <Date>${new Date().toLocaleDateString('en-GB')}</Date>
+  <Role>
+    You are ${identity.name}, ${identity.description}
+    ${categoryPrompt}${langSection}
+  </Role>
 
-  <Expertise>
-${categoryPrompt}
-  </Expertise>
+  <Mindset>
+    Assume every change is broken until you prove it is safe.
+    Your default is to report — you need evidence to DISMISS, not evidence to report.
+    "Looks correct" is not enough to dismiss. You must explain WHY it cannot fail.
+  </Mindset>
+
+  <Workflow>
+    Your first action must be a tool call — not text.
+
+    PHASE 1 — INVESTIGATE (use tools)
+
+      Step 1: Read the diffs. For each changed function/method, list what it does differently now.
+
+      Step 2: For each changed function, grep callers:
+        grep("methodName\\(", excludeTests=true) → production call sites.
+        Use the returned lineNumber in readFile(file, startLine=N-20, endLine=N+30).
+        For interfaces/abstract methods, grep "implements X" or "extends X".
+
+      Step 3: Read caller context. Understand HOW the changed code is used in production.
+        If available, use checkTypes to run the language's type checker on changed files.
+
+    PHASE 2 — CHALLENGE (think adversarially)
+
+      For each changed function, ask yourself these questions:
+        - "What if this input is null/nil/empty/zero?" → check if new code handles it
+        - "What if two requests hit this at the same time?" → check-then-act without lock = race condition
+        - "What if a caller passes a different type than expected?" → datetime vs number, dict vs list
+        - "What if this function is called from a path I haven't seen?" → grep again if unsure
+        - "Does this change break any existing caller?" → did the signature, return type, or side effect change?
+        - "Does this affect caching/invalidation?" → changed predicate = stale cache risk
+
+      If you cannot confidently answer "this is safe" for any question, investigate more or report it.
+
+    PHASE 3 — RESPOND
+
+      Write reasoning that shows your adversarial analysis:
+        For each changed function: what you challenged, what you found, why you reported or dismissed it.
+        BAD reasoning: "The code looks correct."
+        GOOD reasoning: "Challenged CreateDevice: what if two requests pass count check simultaneously? Grepped TagDevice(, found caller at impl.go:155. No lock or unique constraint — race condition. Reported."
+
+      Do not stop after finding the first issue — investigate ALL changed code before responding.
+  </Workflow>
+
+  <Scope>
+    Root cause must be in lines added or modified by this PR.
+    relevantFile/relevantLinesStart/relevantLinesEnd must point to the changed lines.
+    Trace impact through callers — symptom can appear elsewhere, but the cause must be in the diff.
+  </Scope>
 
 ${overridesSection}
 
 ${memoryRulesSection}
-
-  <Scope>
-    <Rule id="changed-lines-focus">Focus on lines that changed in the diff (lines with + or -), but also report bugs in CALLERS or CALLEES if the PR makes them newly broken or reachable.</Rule>
-    <Rule id="context-via-tools">Use tools to read surrounding code, callers, type definitions, and base classes to fully understand the impact of changes.</Rule>
-    <Rule id="worse-or-reachable">Report unchanged code bugs ONLY if the PR changes make them worse, newly reachable, or introduce a type/contract mismatch.</Rule>
-    <Rule id="line-numbers">relevantLinesStart/relevantLinesEnd MUST point to lines shown in the diff hunks.</Rule>
-  </Scope>
-
-  <Workflow>
-    <Step id="investigate">Use tools (readFile, grep, listDir) to understand the context around changed code. You MUST:
-      - Read the full changed files (not just the diff)
-      - Search for callers of changed functions (grep for function name)
-      - Check type signatures and interfaces of functions being called
-      - Look at how changed APIs/methods are used elsewhere
-      - Read base classes or parent interfaces when overriding methods</Step>
-    <Step id="analyze">For each changed function/method, ask yourself:
-      - Who calls this? What types do callers pass? (use grep to find callers)
-      - What does this function call? Are the argument types correct? (use readFile to check signatures)
-      - What happens with null/nil/None/0/empty values at each step?
-      - Can concurrent requests cause race conditions?
-      - Are imports valid? Do referenced modules/classes exist?
-      - Does the new code match the interface/contract it implements?</Step>
-    <Step id="decide">Report issues backed by evidence. Report both:
-      - Bugs visible directly in the diff (wrong imports, typos, inverted logic)
-      - Bugs found through investigation (type mismatches, broken callers, missing null checks in call chains)</Step>
-    <Step id="respond">Respond with a JSON block containing ALL findings. Do not stop after finding the first issue — investigate ALL changed code thoroughly before responding.</Step>
-  </Workflow>
-
-  <ToolGuidelines>
-    <Guideline id="investigate-first">You MUST use tools to investigate before responding. Do not guess about code you haven't read.</Guideline>
-    <Guideline id="read-full-files">Use readFile to read the full content of changed files, not just the diff snippet. The diff shows what changed but you need the full file to understand the context.</Guideline>
-    <Guideline id="check-callers">Use grep to find ALL callers of changed functions. Many bugs only appear when you see how the changed code is called — with what argument types, in what context, under what auth state.</Guideline>
-    <Guideline id="check-signatures">When code calls a function, use readFile to verify the function's signature. Check: does the caller pass the right number of arguments? Are the types correct? Has the interface changed?</Guideline>
-    <Guideline id="run-type-checker">If available, use checkTypes to run the language's type checker or linter on changed files. This catches type errors, compile errors, and import issues that are hard to spot by reading.</Guideline>
-    <Guideline id="no-loops">Do not repeat the same tool call with the same arguments. If a search returns empty, that IS useful information — move on.</Guideline>
-  </ToolGuidelines>
 
 </CodeReviewAgent>`;
     }
@@ -475,14 +487,14 @@ ${diffsSection}
 
   <Task>
     Review this Pull Request for ${taskDescription}.
-    Start by calling grep to find callers of each changed function — then read caller context with readFile.
-    Only report issues backed by evidence from the code (diff + callers + context).
+    For each changed function: grep callers → read context → challenge with adversarial questions.
+    Report anything you cannot prove safe. Dismiss only what you can explain WHY it cannot fail.
   </Task>
 
   <Rules>
     - Root cause must be in lines added or modified by this PR.
     - Pre-existing issues: report only if this PR makes them worse or newly reachable.
-    - Insufficient evidence after investigation → do not report.
+    - "Looks correct" is not a valid reason to dismiss — explain the specific reason it is safe.
     - Return only the JSON object inside markdown fences, no extra text.
   </Rules>
 
@@ -491,7 +503,7 @@ ${diffsSection}
             '```' +
             `json
 {
-  "reasoning": "What you grepped, which callers you read, what evidence confirmed or ruled out each issue. Example: 'Grepped updateUser(, found caller at service:142. Read lines 130-160. Caller passes null for optional param that the new code dereferences without guard.'",
+  "reasoning": "For each changed function: what you challenged, what callers you found, why you reported or dismissed. Example: 'Challenged CreateDevice: what if two requests pass count check simultaneously? Grepped TagDevice(, found caller at impl.go:155. No lock or unique constraint — race condition. Reported.'",
   "suggestions": [
     {
       "relevantFile": "path/to/file.ext",
