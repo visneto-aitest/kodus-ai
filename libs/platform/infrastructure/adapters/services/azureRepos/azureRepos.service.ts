@@ -121,10 +121,11 @@ export class AzureReposService implements Omit<
                 organizationAndTeamData: params.organizationAndTeamData,
             });
 
-            const wanted = params.name.toLowerCase();
+            const wanted = params.name.trim().toLowerCase();
             const repository = repositories.find(
                 (repo) =>
                     repo.name.toLowerCase() === wanted ||
+                    repo.full_name?.toLowerCase() === wanted ||
                     `${repo.organizationName}/${repo.name}`.toLowerCase() ===
                         wanted,
             );
@@ -155,7 +156,8 @@ export class AzureReposService implements Omit<
         repository: { id: string; name: string };
         sourceBranch?: string;
         targetBranch?: string;
-        title: string;
+        baseBranch?: string;
+        title?: string;
         description?: string;
         commitMessage?: string;
         files: { path: string; content: string }[];
@@ -163,18 +165,29 @@ export class AzureReposService implements Omit<
         const {
             organizationAndTeamData,
             repository,
-            sourceBranch = `kodus-pr-${Date.now()}`,
-            targetBranch = await this.getDefaultBranch({
-                organizationAndTeamData,
-                repository,
-            }),
+            sourceBranch,
+            targetBranch,
+            baseBranch,
             title,
-            description,
+            description = '',
             commitMessage,
             files,
         } = params;
 
+        const resolvedSourceBranch = sourceBranch || `kodus-pr-${Date.now()}`;
+        const resolvedTitle = title?.trim() || 'Kodus automated changes';
+        const resolvedCommitMessage =
+            commitMessage?.trim() || 'chore: update files';
+
         try {
+            const resolvedTargetBranch =
+                targetBranch ||
+                (await this.getDefaultBranch({
+                    organizationAndTeamData,
+                    repository,
+                }));
+            const resolvedBaseBranch = baseBranch || resolvedTargetBranch;
+
             const { orgName, token } = await this.getAuthDetails(
                 organizationAndTeamData,
             );
@@ -187,9 +200,10 @@ export class AzureReposService implements Omit<
             const uploadResult = await this.uploadFiles({
                 organizationAndTeamData,
                 repository,
-                branchName: sourceBranch,
+                branchName: resolvedSourceBranch,
+                baseBranch: resolvedBaseBranch,
                 files,
-                message: commitMessage || `Add files for PR: ${title}`,
+                message: resolvedCommitMessage,
             });
 
             if (!uploadResult) {
@@ -203,9 +217,9 @@ export class AzureReposService implements Omit<
                 token,
                 projectId,
                 repositoryId: repository.id,
-                sourceBranch,
-                targetBranch,
-                title,
+                sourceBranch: resolvedSourceBranch,
+                targetBranch: resolvedTargetBranch,
+                title: resolvedTitle,
                 description,
             });
 
@@ -229,19 +243,29 @@ export class AzureReposService implements Omit<
     async uploadFiles(params: {
         organizationAndTeamData: OrganizationAndTeamData;
         repository: { id: string; name: string };
-        branchName: string;
+        branchName?: string;
+        baseBranch?: string;
         files: { path: string; content: string }[];
-        message: string;
+        message?: string;
     }): Promise<boolean> {
         const {
             organizationAndTeamData,
             repository,
             branchName,
+            baseBranch,
             files,
             message,
         } = params;
 
         try {
+            const defaultBranch = await this.getDefaultBranch({
+                organizationAndTeamData,
+                repository,
+            });
+            const resolvedBaseBranch = baseBranch || defaultBranch;
+            const resolvedBranchName = branchName || resolvedBaseBranch;
+            const resolvedMessage = message?.trim() || 'chore: update files';
+
             const { orgName, token } = await this.getAuthDetails(
                 organizationAndTeamData,
             );
@@ -253,13 +277,14 @@ export class AzureReposService implements Omit<
 
             await this.azureReposRequestHelper.uploadFilesToNewBranch({
                 orgName,
-                branchName,
+                branchName: resolvedBranchName,
+                baseBranch: resolvedBaseBranch,
                 changes: files.map((file) => ({
                     changeType: 'add',
                     filePath: file.path,
                     content: file.content,
                 })),
-                commitMessage: message,
+                commitMessage: resolvedMessage,
                 projectId,
                 repositoryId: repository.id,
                 token,

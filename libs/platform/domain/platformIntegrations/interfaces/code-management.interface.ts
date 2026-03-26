@@ -40,7 +40,8 @@ export interface ICodeManagementService extends ICommonPlatformIntegrationServic
         repository: { id: string; name: string };
         sourceBranch?: string;
         targetBranch?: string;
-        title: string;
+        baseBranch?: string;
+        title?: string;
         description?: string;
         commitMessage?: string;
         files: { path: string; content: string }[];
@@ -48,9 +49,10 @@ export interface ICodeManagementService extends ICommonPlatformIntegrationServic
     uploadFiles(params: {
         organizationAndTeamData: OrganizationAndTeamData;
         repository: { id: string; name: string };
-        branchName: string;
+        branchName?: string;
+        baseBranch?: string;
         files: { path: string; content: string }[];
-        message: string;
+        message?: string;
     }): Promise<boolean>;
 
     getPullRequests(params: {

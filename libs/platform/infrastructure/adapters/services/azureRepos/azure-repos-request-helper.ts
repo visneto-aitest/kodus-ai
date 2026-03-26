@@ -1198,6 +1198,7 @@ export class AzureReposRequestHelper {
         projectId: string;
         repositoryId: string;
         branchName: string;
+        baseBranch?: string;
         commitMessage: string;
         changes: Array<{
             changeType: 'add' | 'edit' | 'delete';
@@ -1206,14 +1207,36 @@ export class AzureReposRequestHelper {
         }>;
     }): Promise<any> {
         const instance = await this.azureRequest(params);
+        const normalizedBranch = params.branchName.replace(
+            /^refs\/heads\//,
+            '',
+        );
+
+        const refsResponse = await instance.get(
+            `/${params.projectId}/_apis/git/repositories/${params.repositoryId}/refs`,
+            {
+                params: {
+                    'filter': `heads/${normalizedBranch}`,
+                    'api-version': '7.1',
+                },
+            },
+        );
+
+        const existingBranchRef = refsResponse.data?.value?.find(
+            (ref: { name?: string }) =>
+                ref?.name === `refs/heads/${normalizedBranch}`,
+        );
+        const oldObjectId =
+            existingBranchRef?.objectId ||
+            '0000000000000000000000000000000000000000';
 
         const url = `/${params.projectId}/_apis/git/repositories/${params.repositoryId}/pushes?api-version=7.1`;
 
         const payload = {
             refUpdates: [
                 {
-                    name: `refs/heads/${params.branchName}`,
-                    oldObjectId: '0000000000000000000000000000000000000000', // New Branch
+                    name: `refs/heads/${normalizedBranch}`,
+                    oldObjectId,
                 },
             ],
             commits: [

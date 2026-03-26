@@ -110,10 +110,11 @@ export class BitbucketService implements Omit<
                 organizationAndTeamData: organizationAndTeamData,
             });
 
-            const wanted = name.toLowerCase();
+            const wanted = name.trim().toLowerCase();
             const repository = repositories.find(
                 (repo) =>
                     repo.name.toLowerCase() === wanted ||
+                    repo.full_name?.toLowerCase() === wanted ||
                     `${repo.organizationName}/${repo.name}`.toLowerCase() ===
                         wanted,
             );
@@ -146,10 +147,11 @@ export class BitbucketService implements Omit<
 
     async createPullRequestWithFiles(params: {
         organizationAndTeamData: OrganizationAndTeamData;
-        repository: Repository;
+        repository: { id: string; name: string };
         sourceBranch?: string;
         targetBranch?: string;
-        title: string;
+        baseBranch?: string;
+        title?: string;
         description?: string;
         commitMessage?: string;
         files: { path: string; content: string }[];
@@ -157,15 +159,29 @@ export class BitbucketService implements Omit<
         const {
             organizationAndTeamData,
             repository,
-            sourceBranch = `kodus-pr-${Date.now()}`,
+            sourceBranch,
             targetBranch,
+            baseBranch,
             title,
-            description,
+            description = '',
             commitMessage,
             files,
         } = params;
 
+        const resolvedSourceBranch = sourceBranch || `kodus-pr-${Date.now()}`;
+        const resolvedTitle = title?.trim() || 'Kodus automated changes';
+        const resolvedCommitMessage =
+            commitMessage?.trim() || 'chore: update files';
+
         try {
+            const resolvedTargetBranch =
+                targetBranch ||
+                (await this.getDefaultBranch({
+                    organizationAndTeamData,
+                    repository,
+                }));
+            const resolvedBaseBranch = baseBranch || resolvedTargetBranch;
+
             const bitbucketAuthDetail = await this.getAuthDetails(
                 organizationAndTeamData,
             );
@@ -191,10 +207,11 @@ export class BitbucketService implements Omit<
 
             const uploadResult = await this.uploadFiles({
                 organizationAndTeamData,
-                branchName: sourceBranch,
+                branchName: resolvedSourceBranch,
+                baseBranch: resolvedBaseBranch,
                 repository,
                 files,
-                message: commitMessage || `Initial commit for PR: ${title}`,
+                message: resolvedCommitMessage,
             });
 
             if (!uploadResult) {
@@ -208,24 +225,20 @@ export class BitbucketService implements Omit<
                 repo_slug: `{${repository.id}}`,
                 // @ts-expect-error: library type definition is incorrect for the body of this endpoint
                 _body: {
-                    title,
+                    title: resolvedTitle,
                     summary: {
-                        raw: description || '',
+                        raw: description,
                     },
                     source: {
                         branch: {
-                            name: sourceBranch,
+                            name: resolvedSourceBranch,
                         },
                     },
-                    ...(targetBranch
-                        ? {
-                              destination: {
-                                  branch: {
-                                      name: targetBranch,
-                                  },
-                              },
-                          }
-                        : {}),
+                    destination: {
+                        branch: {
+                            name: resolvedTargetBranch,
+                        },
+                    },
                 },
             });
 
@@ -247,20 +260,30 @@ export class BitbucketService implements Omit<
 
     async uploadFiles(params: {
         organizationAndTeamData: OrganizationAndTeamData;
-        repository: Repository;
-        branchName: string;
+        repository: { id: string; name: string };
+        branchName?: string;
+        baseBranch?: string;
         files: { path: string; content: string }[];
-        message: string;
+        message?: string;
     }): Promise<boolean> {
         const {
             organizationAndTeamData,
             repository,
             branchName,
+            baseBranch,
             files,
             message,
         } = params;
 
         try {
+            const defaultBranch = await this.getDefaultBranch({
+                organizationAndTeamData,
+                repository,
+            });
+            const resolvedBaseBranch = baseBranch || defaultBranch;
+            const resolvedBranchName = branchName || resolvedBaseBranch;
+            const resolvedMessage = message?.trim() || 'chore: update files';
+
             const bitbucketAuthDetail = await this.getAuthDetails(
                 organizationAndTeamData,
             );
@@ -286,8 +309,8 @@ export class BitbucketService implements Omit<
 
             const form = new FormData();
 
-            form.append('branch', branchName);
-            form.append('message', message);
+            form.append('branch', resolvedBranchName);
+            form.append('message', resolvedMessage);
 
             files.forEach((file) => {
                 const repoPath = file.path.startsWith('/')

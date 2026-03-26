@@ -209,7 +209,14 @@ export class ForgejoService implements Omit<
             const repositories = await this.getRepositories({
                 organizationAndTeamData: params.organizationAndTeamData,
             });
-            const repo = repositories.find((r) => r.name === params.name);
+            const wanted = params.name.trim().toLowerCase();
+            const repo = repositories.find((r) => {
+                const fullName = (
+                    r.full_name || `${r.organizationName}/${r.name}`
+                ).toLowerCase();
+
+                return r.name.toLowerCase() === wanted || fullName === wanted;
+            });
             if (!repo) {
                 this.logger.warn({
                     message: 'Repository not found by name',
@@ -218,7 +225,14 @@ export class ForgejoService implements Omit<
                 });
                 return null;
             }
-            return repo;
+
+            return {
+                id: repo.id,
+                name: repo.name,
+                fullName:
+                    repo.full_name || `${repo.organizationName}/${repo.name}`,
+                defaultBranch: repo.default_branch,
+            };
         } catch (error) {
             this.logger.error({
                 message: 'Error finding repository by name',
@@ -235,7 +249,8 @@ export class ForgejoService implements Omit<
         repository: { id: string; name: string };
         sourceBranch?: string;
         targetBranch?: string;
-        title: string;
+        baseBranch?: string;
+        title?: string;
         description?: string;
         commitMessage?: string;
         files: { path: string; content: string }[];
@@ -243,18 +258,29 @@ export class ForgejoService implements Omit<
         const {
             organizationAndTeamData,
             repository,
-            sourceBranch = `kodus-pr-${Date.now()}`,
-            targetBranch = await this.getDefaultBranch({
-                organizationAndTeamData,
-                repository,
-            }),
+            sourceBranch,
+            targetBranch,
+            baseBranch,
             title,
             description = '',
-            commitMessage = 'Update files',
+            commitMessage,
             files,
         } = params;
 
+        const resolvedSourceBranch = sourceBranch || `kodus-pr-${Date.now()}`;
+        const resolvedTitle = title?.trim() || 'Kodus automated changes';
+        const resolvedCommitMessage =
+            commitMessage?.trim() || 'chore: update files';
+
         try {
+            const resolvedTargetBranch =
+                targetBranch ||
+                (await this.getDefaultBranch({
+                    organizationAndTeamData,
+                    repository,
+                }));
+            const resolvedBaseBranch = baseBranch || resolvedTargetBranch;
+
             const authDetail = await this.getAuthDetails(
                 organizationAndTeamData,
             );
@@ -277,9 +303,10 @@ export class ForgejoService implements Omit<
             const uploadResult = await this.uploadFiles({
                 organizationAndTeamData,
                 repository,
-                branchName: sourceBranch,
+                branchName: resolvedSourceBranch,
+                baseBranch: resolvedBaseBranch,
                 files,
-                message: commitMessage || `Add files for PR: ${title}`,
+                message: resolvedCommitMessage,
             });
 
             if (!uploadResult) {
@@ -292,9 +319,9 @@ export class ForgejoService implements Omit<
                 client,
                 path: repoInfo,
                 body: {
-                    base: targetBranch,
-                    head: sourceBranch,
-                    title,
+                    base: resolvedTargetBranch,
+                    head: resolvedSourceBranch,
+                    title: resolvedTitle,
                     body: description,
                 },
             });
@@ -322,19 +349,29 @@ export class ForgejoService implements Omit<
     async uploadFiles(params: {
         organizationAndTeamData: OrganizationAndTeamData;
         repository: { id: string; name: string };
-        branchName: string;
+        branchName?: string;
+        baseBranch?: string;
         files: { path: string; content: string }[];
-        message: string;
+        message?: string;
     }): Promise<boolean> {
         const {
             organizationAndTeamData,
             repository,
             branchName,
+            baseBranch,
             files,
             message,
         } = params;
 
         try {
+            const defaultBranch = await this.getDefaultBranch({
+                organizationAndTeamData,
+                repository,
+            });
+            const resolvedBaseBranch = baseBranch || defaultBranch;
+            const resolvedBranchName = branchName || resolvedBaseBranch;
+            const resolvedMessage = message?.trim() || 'chore: update files';
+
             const authDetail = await this.getAuthDetails(
                 organizationAndTeamData,
             );
@@ -353,11 +390,6 @@ export class ForgejoService implements Omit<
 
             const client = this.createForgejoClient(authDetail);
 
-            const defaultBranch = await this.getDefaultBranch({
-                organizationAndTeamData,
-                repository,
-            });
-
             const res = await repoChangeFiles({
                 client,
                 path: repoInfo,
@@ -367,10 +399,13 @@ export class ForgejoService implements Omit<
                         path: f.path,
                         content: f.content,
                     })),
-                    message:
-                        message || `Add files via API on branch ${branchName}`,
-                    branch: defaultBranch,
-                    new_branch: branchName,
+                    message: resolvedMessage,
+                    branch: resolvedBaseBranch,
+                    ...(resolvedBranchName !== resolvedBaseBranch
+                        ? {
+                              new_branch: resolvedBranchName,
+                          }
+                        : {}),
                 },
             });
 

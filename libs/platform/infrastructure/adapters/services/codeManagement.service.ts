@@ -101,10 +101,11 @@ export class CodeManagementService implements ICodeManagementService {
     async createPullRequestWithFiles(
         params: {
             organizationAndTeamData: OrganizationAndTeamData;
-            repository: Repository;
+            repository: { id: string; name: string };
             sourceBranch?: string;
             targetBranch?: string;
-            title: string;
+            baseBranch?: string;
+            title?: string;
             description?: string;
             commitMessage?: string;
             files: { path: string; content: string }[];
@@ -126,13 +127,14 @@ export class CodeManagementService implements ICodeManagementService {
     async uploadFiles(
         params: {
             organizationAndTeamData: OrganizationAndTeamData;
-            repository: Repository;
-            branchName: string;
+            repository: { id: string; name: string };
+            branchName?: string;
+            baseBranch?: string;
             files: { path: string; content: string }[];
-            message: string;
+            message?: string;
         },
         type?: PlatformType,
-    ): Promise<void> {
+    ): Promise<boolean> {
         if (!type) {
             type = await this.getTypeIntegration(
                 extractOrganizationAndTeamData(params),

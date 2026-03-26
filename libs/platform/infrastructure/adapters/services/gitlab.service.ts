@@ -298,9 +298,16 @@ export class GitlabService implements Omit<
                 organizationAndTeamData: params.organizationAndTeamData,
             });
 
-            const foundRepo = repositories.find(
-                (repo) => repo.name === params.name,
-            );
+            const wanted = params.name.trim().toLowerCase();
+            const foundRepo = repositories.find((repo) => {
+                const fullName = (
+                    repo.full_name || `${repo.organizationName}/${repo.name}`
+                ).toLowerCase();
+
+                return (
+                    repo.name.toLowerCase() === wanted || fullName === wanted
+                );
+            });
 
             if (!foundRepo) {
                 this.logger.warn({
@@ -311,7 +318,14 @@ export class GitlabService implements Omit<
                 return null;
             }
 
-            return foundRepo;
+            return {
+                id: foundRepo.id,
+                name: foundRepo.name,
+                fullName:
+                    foundRepo.full_name ||
+                    `${foundRepo.organizationName}/${foundRepo.name}`,
+                defaultBranch: foundRepo.default_branch,
+            };
         } catch (error) {
             this.logger.error({
                 message: 'Error finding repository by name',
@@ -328,7 +342,8 @@ export class GitlabService implements Omit<
         repository: { id: string; name: string };
         sourceBranch?: string;
         targetBranch?: string;
-        title: string;
+        baseBranch?: string;
+        title?: string;
         description?: string;
         commitMessage?: string;
         files: { path: string; content: string }[];
@@ -336,18 +351,29 @@ export class GitlabService implements Omit<
         const {
             organizationAndTeamData,
             repository,
-            sourceBranch = `kody-pr-${uuidv4()}`,
-            targetBranch = await this.getDefaultBranch({
-                organizationAndTeamData,
-                repository,
-            }),
+            sourceBranch,
+            targetBranch,
+            baseBranch,
             title,
             description = '',
             commitMessage,
             files,
         } = params;
 
+        const resolvedSourceBranch = sourceBranch || `kodus-pr-${Date.now()}`;
+        const resolvedTitle = title?.trim() || 'Kodus automated changes';
+        const resolvedCommitMessage =
+            commitMessage?.trim() || 'chore: update files';
+
         try {
+            const resolvedTargetBranch =
+                targetBranch ||
+                (await this.getDefaultBranch({
+                    organizationAndTeamData,
+                    repository,
+                }));
+            const resolvedBaseBranch = baseBranch || resolvedTargetBranch;
+
             const gitlabAuthDetail = await this.getAuthDetails(
                 organizationAndTeamData,
             );
@@ -361,9 +387,10 @@ export class GitlabService implements Omit<
             const uploadResult = await this.uploadFiles({
                 organizationAndTeamData,
                 repository,
-                branchName: sourceBranch,
+                branchName: resolvedSourceBranch,
+                baseBranch: resolvedBaseBranch,
                 files,
-                message: commitMessage || `Add files for PR: ${title}`,
+                message: resolvedCommitMessage,
             });
 
             if (!uploadResult) {
@@ -374,9 +401,9 @@ export class GitlabService implements Omit<
 
             const newMergeRequest = await gitlabAPI.MergeRequests.create(
                 repository.id,
-                sourceBranch,
-                targetBranch,
-                title,
+                resolvedSourceBranch,
+                resolvedTargetBranch,
+                resolvedTitle,
                 {
                     description,
                 },
@@ -401,19 +428,29 @@ export class GitlabService implements Omit<
     async uploadFiles(params: {
         organizationAndTeamData: OrganizationAndTeamData;
         repository: { id: string; name: string };
-        branchName: string;
+        branchName?: string;
+        baseBranch?: string;
         files: { path: string; content: string }[];
-        message: string;
+        message?: string;
     }): Promise<boolean> {
         const {
             organizationAndTeamData,
             repository,
             branchName,
+            baseBranch,
             files,
             message,
         } = params;
 
         try {
+            const defaultBranch = await this.getDefaultBranch({
+                organizationAndTeamData,
+                repository,
+            });
+            const resolvedBaseBranch = baseBranch || defaultBranch;
+            const resolvedBranchName = branchName || resolvedBaseBranch;
+            const resolvedMessage = message?.trim() || 'chore: update files';
+
             const gitlabAuthDetail = await this.getAuthDetails(
                 organizationAndTeamData,
             );
@@ -424,24 +461,24 @@ export class GitlabService implements Omit<
 
             const gitlabAPI = this.instanceGitlabApi(gitlabAuthDetail);
 
-            const defaultBranch = await this.getDefaultBranch({
-                organizationAndTeamData,
-                repository,
-            });
+            const commitOptions =
+                resolvedBranchName === resolvedBaseBranch
+                    ? undefined
+                    : {
+                          startBranch: resolvedBaseBranch,
+                      };
 
             const res = await gitlabAPI.Commits.create(
                 repository.id,
-                branchName,
-                message,
+                resolvedBranchName,
+                resolvedMessage,
                 files.map((f) => ({
                     action: 'create',
                     filePath: f.path,
                     content: f.content,
                     encoding: 'text',
                 })),
-                {
-                    startBranch: defaultBranch,
-                },
+                commitOptions,
             );
 
             if (!res || !res.id) {

@@ -656,11 +656,27 @@ export class GithubService
             organizationAndTeamData: params.organizationAndTeamData,
         });
 
-        const foundRepo = repositories.find(
-            (repo) => repo.name === params.name,
-        );
+        const wanted = params.name.trim().toLowerCase();
+        const foundRepo = repositories.find((repo) => {
+            const fullName = (
+                repo.full_name || `${repo.organizationName}/${repo.name}`
+            ).toLowerCase();
 
-        return foundRepo || null;
+            return repo.name.toLowerCase() === wanted || fullName === wanted;
+        });
+
+        if (!foundRepo) {
+            return null;
+        }
+
+        return {
+            id: foundRepo.id,
+            name: foundRepo.name,
+            fullName:
+                foundRepo.full_name ||
+                `${foundRepo.organizationName}/${foundRepo.name}`,
+            defaultBranch: foundRepo.default_branch,
+        };
     }
 
     async createPullRequestWithFiles(params: {
@@ -668,7 +684,8 @@ export class GithubService
         repository: { id: string; name: string };
         sourceBranch?: string;
         targetBranch?: string;
-        title: string;
+        baseBranch?: string;
+        title?: string;
         description?: string;
         commitMessage?: string;
         files: { path: string; content: string }[];
@@ -676,24 +693,36 @@ export class GithubService
         const {
             organizationAndTeamData,
             repository,
-            sourceBranch = `kodus-pr-${Date.now()}`,
-            targetBranch = await this.getDefaultBranch({
-                organizationAndTeamData,
-                repository,
-            }),
+            sourceBranch,
+            targetBranch,
+            baseBranch,
             title,
             description = '',
-            commitMessage = 'Update files',
+            commitMessage,
             files,
         } = params;
+
+        const pullRequestTitle = title?.trim() || 'Kodus automated changes';
+        const resolvedBaseBranch =
+            baseBranch ||
+            targetBranch ||
+            (await this.getDefaultBranch({
+                organizationAndTeamData,
+                repository,
+            }));
+        const resolvedSourceBranch = sourceBranch || `kodus-pr-${Date.now()}`;
+        const resolvedTargetBranch = targetBranch || resolvedBaseBranch;
+        const resolvedCommitMessage =
+            commitMessage?.trim() || 'chore: update files';
 
         try {
             const uploadResult = await this.uploadFiles({
                 organizationAndTeamData,
                 repository,
-                branchName: sourceBranch,
+                branchName: resolvedSourceBranch,
+                baseBranch: resolvedBaseBranch,
                 files,
-                message: commitMessage,
+                message: resolvedCommitMessage,
             });
 
             if (!uploadResult) {
@@ -702,9 +731,10 @@ export class GithubService
                     context: GithubService.name,
                     metadata: {
                         repository: repository.name,
-                        sourceBranch,
-                        targetBranch,
-                        title,
+                        sourceBranch: resolvedSourceBranch,
+                        targetBranch: resolvedTargetBranch,
+                        baseBranch: resolvedBaseBranch,
+                        title: pullRequestTitle,
                         files: files.map((f) => f.path),
                     },
                 });
@@ -725,9 +755,9 @@ export class GithubService
             const prResponse = await octokit.rest.pulls.create({
                 owner,
                 repo: repository.name,
-                title,
-                head: sourceBranch,
-                base: targetBranch,
+                title: pullRequestTitle,
+                head: resolvedSourceBranch,
+                base: resolvedTargetBranch,
                 body: description,
             });
 
@@ -745,9 +775,10 @@ export class GithubService
                     context: GithubService.name,
                     metadata: {
                         repository: repository.name,
-                        sourceBranch,
-                        targetBranch,
-                        title,
+                        sourceBranch: resolvedSourceBranch,
+                        targetBranch: resolvedTargetBranch,
+                        baseBranch: resolvedBaseBranch,
+                        title: pullRequestTitle,
                         files: files.map((f) => f.path),
                         status: prResponse.status,
                     },
@@ -762,9 +793,10 @@ export class GithubService
                 error,
                 metadata: {
                     repository: repository.name,
-                    sourceBranch,
-                    targetBranch,
-                    title,
+                    sourceBranch: resolvedSourceBranch,
+                    targetBranch: resolvedTargetBranch,
+                    baseBranch: resolvedBaseBranch,
+                    title: pullRequestTitle,
                     files: files.map((f) => f.path),
                 },
             });
@@ -776,28 +808,42 @@ export class GithubService
     async uploadFiles(params: {
         organizationAndTeamData: OrganizationAndTeamData;
         repository: { id: string; name: string };
-        branchName: string;
+        branchName?: string;
+        baseBranch?: string;
         files: { path: string; content: string }[];
-        message: string;
+        message?: string;
     }): Promise<boolean> {
         const {
             organizationAndTeamData,
             repository,
             branchName,
+            baseBranch,
             files,
             message,
         } = params;
 
-        try {
-            const createdBranch = await this.createBranch({
+        const resolvedBaseBranch =
+            baseBranch ||
+            (await this.getDefaultBranch({
                 organizationAndTeamData,
                 repository,
-                branchName,
-                sourceBranch: await this.getDefaultBranch({
-                    organizationAndTeamData,
-                    repository,
-                }),
-            });
+            }));
+        const resolvedBranchName = branchName || resolvedBaseBranch;
+        const resolvedMessage = message?.trim() || 'chore: update files';
+
+        try {
+            const createdBranch =
+                resolvedBranchName === resolvedBaseBranch
+                    ? {
+                          name: resolvedBranchName,
+                          sha: '',
+                      }
+                    : await this.createBranch({
+                          organizationAndTeamData,
+                          repository,
+                          branchName: resolvedBranchName,
+                          sourceBranch: resolvedBaseBranch,
+                      });
 
             if (!createdBranch) {
                 this.logger.error({
@@ -805,7 +851,8 @@ export class GithubService
                     context: GithubService.name,
                     metadata: {
                         repository: repository.name,
-                        branchName,
+                        branchName: resolvedBranchName,
+                        baseBranch: resolvedBaseBranch,
                     },
                 });
 
@@ -828,13 +875,16 @@ export class GithubService
                     owner,
                     repo: repository.name,
                     path: file.path,
-                    message,
+                    message: resolvedMessage,
                     content: Buffer.from(file.content).toString('base64'),
                     branch: createdBranch.name,
                 }),
             );
 
             const results = await Promise.allSettled(uploadPromises);
+            const hasRejectedUploads = results.some(
+                (result) => result.status === 'rejected',
+            );
 
             results.forEach((result, index) => {
                 if (result.status === 'rejected') {
@@ -844,14 +894,15 @@ export class GithubService
                         error: result.reason,
                         metadata: {
                             repository: repository.name,
-                            branchName,
+                            branchName: resolvedBranchName,
+                            baseBranch: resolvedBaseBranch,
                             filePath: files[index].path,
                         },
                     });
                 }
             });
 
-            return true;
+            return !hasRejectedUploads;
         } catch (error) {
             this.logger.error({
                 message: 'Error uploading files to GitHub',
@@ -859,7 +910,8 @@ export class GithubService
                 error,
                 metadata: {
                     repository: repository.name,
-                    branchName,
+                    branchName: resolvedBranchName,
+                    baseBranch: resolvedBaseBranch,
                     files: files.map((f) => f.path),
                 },
             });
@@ -896,6 +948,25 @@ export class GithubService
 
             const owner = await this.getCorrectOwner(githubAuthDetail, octokit);
 
+            try {
+                const existingBranchRef = await octokit.rest.git.getRef({
+                    owner,
+                    repo: repository.name,
+                    ref: `heads/${branchName}`,
+                });
+
+                if (existingBranchRef.status === 200) {
+                    return {
+                        name: branchName,
+                        sha: existingBranchRef.data.object.sha,
+                    };
+                }
+            } catch (existingBranchError) {
+                if ((existingBranchError as any)?.status !== 404) {
+                    throw existingBranchError;
+                }
+            }
+
             const sourceBranchRef = await octokit.rest.git.getRef({
                 owner,
                 repo: repository.name,
@@ -927,20 +998,53 @@ export class GithubService
                     name: branchName,
                     sha: sourceBranchRef.data.object.sha,
                 };
-            } else {
-                this.logger.error({
-                    message: `Failed to create branch ${branchName}`,
-                    context: GithubService.name,
-                    metadata: {
-                        repository: repository.name,
-                        branchName,
-                        sourceBranch,
-                        status: newBranchRef.status,
-                    },
-                });
-                return null;
             }
+
+            this.logger.error({
+                message: `Failed to create branch ${branchName}`,
+                context: GithubService.name,
+                metadata: {
+                    repository: repository.name,
+                    branchName,
+                    sourceBranch,
+                    status: newBranchRef.status,
+                },
+            });
+            return null;
         } catch (error) {
+            if ((error as any)?.status === 422) {
+                try {
+                    const githubAuthDetail = await this.getGithubAuthDetails(
+                        organizationAndTeamData,
+                    );
+
+                    const octokit = await this.instanceOctokit(
+                        organizationAndTeamData,
+                        githubAuthDetail,
+                    );
+
+                    const owner = await this.getCorrectOwner(
+                        githubAuthDetail,
+                        octokit,
+                    );
+
+                    const existingBranchRef = await octokit.rest.git.getRef({
+                        owner,
+                        repo: repository.name,
+                        ref: `heads/${branchName}`,
+                    });
+
+                    if (existingBranchRef.status === 200) {
+                        return {
+                            name: branchName,
+                            sha: existingBranchRef.data.object.sha,
+                        };
+                    }
+                } catch {
+                    // fall through to the error log below when branch lookup also fails
+                }
+            }
+
             this.logger.error({
                 message: `Error creating branch ${branchName}`,
                 context: GithubService.name,
