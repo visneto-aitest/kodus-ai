@@ -33,6 +33,7 @@ import {
     createMockIntegrationConfigService,
     createMockIntegrationEntity,
     createMockIntegrationService,
+    createMockCreateOrUpdateParametersUseCase,
     createMockRequest,
 } from './shared-delete-mocks';
 
@@ -51,6 +52,9 @@ describe('DeleteIntegrationUseCase', () => {
     let mockMcpManagerService: {
         deleteConnectionByIntegrationId: jest.Mock;
     };
+    let mockCreateOrUpdateParametersUseCase: ReturnType<
+        typeof createMockCreateOrUpdateParametersUseCase
+    >;
     let mockEventEmitter: ReturnType<typeof createMockEventEmitter>;
     let mockRequest: ReturnType<typeof createMockRequest>;
 
@@ -67,6 +71,8 @@ describe('DeleteIntegrationUseCase', () => {
         mockMcpManagerService = {
             deleteConnectionByIntegrationId: jest.fn().mockResolvedValue(true),
         };
+        mockCreateOrUpdateParametersUseCase =
+            createMockCreateOrUpdateParametersUseCase();
         mockEventEmitter = createMockEventEmitter();
         mockRequest = createMockRequest();
 
@@ -75,6 +81,7 @@ describe('DeleteIntegrationUseCase', () => {
             mockIntegrationService,
             mockAuthIntegrationService,
             mockIntegrationConfigService,
+            mockCreateOrUpdateParametersUseCase,
             mockEventEmitter,
             mockMcpManagerService,
             mockRequest,
@@ -114,6 +121,16 @@ describe('DeleteIntegrationUseCase', () => {
         );
     }
 
+    function assertCentralizedConfigDisabled() {
+        expect(
+            mockCreateOrUpdateParametersUseCase.execute,
+        ).toHaveBeenCalledWith(
+            expect.anything(), // ParametersKey.CENTRALIZED_CONFIG
+            { enabled: false, repository: null },
+            { organizationId: MOCK_ORG_ID, teamId: MOCK_TEAM_ID },
+        );
+    }
+
     function assertWebhookDeletionAttempted() {
         expect(mockCodeManagementService.deleteWebhook).toHaveBeenCalledWith({
             organizationAndTeamData: {
@@ -139,6 +156,7 @@ describe('DeleteIntegrationUseCase', () => {
 
                 assertWebhookDeletionAttempted();
                 assertIntegrationConfigDeleted();
+                assertCentralizedConfigDisabled();
                 assertIntegrationDeleted();
                 assertAuthIntegrationDeleted();
                 assertAuditLogEmitted();
@@ -162,6 +180,7 @@ describe('DeleteIntegrationUseCase', () => {
 
                 assertIntegrationDeleted();
                 assertAuthIntegrationDeleted();
+                assertCentralizedConfigDisabled();
             });
         });
 
@@ -173,6 +192,7 @@ describe('DeleteIntegrationUseCase', () => {
 
                 assertWebhookDeletionAttempted();
                 assertIntegrationConfigDeleted();
+                assertCentralizedConfigDisabled();
                 assertIntegrationDeleted();
                 assertAuthIntegrationDeleted();
                 assertAuditLogEmitted();
@@ -194,6 +214,7 @@ describe('DeleteIntegrationUseCase', () => {
 
                 assertIntegrationDeleted();
                 assertAuthIntegrationDeleted();
+                assertCentralizedConfigDisabled();
             });
         });
     });
@@ -210,6 +231,7 @@ describe('DeleteIntegrationUseCase', () => {
 
                 assertWebhookDeletionAttempted();
                 assertIntegrationConfigDeleted();
+                assertCentralizedConfigDisabled();
                 assertIntegrationDeleted();
                 assertAuthIntegrationDeleted();
                 assertAuditLogEmitted();
@@ -231,6 +253,7 @@ describe('DeleteIntegrationUseCase', () => {
 
                 assertIntegrationDeleted();
                 assertAuthIntegrationDeleted();
+                assertCentralizedConfigDisabled();
             });
         });
 
@@ -242,6 +265,7 @@ describe('DeleteIntegrationUseCase', () => {
 
                 assertWebhookDeletionAttempted();
                 assertIntegrationConfigDeleted();
+                assertCentralizedConfigDisabled();
                 assertIntegrationDeleted();
                 assertAuthIntegrationDeleted();
                 assertAuditLogEmitted();
@@ -263,6 +287,7 @@ describe('DeleteIntegrationUseCase', () => {
 
                 assertIntegrationDeleted();
                 assertAuthIntegrationDeleted();
+                assertCentralizedConfigDisabled();
             });
         });
     });
@@ -367,6 +392,7 @@ describe('DeleteIntegrationUseCase', () => {
             assertWebhookDeletionAttempted();
             assertIntegrationDeleted();
             assertAuthIntegrationDeleted();
+            assertCentralizedConfigDisabled();
             expect(mockIntegrationConfigService.delete).not.toHaveBeenCalled();
         });
     });

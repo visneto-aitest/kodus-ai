@@ -326,6 +326,24 @@ export const CentralizedConfigModal = ({
                         />
                     </div>
 
+                    <Alert variant="info">
+                        <AlertTitle className="text-balance">
+                            Tip: easier with CLI
+                        </AlertTitle>
+                        <AlertDescription className="text-pretty">
+                            Managing centralized config is easier with our CLI.
+                            See the setup guide in our docs.
+                            <a
+                                href="https://docs.kodus.io"
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-primary-light ml-1 inline-flex items-center gap-1 underline">
+                                Open docs
+                                <ExternalLink className="h-3 w-3" />
+                            </a>
+                        </AlertDescription>
+                    </Alert>
+
                     {enabled && (
                         <div className="animate-in fade-in slide-in-from-top-2 space-y-4 duration-200">
                             {/* Sync Options (Only for new setups) */}
