@@ -570,6 +570,7 @@ export class KodyIssuesManagementService implements IKodyIssuesManagementService
             'category',
             'organizationId',
             'filePath',
+            'status',
         ];
         exactMatchFields.forEach((field) => {
             if (filters[field]) {
