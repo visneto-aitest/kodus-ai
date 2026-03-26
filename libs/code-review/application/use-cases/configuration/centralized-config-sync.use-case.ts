@@ -29,8 +29,8 @@ type ConfigFileMeta = {
 };
 
 @Injectable()
-export class SyncCentralizedConfigUseCase {
-    private readonly logger = new Logger(SyncCentralizedConfigUseCase.name);
+export class CentralizedConfigSyncUseCase {
+    private readonly logger = new Logger(CentralizedConfigSyncUseCase.name);
 
     constructor(
         @Inject(PARAMETERS_SERVICE_TOKEN)
@@ -49,6 +49,7 @@ export class SyncCentralizedConfigUseCase {
 
     async execute(params: {
         organizationAndTeamData: OrganizationAndTeamData;
+        repository?: { name: string; id: string };
     }) {
         const { organizationAndTeamData } = params;
 
@@ -66,24 +67,33 @@ export class SyncCentralizedConfigUseCase {
                 return;
             }
 
-            const { repository } = centralizedConfigParameter.configValue;
+            if (params.repository) {
+                const centralizedRepoId =
+                    centralizedConfigParameter.configValue.repository?.id;
 
-            if (repository?.name?.toLowerCase() !== 'kodus') {
-                this.logger.warn({
-                    message:
-                        'Centralized config sync skipped: configured repository name must be "kodus"',
-                    context: SyncCentralizedConfigUseCase.name,
-                    metadata: {
-                        organizationAndTeamData,
-                        configuredRepositoryName: repository?.name,
-                    },
-                });
-                return;
+                if (
+                    centralizedRepoId &&
+                    params.repository.id !== centralizedRepoId
+                ) {
+                    this.logger.debug({
+                        message:
+                            'Centralized config is enabled but does not apply to this repository',
+                        context: CentralizedConfigSyncUseCase.name,
+                        metadata: {
+                            organizationAndTeamData,
+                            repository: params.repository,
+                            centralizedRepoId,
+                        },
+                    });
+                    return;
+                }
             }
+
+            const { repository } = centralizedConfigParameter.configValue;
 
             this.logger.log({
                 message: 'Starting centralized config sync',
-                context: SyncCentralizedConfigUseCase.name,
+                context: CentralizedConfigSyncUseCase.name,
                 metadata: {
                     organizationAndTeamData,
                 },
@@ -139,7 +149,7 @@ export class SyncCentralizedConfigUseCase {
                     this.logger.warn({
                         message:
                             'Config file not found or could not be fetched',
-                        context: SyncCentralizedConfigUseCase.name,
+                        context: CentralizedConfigSyncUseCase.name,
                         metadata: {
                             organizationAndTeamData,
                             repository,
@@ -168,7 +178,7 @@ export class SyncCentralizedConfigUseCase {
         } catch (error) {
             this.logger.error({
                 message: 'Error syncing centralized config',
-                context: SyncCentralizedConfigUseCase.name,
+                context: CentralizedConfigSyncUseCase.name,
                 metadata: {
                     organizationAndTeamData,
                 },
@@ -201,7 +211,7 @@ export class SyncCentralizedConfigUseCase {
         if (!repositories || !Array.isArray(repositories)) {
             this.logger.warn({
                 message: 'No repositories found in integration config',
-                context: SyncCentralizedConfigUseCase.name,
+                context: CentralizedConfigSyncUseCase.name,
                 metadata: {
                     organizationAndTeamData,
                 },
@@ -246,7 +256,7 @@ export class SyncCentralizedConfigUseCase {
             if (!repoId) {
                 this.logger.warn({
                     message: `Could not resolve repository ID for repository name: ${repoName}`,
-                    context: SyncCentralizedConfigUseCase.name,
+                    context: CentralizedConfigSyncUseCase.name,
                     metadata: {
                         organizationAndTeamData,
                         repoName,
@@ -515,7 +525,7 @@ export class SyncCentralizedConfigUseCase {
             this.logger.error({
                 message:
                     'Error fetching centralized config file from repository',
-                context: SyncCentralizedConfigUseCase.name,
+                context: CentralizedConfigSyncUseCase.name,
                 metadata: {
                     organizationAndTeamData,
                     repository,

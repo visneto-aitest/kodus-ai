@@ -34,7 +34,7 @@ import {
 } from '../dtos/parameters-response.dto';
 
 import { ApplyCodeReviewPresetUseCase } from '@libs/code-review/application/use-cases/configuration/apply-code-review-preset.use-case';
-import { SyncCentralizedConfigUseCase } from '@libs/code-review/application/use-cases/configuration/sync-centralized-config.use-case';
+import { CentralizedConfigSyncUseCase } from '@libs/code-review/application/use-cases/configuration/centralized-config-sync.use-case';
 import {
     CODE_BASE_CONFIG_SERVICE_TOKEN,
     ICodeBaseConfigService,
@@ -51,7 +51,8 @@ import {
 } from '@libs/identity/infrastructure/adapters/services/permissions/policy.guard';
 
 import { DeleteRepositoryCodeReviewParameterUseCase } from '@libs/code-review/application/use-cases/configuration/delete-repository-code-review-parameter.use-case';
-import { DownloadCentralizedConfigUseCase } from '@libs/code-review/application/use-cases/configuration/download-centralized-config.use-case';
+import { CentralizedConfigDownloadUseCase } from '@libs/code-review/application/use-cases/configuration/centralized-config-download.use-case';
+import { CentralizedConfigInitUseCase } from '@libs/code-review/application/use-cases/configuration/centralized-config-init.use-case';
 import { GenerateKodusConfigFileUseCase } from '@libs/code-review/application/use-cases/configuration/generate-kodus-config-file.use-case';
 import { GetCodeReviewParameterUseCase } from '@libs/code-review/application/use-cases/configuration/get-code-review-parameter.use-case';
 import { ListCodeReviewAutomationLabelsWithStatusUseCase } from '@libs/code-review/application/use-cases/configuration/list-code-review-automation-labels-with-status.use-case';
@@ -86,14 +87,15 @@ export class ParametersController {
         private readonly updateOrCreateCodeReviewParameterUseCase: UpdateOrCreateCodeReviewParameterUseCase,
         private readonly updateCodeReviewParameterRepositoriesUseCase: UpdateCodeReviewParameterRepositoriesUseCase,
         private readonly generateKodusConfigFileUseCase: GenerateKodusConfigFileUseCase,
-        private readonly downloadCentralizedConfigUseCase: DownloadCentralizedConfigUseCase,
         private readonly deleteRepositoryCodeReviewParameterUseCase: DeleteRepositoryCodeReviewParameterUseCase,
         private readonly previewPrSummaryUseCase: PreviewPrSummaryUseCase,
         private readonly listCodeReviewAutomationLabelsWithStatusUseCase: ListCodeReviewAutomationLabelsWithStatusUseCase,
         private readonly getDefaultConfigUseCase: GetDefaultConfigUseCase,
         private readonly getCodeReviewParameterUseCase: GetCodeReviewParameterUseCase,
         private readonly applyCodeReviewPresetUseCase: ApplyCodeReviewPresetUseCase,
-        private readonly syncCentralizedConfigUseCase: SyncCentralizedConfigUseCase,
+        private readonly centralizedConfigSyncUseCase: CentralizedConfigSyncUseCase,
+        private readonly centralizedConfigDownloadUseCase: CentralizedConfigDownloadUseCase,
+        private readonly centralizedConfigInitUseCase: CentralizedConfigInitUseCase,
 
         @Inject(CODE_BASE_CONFIG_SERVICE_TOKEN)
         private readonly codeBaseConfigService: ICodeBaseConfigService,
@@ -419,56 +421,6 @@ export class ParametersController {
         return response.send(yamlString);
     }
 
-    @Get('/download-centralized-config')
-    @ApiQuery({ name: 'teamId', type: String, required: true })
-    @UseGuards(PolicyGuard)
-    @CheckPolicies(
-        checkPermissions({
-            action: Action.Read,
-            resource: ResourceType.CodeReviewSettings,
-        }),
-    )
-    @ApiOperation({
-        summary: 'Download centralized config ZIP',
-        description:
-            "Download a ZIP containing the team's centralized kodus-config.yml files (global, per-repo and per-directory) ready to be placed in the central config repository.",
-    })
-    @ApiOkResponse({ content: { 'application/zip': {} } })
-    public async downloadCentralizedConfig(
-        @Res() response: Response,
-        @Query('teamId') teamId: string,
-    ) {
-        const organizationId = this.request?.user?.organization?.uuid;
-
-        if (!organizationId) {
-            throw new Error('Organization ID is missing from request');
-        }
-
-        const entries = await this.downloadCentralizedConfigUseCase.execute(
-            this.request.user,
-            teamId,
-        );
-
-        response.set({
-            'Content-Type': 'application/zip',
-            'Content-Disposition':
-                'attachment; filename=centralized-config.zip',
-        });
-
-        const archive = archiver('zip', { zlib: { level: 9 } });
-        archive.on('error', (err) => {
-            throw err;
-        });
-        archive.pipe(response);
-
-        for (const entry of entries) {
-            archive.append(entry.yamlString, { name: entry.name });
-        }
-
-        await archive.finalize();
-        return;
-    }
-
     @Post('/delete-repository-code-review-parameter')
     @UseGuards(PolicyGuard)
     @CheckPolicies(
@@ -493,49 +445,6 @@ export class ParametersController {
         body: DeleteRepositoryCodeReviewParameterDto,
     ) {
         return this.deleteRepositoryCodeReviewParameterUseCase.execute(body);
-    }
-
-    @Post('/sync-centralized-config')
-    @UseGuards(PolicyGuard)
-    @CheckPolicies(
-        checkPermissions({
-            action: Action.Update,
-            resource: ResourceType.CodeReviewSettings,
-        }),
-    )
-    @ApiOperation({
-        summary: 'Run centralized config sync',
-        description:
-            'Runs an on-demand centralized config sync for a team after enabling centralized config.',
-    })
-    @ApiCreatedResponse({
-        schema: {
-            type: 'object',
-            properties: {
-                success: { type: 'boolean', example: true },
-            },
-        },
-    })
-    public async syncCentralizedConfig(
-        @Body()
-        body: {
-            teamId: string;
-        },
-    ) {
-        const organizationId = this.request?.user?.organization?.uuid;
-
-        if (!organizationId) {
-            throw new Error('Organization ID is missing from request');
-        }
-
-        await this.syncCentralizedConfigUseCase.execute({
-            organizationAndTeamData: {
-                organizationId,
-                teamId: body.teamId,
-            },
-        });
-
-        return { success: true };
     }
     //#endregion
 
@@ -586,4 +495,150 @@ export class ParametersController {
         const ip = await this.codeBaseConfigService.getE2BIpAddress();
         return { ip };
     }
+    //#endregion
+
+    //#region Centralized config
+    @Post('/centralized-config-sync')
+    @UseGuards(PolicyGuard)
+    @CheckPolicies(
+        checkPermissions({
+            action: Action.Update,
+            resource: ResourceType.CodeReviewSettings,
+        }),
+    )
+    @ApiOperation({
+        summary: 'Run centralized config sync',
+        description: 'Runs an on-demand centralized config sync for a team.',
+    })
+    @ApiCreatedResponse({
+        schema: {
+            type: 'object',
+            properties: {
+                success: { type: 'boolean', example: true },
+            },
+        },
+    })
+    public async syncCentralizedConfig(
+        @Body()
+        body: {
+            teamId: string;
+        },
+    ) {
+        const organizationId = this.request?.user?.organization?.uuid;
+
+        if (!organizationId) {
+            throw new Error('Organization ID is missing from request');
+        }
+
+        await this.centralizedConfigSyncUseCase.execute({
+            organizationAndTeamData: {
+                organizationId,
+                teamId: body.teamId,
+            },
+        });
+
+        return { success: true };
+    }
+
+    @Get('/centralized-config-download')
+    @ApiQuery({ name: 'teamId', type: String, required: true })
+    @UseGuards(PolicyGuard)
+    @CheckPolicies(
+        checkPermissions({
+            action: Action.Read,
+            resource: ResourceType.CodeReviewSettings,
+        }),
+    )
+    @ApiOperation({
+        summary: 'Download centralized config ZIP',
+        description:
+            "Download a ZIP containing the team's centralized kodus-config.yml files (global, per-repo and per-directory) ready to be placed in the central config repository.",
+    })
+    @ApiOkResponse({ content: { 'application/zip': {} } })
+    public async downloadCentralizedConfig(
+        @Res() response: Response,
+        @Query('teamId') teamId: string,
+    ) {
+        const organizationId = this.request?.user?.organization?.uuid;
+
+        if (!organizationId) {
+            throw new Error('Organization ID is missing from request');
+        }
+
+        const entries = await this.centralizedConfigDownloadUseCase.execute(
+            this.request.user,
+            teamId,
+        );
+
+        response.set({
+            'Content-Type': 'application/zip',
+            'Content-Disposition':
+                'attachment; filename=centralized-config.zip',
+        });
+
+        const archive = archiver('zip', { zlib: { level: 9 } });
+        archive.on('error', (err) => {
+            throw err;
+        });
+        archive.pipe(response);
+
+        for (const entry of entries) {
+            archive.append(entry.content, { name: entry.path });
+        }
+
+        await archive.finalize();
+        return;
+    }
+
+    @Post('/centralized-config-init')
+    @UseGuards(PolicyGuard)
+    @CheckPolicies(
+        checkPermissions({
+            action: Action.Create,
+            resource: ResourceType.CodeReviewSettings,
+        }),
+    )
+    @ApiOperation({
+        summary: 'Initialize centralized config',
+        description:
+            'Initialize centralized configuration for a team by creating a PR with their current config.',
+    })
+    @ApiCreatedResponse({
+        schema: {
+            type: 'object',
+            properties: {
+                success: { type: 'boolean', example: true },
+            },
+        },
+    })
+    public async initializeCentralizedConfig(
+        @Body()
+        body: {
+            teamId: string;
+            repository: {
+                id: string;
+                name: string;
+            };
+            method: 'pr' | 'manual';
+        },
+    ) {
+        const organizationId = this.request?.user?.organization?.uuid;
+
+        if (!organizationId) {
+            throw new Error('Organization ID is missing from request');
+        }
+
+        await this.centralizedConfigInitUseCase.execute({
+            user: this.request.user,
+            organizationAndTeamData: {
+                organizationId,
+                teamId: body.teamId,
+            },
+            repository: body.repository,
+            method: body.method,
+        });
+
+        return { success: true };
+    }
+    //#endregion
 }

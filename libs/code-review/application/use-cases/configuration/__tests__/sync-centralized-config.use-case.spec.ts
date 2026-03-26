@@ -1,6 +1,6 @@
-import { SyncCentralizedConfigUseCase } from '../sync-centralized-config.use-case';
+import { CentralizedConfigSyncUseCase } from '../centralized-config-sync.use-case';
 
-describe('SyncCentralizedConfigUseCase', () => {
+describe('CentralizedConfigSyncUseCase', () => {
     const organizationAndTeamData = {
         organizationId: 'org-1',
         teamId: 'team-1',
@@ -72,7 +72,7 @@ describe('SyncCentralizedConfigUseCase', () => {
             execute: jest.fn().mockResolvedValue(true),
         };
 
-        const useCase = new SyncCentralizedConfigUseCase(
+        const useCase = new CentralizedConfigSyncUseCase(
             parametersService as any,
             integrationConfigService as any,
             codeManagementService as any,
@@ -223,7 +223,7 @@ describe('SyncCentralizedConfigUseCase', () => {
             execute: jest.fn().mockResolvedValue(true),
         };
 
-        const useCase = new SyncCentralizedConfigUseCase(
+        const useCase = new CentralizedConfigSyncUseCase(
             parametersService as any,
             integrationConfigService as any,
             codeManagementService as any,
@@ -274,7 +274,7 @@ describe('SyncCentralizedConfigUseCase', () => {
             execute: jest.fn().mockResolvedValue(true),
         };
 
-        const useCase = new SyncCentralizedConfigUseCase(
+        const useCase = new CentralizedConfigSyncUseCase(
             parametersService as any,
             {
                 findIntegrationConfigFormatted: jest.fn(),
@@ -390,7 +390,7 @@ describe('SyncCentralizedConfigUseCase', () => {
             execute: jest.fn().mockResolvedValue(true),
         };
 
-        const useCase = new SyncCentralizedConfigUseCase(
+        const useCase = new CentralizedConfigSyncUseCase(
             parametersService as any,
             integrationConfigService as any,
             codeManagementService as any,
@@ -525,7 +525,7 @@ describe('SyncCentralizedConfigUseCase', () => {
             execute: jest.fn().mockResolvedValue(true),
         };
 
-        const useCase = new SyncCentralizedConfigUseCase(
+        const useCase = new CentralizedConfigSyncUseCase(
             parametersService as any,
             integrationConfigService as any,
             codeManagementService as any,

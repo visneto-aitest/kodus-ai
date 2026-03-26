@@ -3,11 +3,12 @@ import { Injectable } from '@nestjs/common';
 import { createLogger } from '@kodus/flow';
 import { GenerateKodusConfigFileUseCase } from './generate-kodus-config-file.use-case';
 import { GetCodeReviewParameterUseCase } from './get-code-review-parameter.use-case';
+import { IUser } from '@libs/identity/domain/user/interfaces/user.interface';
 
 @Injectable()
-export class DownloadCentralizedConfigUseCase {
+export class CentralizedConfigDownloadUseCase {
     private readonly logger = createLogger(
-        DownloadCentralizedConfigUseCase.name,
+        CentralizedConfigDownloadUseCase.name,
     );
 
     constructor(
@@ -16,10 +17,10 @@ export class DownloadCentralizedConfigUseCase {
     ) {}
 
     public async execute(
-        user: any,
+        user: Partial<IUser>,
         teamId: string,
-    ): Promise<Array<{ name: string; yamlString: string }>> {
-        const entries: Array<{ name: string; yamlString: string }> = [];
+    ): Promise<Array<{ path: string; content: string }>> {
+        const entries: Array<{ path: string; content: string }> = [];
 
         // Global
         try {
@@ -30,12 +31,12 @@ export class DownloadCentralizedConfigUseCase {
                 );
 
             if (yamlString) {
-                entries.push({ name: 'kodus-config.yml', yamlString });
+                entries.push({ path: 'kodus-config.yml', content: yamlString });
             }
         } catch (error) {
             this.logger.error({
                 message: 'Failed to generate global Kodus config file',
-                context: DownloadCentralizedConfigUseCase.name,
+                context: CentralizedConfigDownloadUseCase.name,
                 metadata: {
                     teamId,
                     errorMessage: error.message,
@@ -65,14 +66,14 @@ export class DownloadCentralizedConfigUseCase {
 
                 if (yamlString) {
                     entries.push({
-                        name: `${repoFolderName}/kodus-config.yml`,
-                        yamlString,
+                        path: `${repoFolderName}/kodus-config.yml`,
+                        content: yamlString,
                     });
                 }
             } catch (error) {
                 this.logger.error({
                     message: 'Failed to generate repo Kodus config file',
-                    context: DownloadCentralizedConfigUseCase.name,
+                    context: CentralizedConfigDownloadUseCase.name,
                     metadata: {
                         teamId,
                         repoId: repo.id,
@@ -100,13 +101,13 @@ export class DownloadCentralizedConfigUseCase {
                             ? `${repoFolderName}/${dirPath}/kodus-config.yml`
                             : `${repoFolderName}/kodus-config.yml`;
 
-                        entries.push({ name: entryName, yamlString });
+                        entries.push({ path: entryName, content: yamlString });
                     }
                 } catch (error) {
                     this.logger.error({
                         message:
                             'Failed to generate directory Kodus config file',
-                        context: DownloadCentralizedConfigUseCase.name,
+                        context: CentralizedConfigDownloadUseCase.name,
                         metadata: {
                             teamId,
                             repoId: repo.id,

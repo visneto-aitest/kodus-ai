@@ -230,15 +230,16 @@ describe('ValidatePrerequisitesStage', () => {
         expect(result.pipelineMetadata?.showStatusFeedback).toBe(false);
     });
 
-    it('should skip review for repository kodus when centralized config is enabled', async () => {
+    it('should skip review for centralized config repository when centralized config is enabled', async () => {
         const context = makeContext();
-        context.repository.name = 'kodus';
+        context.repository.id = 'centralized-config-repo';
 
         mockParametersService.findByKey.mockImplementation((key: string) => {
             if (key === ParametersKey.CENTRALIZED_CONFIG) {
                 return Promise.resolve({
                     configValue: {
                         enabled: true,
+                        repository: { id: 'centralized-config-repo' },
                     },
                 });
             }
@@ -257,15 +258,16 @@ describe('ValidatePrerequisitesStage', () => {
         ).not.toHaveBeenCalled();
     });
 
-    it('should not skip review for repository kodus when centralized config is disabled', async () => {
+    it('should not skip review for non-centralized config repository when centralized config is enabled', async () => {
         const context = makeContext();
-        context.repository.name = 'kodus';
+        context.repository.id = 'non-centralized-config-repo';
 
         mockParametersService.findByKey.mockImplementation((key: string) => {
             if (key === ParametersKey.CENTRALIZED_CONFIG) {
                 return Promise.resolve({
                     configValue: {
-                        enabled: false,
+                        enabled: true,
+                        repository: { id: 'centralized-config-repo' },
                     },
                 });
             }

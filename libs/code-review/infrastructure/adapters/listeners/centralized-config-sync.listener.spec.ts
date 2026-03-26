@@ -1,25 +1,25 @@
 import { Test, TestingModule } from '@nestjs/testing';
 
-import { SyncCentralizedConfigUseCase } from '@libs/code-review/application/use-cases/configuration/sync-centralized-config.use-case';
+import { CentralizedConfigSyncUseCase } from '@libs/code-review/application/use-cases/configuration/centralized-config-sync.use-case';
 import { PullRequestClosedEvent } from '@libs/core/domain/events/pull-request-closed.event';
 import { CentralizedConfigSyncListener } from './centralized-config-sync.listener';
 
 describe('CentralizedConfigSyncListener', () => {
     let listener: CentralizedConfigSyncListener;
 
-    const syncCentralizedConfigUseCaseMock = {
+    const centralizedConfigSyncUseCaseMock = {
         execute: jest.fn(),
     };
 
     beforeEach(async () => {
-        syncCentralizedConfigUseCaseMock.execute.mockReset();
+        centralizedConfigSyncUseCaseMock.execute.mockReset();
 
         const module: TestingModule = await Test.createTestingModule({
             providers: [
                 CentralizedConfigSyncListener,
                 {
-                    provide: SyncCentralizedConfigUseCase,
-                    useValue: syncCentralizedConfigUseCaseMock,
+                    provide: CentralizedConfigSyncUseCase,
+                    useValue: centralizedConfigSyncUseCaseMock,
                 },
             ],
         }).compile();
@@ -29,14 +29,14 @@ describe('CentralizedConfigSyncListener', () => {
         );
     });
 
-    it('should sync centralized config when pull-request.closed is emitted for repository kodus', async () => {
+    it('should sync centralized config when pull-request.closed is emitted', async () => {
         const event = new PullRequestClosedEvent(
             {
                 organizationId: 'org-1',
                 teamId: 'team-1',
             } as any,
             {
-                id: 'repo-1',
+                id: 'centralized-config-repo',
                 name: 'kodus',
             },
             42,
@@ -45,27 +45,9 @@ describe('CentralizedConfigSyncListener', () => {
 
         await listener.handlePullRequestClosedEvent(event);
 
-        expect(syncCentralizedConfigUseCaseMock.execute).toHaveBeenCalledWith({
+        expect(centralizedConfigSyncUseCaseMock.execute).toHaveBeenCalledWith({
             organizationAndTeamData: event.organizationAndTeamData,
+            repository: event.repository,
         });
-    });
-
-    it('should not sync centralized config when repository name is not exactly kodus', async () => {
-        const event = new PullRequestClosedEvent(
-            {
-                organizationId: 'org-1',
-                teamId: 'team-1',
-            } as any,
-            {
-                id: 'repo-1',
-                name: 'Kodus',
-            },
-            42,
-            [],
-        );
-
-        await listener.handlePullRequestClosedEvent(event);
-
-        expect(syncCentralizedConfigUseCaseMock.execute).not.toHaveBeenCalled();
     });
 });

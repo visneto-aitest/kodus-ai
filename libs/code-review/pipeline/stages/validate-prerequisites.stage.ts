@@ -465,10 +465,6 @@ export class ValidatePrerequisitesStage extends BasePipelineStage<CodeReviewPipe
         organizationAndTeamData: OrganizationAndTeamData,
         repository?: { id?: string; name?: string },
     ): Promise<boolean> {
-        if (repository?.name !== 'kodus') {
-            return false;
-        }
-
         try {
             const centralizedConfigParameter =
                 await this.parametersService.findByKey(
@@ -476,7 +472,36 @@ export class ValidatePrerequisitesStage extends BasePipelineStage<CodeReviewPipe
                     organizationAndTeamData,
                 );
 
-            return centralizedConfigParameter?.configValue?.enabled === true;
+            if (
+                !centralizedConfigParameter ||
+                !centralizedConfigParameter.configValue ||
+                !centralizedConfigParameter.configValue.enabled
+            ) {
+                return false;
+            }
+
+            const centralizedConfigRepoId =
+                centralizedConfigParameter.configValue.repository?.id;
+
+            if (!centralizedConfigRepoId || !repository?.id) {
+                return false;
+            }
+
+            if (repository.id === centralizedConfigRepoId) {
+                this.logger.log({
+                    message: 'Centralized config repository identified',
+                    context: this.stageName,
+                    metadata: {
+                        organizationAndTeamData,
+                        repositoryName: repository.name,
+                        repositoryId: repository.id,
+                    },
+                });
+
+                return true;
+            }
+
+            return false;
         } catch (error) {
             this.logger.warn({
                 message:
