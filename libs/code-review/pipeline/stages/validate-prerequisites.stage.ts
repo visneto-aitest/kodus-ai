@@ -149,6 +149,35 @@ export class ValidatePrerequisitesStage extends BasePipelineStage<CodeReviewPipe
             });
         }
 
+        const centralizedConfigDisablesReviewForRepository =
+            await this.isCentralizedConfigRepositoryReviewDisabled(
+                organizationAndTeamData,
+                context.repository,
+            );
+
+        if (centralizedConfigDisablesReviewForRepository) {
+            this.logger.log({
+                message:
+                    'Repository is centralized-config source, skipping automation',
+                context: this.stageName,
+                metadata: {
+                    organizationAndTeamData,
+                    repositoryName: context.repository?.name,
+                    repositoryId: context.repository?.id,
+                    prNumber: pullRequest?.number,
+                },
+            });
+
+            return this.updateContext(context, (draft) => {
+                applyShowStatusFeedbackMetadata(draft);
+                draft.statusInfo = {
+                    status: AutomationStatus.SKIPPED,
+                    message:
+                        'Code reviews are disabled for the centralized config repository',
+                };
+            });
+        }
+
         // Centralized permission validation
         const validationResult =
             await this.permissionValidationService.validateExecutionPermissions(
@@ -427,6 +456,64 @@ export class ValidatePrerequisitesStage extends BasePipelineStage<CodeReviewPipe
             configValue?.ignoredUsers.includes(userGitId)
         ) {
             return true;
+        }
+
+        return false;
+    }
+
+    private async isCentralizedConfigRepositoryReviewDisabled(
+        organizationAndTeamData: OrganizationAndTeamData,
+        repository?: { id?: string; name?: string },
+    ): Promise<boolean> {
+        try {
+            const centralizedConfigParameter =
+                await this.parametersService.findByKey(
+                    ParametersKey.CENTRALIZED_CONFIG,
+                    organizationAndTeamData,
+                );
+
+            if (
+                !centralizedConfigParameter ||
+                !centralizedConfigParameter.configValue ||
+                !centralizedConfigParameter.configValue.enabled
+            ) {
+                return false;
+            }
+
+            const centralizedConfigRepoId =
+                centralizedConfigParameter.configValue.repository?.id;
+
+            if (!centralizedConfigRepoId || !repository?.id) {
+                return false;
+            }
+
+            if (repository.id === centralizedConfigRepoId) {
+                this.logger.log({
+                    message: 'Centralized config repository identified',
+                    context: this.stageName,
+                    metadata: {
+                        organizationAndTeamData,
+                        repositoryName: repository.name,
+                        repositoryId: repository.id,
+                    },
+                });
+
+                return true;
+            }
+
+            return false;
+        } catch (error) {
+            this.logger.warn({
+                message:
+                    'Error resolving centralized config repository review exclusion',
+                context: this.stageName,
+                error,
+                metadata: {
+                    organizationAndTeamData,
+                    repositoryId: repository?.id,
+                    repositoryName: repository?.name,
+                },
+            });
         }
 
         return false;

@@ -4,6 +4,7 @@ import { REQUEST } from '@nestjs/core';
 
 import { IntegrationCategory } from '@libs/core/domain/enums/integration-category.enum';
 import { IntegrationConfigKey } from '@libs/core/domain/enums/Integration-config-key.enum';
+import { ParametersKey } from '@libs/core/domain/enums/parameters-key.enum';
 import { PlatformType } from '@libs/core/domain/enums/platform-type.enum';
 import { ActionType } from '@libs/core/infrastructure/config/types/general/codeReviewSettingsLog.type';
 import { AuditLogEvents } from '@libs/ee/codeReviewSettingsLog/events/audit-log.events';
@@ -17,6 +18,7 @@ import {
     KODUS_MCP_GITHUB_ISSUES_INTEGRATION_ID,
     MCPManagerService,
 } from '@libs/mcp-server/services/mcp-manager.service';
+import { CreateOrUpdateParametersUseCase } from '@libs/organization/application/use-cases/parameters/create-or-update-use-case';
 import { CodeManagementService } from '@libs/platform/infrastructure/adapters/services/codeManagement.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
@@ -31,6 +33,7 @@ export class DeleteIntegrationUseCase {
         private readonly authIntegrationService: AuthIntegrationService,
         @Inject(INTEGRATION_CONFIG_SERVICE_TOKEN)
         private readonly integrationConfigService: IntegrationConfigService,
+        private readonly createOrUpdateParametersUseCase: CreateOrUpdateParametersUseCase,
         private readonly eventEmitter: EventEmitter2,
         private readonly mcpManagerService: MCPManagerService,
         @Inject(REQUEST)
@@ -106,6 +109,18 @@ export class DeleteIntegrationUseCase {
         if (integrationConfig) {
             await this.integrationConfigService.delete(integrationConfig.uuid);
         }
+
+        await this.createOrUpdateParametersUseCase.execute(
+            ParametersKey.CENTRALIZED_CONFIG,
+            {
+                enabled: false,
+                repository: null,
+            },
+            {
+                organizationId: params.organizationId,
+                teamId: params.teamId,
+            },
+        );
 
         this.eventEmitter.emit(AuditLogEvents.INTEGRATION, {
             organizationAndTeamData: {

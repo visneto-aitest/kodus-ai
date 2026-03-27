@@ -20,8 +20,10 @@ import { Action, ResourceType } from "@services/permissions/types";
 import { EyeIcon, RotateCcwIcon, Save } from "lucide-react";
 import { Controller, useFormContext } from "react-hook-form";
 import { useSelectedTeamId } from "src/core/providers/selected-team-context";
+import { unformatConfig } from "src/core/utils/helpers";
 
 import { CodeReviewPagesBreadcrumb } from "../../_components/breadcrumb";
+import { CentralizedConfigReadOnlyAlert } from "../../_components/centralized-config-readonly-alert";
 import GeneratingConfig from "../../_components/generating-config";
 import { OverrideIndicatorForm } from "../../_components/override";
 import { PRSummaryPreviewModal } from "../../_components/pr-summary-preview-modal/modal";
@@ -33,7 +35,6 @@ import {
     type AutomationCodeReviewConfigPageProps,
     type CodeReviewFormType,
 } from "../../_types";
-import { unformatConfig } from "src/core/utils/helpers";
 import {
     useCodeReviewConfig,
     usePlatformConfig,
@@ -181,6 +182,7 @@ export default function PRSummary(props: AutomationCodeReviewConfigPageProps) {
             </Page.Header>
 
             <Page.Content className="gap-8">
+                <CentralizedConfigReadOnlyAlert />
                 <div data-field-name="summary.generatePRSummary.value">
                     <Controller
                         name="summary.generatePRSummary.value"

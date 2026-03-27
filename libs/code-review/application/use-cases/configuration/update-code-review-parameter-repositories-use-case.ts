@@ -1,5 +1,5 @@
 import { CreateOrUpdateParametersUseCase } from '@libs/organization/application/use-cases/parameters/create-or-update-use-case';
-import { Inject, Injectable } from '@nestjs/common';
+import { ForbiddenException, Inject, Injectable } from '@nestjs/common';
 import { REQUEST } from '@nestjs/core';
 
 import { createLogger } from '@kodus/flow';
@@ -64,7 +64,7 @@ export class UpdateCodeReviewParameterRepositoriesUseCase {
     async execute(body: {
         organizationAndTeamData: OrganizationAndTeamData;
         actor?: {
-            source?: 'cli' | 'web';
+            source?: 'cli' | 'web' | 'sync';
             organizationId?: string;
             userId?: string;
             userEmail?: string;
@@ -72,6 +72,11 @@ export class UpdateCodeReviewParameterRepositoriesUseCase {
     }): Promise<ParametersEntity<ParametersKey.CODE_REVIEW_CONFIG> | boolean> {
         try {
             const { organizationAndTeamData } = body;
+
+            await this.ensureManualChangesAllowed(
+                organizationAndTeamData,
+                body.actor?.source,
+            );
 
             const codeReviewConfigs = await this.parametersService.findByKey(
                 ParametersKey.CODE_REVIEW_CONFIG,
@@ -185,6 +190,10 @@ export class UpdateCodeReviewParameterRepositoriesUseCase {
 
             return result;
         } catch (error) {
+            if (error instanceof ForbiddenException) {
+                throw error;
+            }
+
             this.logger.error({
                 message:
                     'Error creating or updating code review parameter repositories',
@@ -199,8 +208,28 @@ export class UpdateCodeReviewParameterRepositoriesUseCase {
         }
     }
 
+    private async ensureManualChangesAllowed(
+        organizationAndTeamData: OrganizationAndTeamData,
+        source?: 'cli' | 'web' | 'sync',
+    ): Promise<void> {
+        if (source === 'sync') {
+            return;
+        }
+
+        const centralizedConfig = await this.parametersService.findByKey(
+            ParametersKey.CENTRALIZED_CONFIG,
+            organizationAndTeamData,
+        );
+
+        if (centralizedConfig?.configValue?.enabled === true) {
+            throw new ForbiddenException(
+                'Code review settings are locked while centralized configuration is enabled.',
+            );
+        }
+    }
+
     private resolveActor(actor?: {
-        source?: 'cli' | 'web';
+        source?: 'cli' | 'web' | 'sync';
         organizationId?: string;
         userId?: string;
         userEmail?: string;

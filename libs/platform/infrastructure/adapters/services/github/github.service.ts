@@ -100,6 +100,11 @@ import {
     ETagCacheEntry,
     ETagStore,
 } from './octokit-etag-allowlist';
+import {
+    buildDefaultSourceBranchName,
+    DEFAULT_COMMIT_MESSAGE,
+    DEFAULT_PR_TITLE,
+} from '../code-management-defaults.constants';
 
 interface GitHubAuthResponse {
     token: string;
@@ -374,18 +379,16 @@ export class GithubService
 
             const updatedConfig =
                 await this.integrationConfigService.createOrUpdateConfig(
-                params.configKey,
-                params.configValue,
-                integration?.uuid,
-                params.organizationAndTeamData,
-                params.type,
+                    params.configKey,
+                    params.configValue,
+                    integration?.uuid,
+                    params.organizationAndTeamData,
+                    params.type,
                 );
 
             if (shouldRefreshTokenWebhooks) {
                 const nextRepositories = <Repositories[]>(
-                    updatedConfig?.configValue ??
-                        params.configValue ??
-                        []
+                    (updatedConfig?.configValue ?? params.configValue ?? [])
                 );
                 const removedRepositories = previousRepositories.filter(
                     (previousRepository) =>
@@ -399,8 +402,7 @@ export class GithubService
 
                 if (removedRepositories.length > 0) {
                     await this.deleteWebhook({
-                        organizationAndTeamData:
-                            params.organizationAndTeamData,
+                        organizationAndTeamData: params.organizationAndTeamData,
                         repositories: removedRepositories,
                     });
                 }
@@ -649,6 +651,296 @@ export class GithubService
         });
 
         return githubAuthDetail.org;
+    }
+
+    async findRepositoryByName(params: {
+        organizationAndTeamData: OrganizationAndTeamData;
+        name: string;
+    }): Promise<Partial<Repository> | null> {
+        const repositories = await this.getRepositories({
+            organizationAndTeamData: params.organizationAndTeamData,
+        });
+
+        const wanted = params.name.trim().toLowerCase();
+        const foundRepo = repositories.find((repo) => {
+            const fullName = (
+                repo.full_name || `${repo.organizationName}/${repo.name}`
+            ).toLowerCase();
+
+            return repo.name.toLowerCase() === wanted || fullName === wanted;
+        });
+
+        if (!foundRepo) {
+            return null;
+        }
+
+        return {
+            id: foundRepo.id,
+            name: foundRepo.name,
+            fullName:
+                foundRepo.full_name ||
+                `${foundRepo.organizationName}/${foundRepo.name}`,
+            defaultBranch: foundRepo.default_branch,
+        };
+    }
+
+    async createPullRequestWithFiles(params: {
+        organizationAndTeamData: OrganizationAndTeamData;
+        repository: { id: string; name: string };
+        sourceBranch?: string;
+        targetBranch?: string;
+        baseBranch?: string;
+        title?: string;
+        description?: string;
+        commitMessage?: string;
+        author?: { name: string; email?: string };
+        files: { path: string; content: string }[];
+    }): Promise<Partial<PullRequest> | null> {
+        const {
+            organizationAndTeamData,
+            repository,
+            sourceBranch,
+            targetBranch,
+            baseBranch,
+            title,
+            description = '',
+            commitMessage,
+            author,
+            files,
+        } = params;
+
+        const pullRequestTitle = title?.trim() || DEFAULT_PR_TITLE;
+        const resolvedBaseBranch =
+            baseBranch ||
+            targetBranch ||
+            (await this.getDefaultBranch({
+                organizationAndTeamData,
+                repository,
+            }));
+        const resolvedSourceBranch =
+            sourceBranch || buildDefaultSourceBranchName();
+        const resolvedTargetBranch = targetBranch || resolvedBaseBranch;
+        const resolvedCommitMessage =
+            commitMessage?.trim() || DEFAULT_COMMIT_MESSAGE;
+
+        try {
+            const uploadResult = await this.uploadFiles({
+                organizationAndTeamData,
+                repository,
+                branchName: resolvedSourceBranch,
+                baseBranch: resolvedBaseBranch,
+                files,
+                message: resolvedCommitMessage,
+                author,
+            });
+
+            if (!uploadResult) {
+                this.logger.error({
+                    message: 'Failed to upload files for pull request creation',
+                    context: GithubService.name,
+                    metadata: {
+                        repository: repository.name,
+                        sourceBranch: resolvedSourceBranch,
+                        targetBranch: resolvedTargetBranch,
+                        baseBranch: resolvedBaseBranch,
+                        title: pullRequestTitle,
+                        files: files.map((f) => f.path),
+                    },
+                });
+                return null;
+            }
+
+            const githubAuthDetail = await this.getGithubAuthDetails(
+                organizationAndTeamData,
+            );
+
+            const octokit = await this.instanceOctokit(
+                organizationAndTeamData,
+                githubAuthDetail,
+            );
+
+            const owner = await this.getCorrectOwner(githubAuthDetail, octokit);
+
+            const prResponse = await octokit.rest.pulls.create({
+                owner,
+                repo: repository.name,
+                title: pullRequestTitle,
+                head: resolvedSourceBranch,
+                base: resolvedTargetBranch,
+                body: description,
+            });
+
+            if (prResponse.status === 201) {
+                const prData = prResponse.data;
+
+                return {
+                    id: prData.id.toString(),
+                    number: prData.number,
+                    title: prData.title,
+                    prURL: prData.html_url,
+                };
+            } else {
+                this.logger.error({
+                    message: 'Failed to create pull request',
+                    context: GithubService.name,
+                    metadata: {
+                        repository: repository.name,
+                        sourceBranch: resolvedSourceBranch,
+                        targetBranch: resolvedTargetBranch,
+                        baseBranch: resolvedBaseBranch,
+                        title: pullRequestTitle,
+                        files: files.map((f) => f.path),
+                        status: prResponse.status,
+                    },
+                });
+
+                return null;
+            }
+        } catch (error) {
+            this.logger.error({
+                message: 'Error creating pull request with files',
+                context: GithubService.name,
+                error,
+                metadata: {
+                    repository: repository.name,
+                    sourceBranch: resolvedSourceBranch,
+                    targetBranch: resolvedTargetBranch,
+                    baseBranch: resolvedBaseBranch,
+                    title: pullRequestTitle,
+                    files: files.map((f) => f.path),
+                },
+            });
+
+            return null;
+        }
+    }
+
+    async uploadFiles(params: {
+        organizationAndTeamData: OrganizationAndTeamData;
+        repository: { id: string; name: string };
+        branchName?: string;
+        baseBranch?: string;
+        files: { path: string; content: string }[];
+        message?: string;
+        author?: { name: string; email?: string };
+    }): Promise<boolean> {
+        const {
+            organizationAndTeamData,
+            repository,
+            branchName,
+            baseBranch,
+            files,
+            message,
+            author,
+        } = params;
+
+        const resolvedBaseBranch =
+            baseBranch ||
+            (await this.getDefaultBranch({
+                organizationAndTeamData,
+                repository,
+            }));
+        const resolvedBranchName = branchName || resolvedBaseBranch;
+        const resolvedMessage = message?.trim() || DEFAULT_COMMIT_MESSAGE;
+
+        try {
+            const githubAuthDetail = await this.getGithubAuthDetails(
+                organizationAndTeamData,
+            );
+
+            const tokenAuthorIdentity =
+                githubAuthDetail?.authMode === AuthMode.TOKEN && author?.name
+                    ? {
+                          name: author.name,
+                          email: author.email || 'kody@kodus.io',
+                      }
+                    : undefined;
+
+            const octokit = await this.instanceOctokit(
+                organizationAndTeamData,
+                githubAuthDetail,
+            );
+
+            const owner = await this.getCorrectOwner(githubAuthDetail, octokit);
+
+            const { data: baseRef } = await octokit.rest.git.getRef({
+                owner,
+                repo: repository.name,
+                ref: `heads/${resolvedBaseBranch}`,
+            });
+            const baseSha = baseRef.object.sha;
+
+            const treeItems = await Promise.all(
+                files.map(async (file) => {
+                    const { data: blob } = await octokit.rest.git.createBlob({
+                        owner,
+                        repo: repository.name,
+                        content: Buffer.from(file.content).toString('base64'),
+                        encoding: 'base64',
+                    });
+
+                    return {
+                        path: file.path,
+                        mode: '100644' as const,
+                        type: 'blob' as const,
+                        sha: blob.sha,
+                    };
+                }),
+            );
+
+            const { data: tree } = await octokit.rest.git.createTree({
+                owner,
+                repo: repository.name,
+                tree: treeItems,
+                base_tree: baseSha,
+            });
+
+            const { data: commit } = await octokit.rest.git.createCommit({
+                owner,
+                repo: repository.name,
+                message: resolvedMessage,
+                tree: tree.sha,
+                parents: [baseSha],
+                ...(tokenAuthorIdentity
+                    ? {
+                          author: tokenAuthorIdentity,
+                          committer: tokenAuthorIdentity,
+                      }
+                    : {}),
+            });
+
+            if (resolvedBranchName === resolvedBaseBranch) {
+                await octokit.rest.git.updateRef({
+                    owner,
+                    repo: repository.name,
+                    ref: `heads/${resolvedBranchName}`,
+                    sha: commit.sha,
+                });
+            } else {
+                await octokit.rest.git.createRef({
+                    owner,
+                    repo: repository.name,
+                    ref: `refs/heads/${resolvedBranchName}`,
+                    sha: commit.sha,
+                });
+            }
+
+            return true;
+        } catch (error) {
+            this.logger.error({
+                message: 'Error uploading files to GitHub',
+                context: GithubService.name,
+                error,
+                metadata: {
+                    repository: repository.name,
+                    branchName: resolvedBranchName,
+                    baseBranch: resolvedBaseBranch,
+                    files: files.map((f) => f.path),
+                },
+            });
+
+            return false;
+        }
     }
 
     private async checkRepositoryPermissions(params: {
@@ -5485,7 +5777,7 @@ This is an experimental feature that generates committable changes. Review the d
     async getRepositoryTree(params: {
         organizationAndTeamData: OrganizationAndTeamData;
         repositoryId: string;
-    }): Promise<any[]> {
+    }): Promise<TreeItem[]> {
         try {
             const githubAuthDetail = await this.getGithubAuthDetails(
                 params.organizationAndTeamData,
@@ -5583,15 +5875,7 @@ This is an experimental feature that generates committable changes. Review the d
         repo: string;
         octokit: any;
         rootTreeSha: string;
-    }): Promise<
-        {
-            path: string;
-            type: 'file' | 'directory';
-            sha: string;
-            size?: number;
-            url: string;
-        }[]
-    > {
+    }): Promise<TreeItem[]> {
         const { owner, repo, octokit, rootTreeSha } = params;
         const allItems = [];
         const limit = pLimit(3);

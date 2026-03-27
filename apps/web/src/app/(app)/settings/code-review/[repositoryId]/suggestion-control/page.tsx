@@ -9,8 +9,10 @@ import { KodyLearningStatus } from "@services/parameters/types";
 import { RotateCcwIcon, Save } from "lucide-react";
 import { useFormContext } from "react-hook-form";
 import { useSelectedTeamId } from "src/core/providers/selected-team-context";
+import { unformatConfig } from "src/core/utils/helpers";
 
 import { CodeReviewPagesBreadcrumb } from "../../_components/breadcrumb";
+import { CentralizedConfigReadOnlyAlert } from "../../_components/centralized-config-readonly-alert";
 import GeneratingConfig from "../../_components/generating-config";
 import { CodeReviewSaveButton } from "../../_components/save-button";
 import { useCodeReviewSettingsMutation } from "../../_hooks/use-code-review-settings-mutation";
@@ -19,7 +21,6 @@ import {
     type AutomationCodeReviewConfigPageProps,
     type CodeReviewFormType,
 } from "../../_types";
-import { unformatConfig } from "src/core/utils/helpers";
 import { usePlatformConfig } from "../../../_components/context";
 import { useCodeReviewRouteParams } from "../../../_hooks";
 import { ApplyFiltersToKodyRules } from "./_components/apply-filters-to-kody-rules";
@@ -121,6 +122,7 @@ export default function SuggestionControl(
             </Page.Header>
 
             <Page.Content className="mt-10 flex-none">
+                <CentralizedConfigReadOnlyAlert />
                 <div data-field-name="suggestionControl.suggestionGroupingMode">
                     <SuggestionGroupingMode />
                 </div>

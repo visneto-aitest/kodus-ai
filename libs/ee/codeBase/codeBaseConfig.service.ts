@@ -32,6 +32,7 @@ import { ValidateCodeManagementIntegration } from '@libs/common/utils/decorators
 import { deepMerge } from '@libs/common/utils/deep';
 import { getDefaultKodusConfigFile } from '@libs/common/utils/validateCodeReviewConfigFile';
 import { CacheService } from '@libs/core/cache/cache.service';
+import { PermissionValidationService } from '@libs/ee/shared/services/permissionValidation.service';
 import {
     IIntegrationConfigService,
     INTEGRATION_CONFIG_SERVICE_TOKEN,
@@ -59,7 +60,6 @@ import {
 import { AuthMode } from '@libs/platform/domain/platformIntegrations/enums/codeManagement/authMode.enum';
 import { CodeManagementService } from '@libs/platform/infrastructure/adapters/services/codeManagement.service';
 import { KodyRulesValidationService } from '../kodyRules/service/kody-rules-validation.service';
-import { PermissionValidationService } from '@libs/ee/shared/services/permissionValidation.service';
 
 const GLOBAL_IGNORE_PATHS_CACHE_KEY = 'global:ignore_paths';
 const GLOBAL_IGNORE_PATHS_CACHE_TTL = 43200000; // 12 hours
@@ -631,6 +631,7 @@ export default class CodeBaseConfigService implements ICodeBaseConfigService {
         overrideConfig?: boolean;
         directoryPath?: string;
         defaultBranch?: string;
+        removeProperties?: boolean;
     }): Promise<KodusConfigFile | undefined> {
         const {
             organizationAndTeamData,
@@ -638,6 +639,7 @@ export default class CodeBaseConfigService implements ICodeBaseConfigService {
             directoryPath,
             defaultBranch,
             overrideConfig = true,
+            removeProperties = true,
         } = params;
 
         if (!overrideConfig) {
@@ -676,8 +678,10 @@ export default class CodeBaseConfigService implements ICodeBaseConfigService {
             }
         }
 
-        delete kodusConfigYMLfile.version;
-        delete kodusConfigYMLfile.kodusConfigFileOverridesWebPreferences;
+        if (removeProperties) {
+            delete kodusConfigYMLfile.version;
+            delete kodusConfigYMLfile.kodusConfigFileOverridesWebPreferences;
+        }
 
         return kodusConfigYMLfile;
     }

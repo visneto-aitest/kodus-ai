@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable } from '@nestjs/common';
 import { OrganizationAndTeamData } from '@libs/core/infrastructure/config/types/general/organizationAndTeamData';
 import {
     FormattedGlobalCodeReviewConfig,
@@ -35,13 +35,20 @@ export class GetCliRepositorySettingsUseCase {
             return this.toCliRepositorySettings(repositoryConfig);
         }
 
-        await this.updateCodeReviewParameterRepositoriesUseCase.execute({
-            actor: {
-                organizationId: params.organizationAndTeamData.organizationId,
-                source: 'cli',
-            },
-            organizationAndTeamData: params.organizationAndTeamData,
-        });
+        try {
+            await this.updateCodeReviewParameterRepositoriesUseCase.execute({
+                actor: {
+                    organizationId:
+                        params.organizationAndTeamData.organizationId,
+                    source: 'cli',
+                },
+                organizationAndTeamData: params.organizationAndTeamData,
+            });
+        } catch (error) {
+            if (!(error instanceof ForbiddenException)) {
+                throw error;
+            }
+        }
 
         config = await this.getFormattedConfig(params.organizationAndTeamData);
         repositoryConfig = this.findRepositoryConfig(

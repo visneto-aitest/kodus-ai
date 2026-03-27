@@ -229,4 +229,63 @@ describe('ValidatePrerequisitesStage', () => {
         expect(result.pipelineMetadata?.notificationHandled).toBe(true);
         expect(result.pipelineMetadata?.showStatusFeedback).toBe(false);
     });
+
+    it('should skip review for centralized config repository when centralized config is enabled', async () => {
+        const context = makeContext();
+        context.repository.id = 'centralized-config-repo';
+
+        mockParametersService.findByKey.mockImplementation((key: string) => {
+            if (key === ParametersKey.CENTRALIZED_CONFIG) {
+                return Promise.resolve({
+                    configValue: {
+                        enabled: true,
+                        repository: { id: 'centralized-config-repo' },
+                    },
+                });
+            }
+
+            return Promise.resolve(undefined);
+        });
+
+        const result = await stage.execute(context);
+
+        expect(result.statusInfo?.status).toBe('skipped');
+        expect(result.statusInfo?.message).toBe(
+            'Code reviews are disabled for the centralized config repository',
+        );
+        expect(
+            mockPermissionValidationService.validateExecutionPermissions,
+        ).not.toHaveBeenCalled();
+    });
+
+    it('should not skip review for non-centralized config repository when centralized config is enabled', async () => {
+        const context = makeContext();
+        context.repository.id = 'non-centralized-config-repo';
+
+        mockParametersService.findByKey.mockImplementation((key: string) => {
+            if (key === ParametersKey.CENTRALIZED_CONFIG) {
+                return Promise.resolve({
+                    configValue: {
+                        enabled: true,
+                        repository: { id: 'centralized-config-repo' },
+                    },
+                });
+            }
+
+            return Promise.resolve(undefined);
+        });
+
+        mockPermissionValidationService.validateExecutionPermissions.mockResolvedValue(
+            {
+                allowed: true,
+                errorType: ValidationErrorType.NOT_ERROR,
+            },
+        );
+
+        await stage.execute(context);
+
+        expect(
+            mockPermissionValidationService.validateExecutionPermissions,
+        ).toHaveBeenCalled();
+    });
 });

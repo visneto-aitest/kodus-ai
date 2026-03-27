@@ -48,6 +48,7 @@ export interface ICodeBaseConfigService {
         overrideConfig?: boolean;
         directoryPath?: string;
         defaultBranch?: string;
+        removeProperties?: boolean;
     }): Promise<KodusConfigFile | undefined>;
 
     getE2BIpAddress(): Promise<string | null>;

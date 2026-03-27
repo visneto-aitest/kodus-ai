@@ -22,6 +22,7 @@ import { useSelectedTeamId } from "src/core/providers/selected-team-context";
 import { unformatConfig } from "src/core/utils/helpers";
 
 import { CodeReviewPagesBreadcrumb } from "../../_components/breadcrumb";
+import { CentralizedConfigReadOnlyAlert } from "../../_components/centralized-config-readonly-alert";
 import GeneratingConfig from "../../_components/generating-config";
 import { CodeReviewSaveButton } from "../../_components/save-button";
 import { useCodeReviewSettingsMutation } from "../../_hooks/use-code-review-settings-mutation";
@@ -188,10 +189,8 @@ function CustomPromptsContent() {
         () => promptFieldConfigs.map((field) => field.name) as string[],
         [promptFieldConfigs],
     );
-    const {
-        isValid: formIsValid,
-        isSubmitting: formIsSubmitting,
-    } = form.formState;
+    const { isValid: formIsValid, isSubmitting: formIsSubmitting } =
+        form.formState;
 
     const watchedPromptValues = useWatch({
         control: form.control,
@@ -255,9 +254,7 @@ function CustomPromptsContent() {
     });
 
     const scrollToDirtyPrompt = useCallback(() => {
-        const dirtyField = promptFields.find(
-            (field) => dirtyFields[field],
-        );
+        const dirtyField = promptFields.find((field) => dirtyFields[field]);
 
         if (dirtyField) {
             let fieldElement: Element | null = null;
@@ -350,6 +347,7 @@ function CustomPromptsContent() {
             </Page.Header>
 
             <Page.Content className="gap-8">
+                <CentralizedConfigReadOnlyAlert />
                 {promptSections.map((section) => (
                     <Card
                         key={section.fieldName}

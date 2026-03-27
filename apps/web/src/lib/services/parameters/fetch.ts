@@ -194,3 +194,50 @@ export const applyCodeReviewPreset = async (params: {
         return { error: error.response?.status || "Erro desconhecido" };
     }
 };
+
+export const centralizedConfigSync = async (teamId: string) => {
+    try {
+        const response = await axiosAuthorized.post<any>(
+            PARAMETERS_PATHS.CENTRALIZED_CONFIG_SYNC,
+            { teamId },
+        );
+
+        return response.data;
+    } catch (error: any) {
+        return { error: error.response?.status || "Unknown error" };
+    }
+};
+
+export const centralizedConfigInit = async (body: {
+    teamId: string;
+    repository: { id: string; name: string };
+    syncOption: "pr" | "manual";
+}) => {
+    try {
+        const response = await axiosAuthorized.post<any>(
+            PARAMETERS_PATHS.CENTRALIZED_CONFIG_INIT,
+            body,
+        );
+
+        return response.data as {
+            success: boolean;
+            message: string;
+            prUrl?: string;
+        };
+    } catch (error: any) {
+        return { error: error.response?.status || "Unknown error" };
+    }
+};
+
+export const centralizedConfigDownload = async (teamId: string) => {
+    try {
+        const data = await axiosAuthorized.fetcher<Blob>(
+            PARAMETERS_PATHS.CENTRALIZED_CONFIG_DOWNLOAD,
+            { params: { teamId }, responseType: "blob" },
+        );
+
+        return data;
+    } catch (error) {
+        throw error;
+    }
+};

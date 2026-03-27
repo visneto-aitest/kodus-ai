@@ -30,6 +30,7 @@ import { GetOrganizationLanguageUseCase } from '../application/use-cases/organiz
 import { PlatformCoreModule } from './platform-core.module';
 
 import { AutomationModule } from '@libs/automation/modules/automation.module';
+import { CodeReviewConfigurationModule } from '@libs/code-review/modules/code-review-configuration.module';
 import { WorkflowModule } from '@libs/core/workflow/modules/workflow.module';
 import { IssuesModule } from '@libs/issues/issues.module';
 import { KodyRulesModule } from '@libs/kodyRules/modules/kodyRules.module';
@@ -59,6 +60,7 @@ import { McpCoreModule } from '@libs/mcp-server/mcp-core.module';
         forwardRef(() => KodyRulesModule),
         forwardRef(() => IssuesModule),
         forwardRef(() => McpCoreModule),
+        forwardRef(() => CodeReviewConfigurationModule),
     ],
     providers: [
         ...CodeManagementUseCases,

@@ -4,10 +4,9 @@ import { Reaction } from '@libs/code-review/domain/codeReviewFeedback/enums/code
 import { hasKodyMarker } from '@libs/common/utils/codeManagement/codeCommentMarkers';
 import { decrypt, encrypt } from '@libs/common/utils/crypto';
 import { IntegrationServiceDecorator } from '@libs/common/utils/decorators/integration-service.decorator';
-import { CodeManagementConnectionStatus } from '@libs/platform/domain/platformIntegrations/interfaces/code-management.interface';
 import {
-    isFileMatchingGlobCaseInsensitive,
     isFileMatchingGlob,
+    isFileMatchingGlobCaseInsensitive,
 } from '@libs/common/utils/glob-utils';
 import { CacheService } from '@libs/core/cache/cache.service';
 import {
@@ -18,8 +17,8 @@ import {
     PullRequestState,
 } from '@libs/core/domain/enums';
 import {
-    FileChange,
     CommentResult,
+    FileChange,
     Repository,
 } from '@libs/core/infrastructure/config/types/general/codeReview.type';
 import { Commit } from '@libs/core/infrastructure/config/types/general/commit.type';
@@ -41,20 +40,21 @@ import {
 } from '@libs/integrations/domain/integrations/contracts/integration.service.contracts';
 import { IntegrationEntity } from '@libs/integrations/domain/integrations/entities/integration.entity';
 import { MCPManagerService } from '@libs/mcp-server/services/mcp-manager.service';
+import { CodeManagementConnectionStatus } from '@libs/platform/domain/platformIntegrations/interfaces/code-management.interface';
 
 import { AuthMode } from '@libs/platform/domain/platformIntegrations/enums/codeManagement/authMode.enum';
 import { ICodeManagementService } from '@libs/platform/domain/platformIntegrations/interfaces/code-management.interface';
 import { GitCloneParams } from '@libs/platform/domain/platformIntegrations/types/codeManagement/gitCloneParams.type';
 import {
-    PullRequestAuthor,
-    PullRequestsWithChangesRequested,
-    PullRequestReviewState,
-    PullRequest,
-    PullRequestWithFiles,
-    PullRequestFile,
-    PullRequestCodeReviewTime,
     OneSentenceSummaryItem,
+    PullRequest,
+    PullRequestAuthor,
+    PullRequestCodeReviewTime,
+    PullRequestFile,
     PullRequestReviewComment,
+    PullRequestReviewState,
+    PullRequestsWithChangesRequested,
+    PullRequestWithFiles,
     ReactionsInComments,
 } from '@libs/platform/domain/platformIntegrations/types/codeManagement/pullRequests.type';
 import { Repositories } from '@libs/platform/domain/platformIntegrations/types/codeManagement/repositories.type';
@@ -68,6 +68,11 @@ import { APIClient, Bitbucket, Schema } from 'bitbucket';
 import { Response as BitbucketResponse } from 'bitbucket/src/request/types';
 import moment from 'moment';
 import { v4 } from 'uuid';
+import {
+    buildDefaultSourceBranchName,
+    DEFAULT_COMMIT_MESSAGE,
+    DEFAULT_PR_TITLE,
+} from './code-management-defaults.constants';
 
 @Injectable()
 @IntegrationServiceDecorator(PlatformType.BITBUCKET, 'codeManagement')
@@ -98,6 +103,262 @@ export class BitbucketService implements Omit<
         private readonly cacheService: CacheService,
         private readonly mcpManagerService?: MCPManagerService,
     ) {}
+
+    async findRepositoryByName(params: {
+        organizationAndTeamData: OrganizationAndTeamData;
+        name: string;
+    }) {
+        const { organizationAndTeamData, name } = params;
+
+        try {
+            const repositories = await this.getRepositories({
+                organizationAndTeamData: organizationAndTeamData,
+            });
+
+            const wanted = name.trim().toLowerCase();
+            const repository = repositories.find(
+                (repo) =>
+                    repo.name.toLowerCase() === wanted ||
+                    repo.full_name?.toLowerCase() === wanted ||
+                    `${repo.organizationName}/${repo.name}`.toLowerCase() ===
+                        wanted,
+            );
+
+            if (!repository) {
+                return null;
+            }
+
+            return {
+                id: repository.id,
+                name: repository.name,
+                fullName: `${repository.organizationName}/${repository.name}`,
+                url: repository.http_url,
+                organizationName: repository.organizationName,
+                defaultBranch: repository.default_branch,
+                visibility: repository.visibility,
+                workspaceId: repository.workspaceId,
+                project: repository.project,
+            };
+        } catch (error) {
+            this.logger.error({
+                message: 'Error finding repository by name in Bitbucket',
+                context: BitbucketService.name,
+                error,
+                metadata: { params },
+            });
+            throw new BadRequestException(error);
+        }
+    }
+
+    async createPullRequestWithFiles(params: {
+        organizationAndTeamData: OrganizationAndTeamData;
+        repository: { id: string; name: string };
+        sourceBranch?: string;
+        targetBranch?: string;
+        baseBranch?: string;
+        title?: string;
+        description?: string;
+        commitMessage?: string;
+        author?: { name: string; email?: string };
+        files: { path: string; content: string }[];
+    }): Promise<Partial<PullRequest> | null> {
+        const {
+            organizationAndTeamData,
+            repository,
+            sourceBranch,
+            targetBranch,
+            baseBranch,
+            title,
+            description = '',
+            commitMessage,
+            author,
+            files,
+        } = params;
+
+        const resolvedSourceBranch =
+            sourceBranch || buildDefaultSourceBranchName();
+        const resolvedTitle = title?.trim() || DEFAULT_PR_TITLE;
+        const resolvedCommitMessage =
+            commitMessage?.trim() || DEFAULT_COMMIT_MESSAGE;
+
+        try {
+            const resolvedTargetBranch =
+                targetBranch ||
+                (await this.getDefaultBranch({
+                    organizationAndTeamData,
+                    repository,
+                }));
+            const resolvedBaseBranch = baseBranch || resolvedTargetBranch;
+
+            const bitbucketAuthDetail = await this.getAuthDetails(
+                organizationAndTeamData,
+            );
+
+            if (!bitbucketAuthDetail) {
+                throw new BadRequestException(
+                    'Failed to get Bitbucket authentication details',
+                );
+            }
+
+            const bitbucketAPI = this.instanceBitbucketApi(bitbucketAuthDetail);
+
+            const workspace = await this.getWorkspaceFromRepository(
+                organizationAndTeamData,
+                repository.id,
+            );
+
+            if (!workspace) {
+                throw new BadRequestException(
+                    'Failed to get workspace from repository',
+                );
+            }
+
+            const uploadResult = await this.uploadFiles({
+                organizationAndTeamData,
+                branchName: resolvedSourceBranch,
+                baseBranch: resolvedBaseBranch,
+                repository,
+                files,
+                message: resolvedCommitMessage,
+                author,
+            });
+
+            if (!uploadResult) {
+                throw new BadRequestException(
+                    'Failed to upload files to Bitbucket',
+                );
+            }
+
+            const pr = await bitbucketAPI.pullrequests.create({
+                workspace: `{${workspace}}`,
+                repo_slug: `{${repository.id}}`,
+                // @ts-expect-error: library type definition is incorrect for the body of this endpoint
+                _body: {
+                    title: resolvedTitle,
+                    summary: {
+                        raw: description,
+                    },
+                    source: {
+                        branch: {
+                            name: resolvedSourceBranch,
+                        },
+                    },
+                    destination: {
+                        branch: {
+                            name: resolvedTargetBranch,
+                        },
+                    },
+                },
+            });
+
+            return {
+                id: pr.data.id.toString(),
+                number: pr.data.id,
+                title: pr.data.title,
+                prURL: pr.data.links.html.href,
+            };
+        } catch (error) {
+            this.logger.error({
+                message: 'Error creating pull request with files in Bitbucket',
+                context: BitbucketService.name,
+                error,
+                metadata: { params },
+            });
+            throw new BadRequestException(error);
+        }
+    }
+
+    async uploadFiles(params: {
+        organizationAndTeamData: OrganizationAndTeamData;
+        repository: { id: string; name: string };
+        branchName?: string;
+        baseBranch?: string;
+        files: { path: string; content: string }[];
+        message?: string;
+        author?: { name: string; email?: string };
+    }): Promise<boolean> {
+        const {
+            organizationAndTeamData,
+            repository,
+            branchName,
+            baseBranch,
+            files,
+            message,
+            author,
+        } = params;
+
+        try {
+            const defaultBranch = await this.getDefaultBranch({
+                organizationAndTeamData,
+                repository,
+            });
+            const resolvedBaseBranch = baseBranch || defaultBranch;
+            const resolvedBranchName = branchName || resolvedBaseBranch;
+            const resolvedMessage = message?.trim() || DEFAULT_COMMIT_MESSAGE;
+
+            const bitbucketAuthDetail = await this.getAuthDetails(
+                organizationAndTeamData,
+            );
+
+            if (!bitbucketAuthDetail) {
+                throw new BadRequestException(
+                    'Failed to get Bitbucket authentication details',
+                );
+            }
+
+            const bitbucketAPI = this.instanceBitbucketApi(bitbucketAuthDetail);
+
+            const workspace = await this.getWorkspaceFromRepository(
+                organizationAndTeamData,
+                repository.id,
+            );
+
+            if (!workspace) {
+                throw new BadRequestException(
+                    'Failed to get workspace from repository',
+                );
+            }
+
+            const form = new FormData();
+
+            form.append('branch', resolvedBranchName);
+            form.append('message', resolvedMessage);
+
+            if (
+                bitbucketAuthDetail.authMode === AuthMode.TOKEN &&
+                author?.name
+            ) {
+                form.append(
+                    'author',
+                    `${author.name} <${author.email || 'kody@kodus.io'}>`,
+                );
+            }
+
+            files.forEach((file) => {
+                const repoPath = file.path.startsWith('/')
+                    ? file.path
+                    : `/${file.path}`;
+                form.append(repoPath, file.content);
+            });
+
+            await bitbucketAPI.source.createFileCommit({
+                workspace: `{${workspace}}`,
+                repo_slug: `{${repository.id}}`,
+                _body: form,
+            });
+
+            return true;
+        } catch (error) {
+            this.logger.error({
+                message: 'Error uploading files to Bitbucket',
+                context: BitbucketService.name,
+                error,
+                metadata: { params },
+            });
+
+            return false;
+        }
+    }
 
     getWorkflows(params: any): Promise<Workflow[]> {
         throw new Error('Method not implemented.');
@@ -4437,7 +4698,7 @@ export class BitbucketService implements Omit<
         organizationAndTeamData: OrganizationAndTeamData;
         repositoryId: string;
         treeType?: 'all' | 'directories' | 'files';
-    }): Promise<any[]> {
+    }): Promise<TreeItem[]> {
         try {
             const {
                 organizationAndTeamData,
@@ -4513,11 +4774,11 @@ export class BitbucketService implements Omit<
         workspace: string,
         repositoryId: string,
         maxDepth: number = 10, // Evitar timeout, pode ajustar conforme necessário
-    ): Promise<any[]> {
+    ): Promise<TreeItem[]> {
         try {
             const bitbucketAPI =
                 this.instanceBitbucketApi(bitbucketAuthDetails);
-            const allItems: any[] = [];
+            const allItems: TreeItem[] = [];
             let hasNext = true;
             let nextPageUrl: string | null = null;
             let pageNum = 1;
@@ -4578,12 +4839,13 @@ export class BitbucketService implements Omit<
                         path: item.path,
                         type:
                             item.type === 'commit_directory'
-                                ? 'directory'
-                                : 'file',
+                                ? ('directory' as const)
+                                : ('file' as const),
                         sha: item.commit?.hash || '',
                         size: item.size || undefined,
                         url: item.links?.self?.href || '',
                         commit: item.commit, // Manter dados do commit se necessário
+                        hasChildren: item.type === 'commit_directory', // Marcar diretórios para possível navegação futura
                     };
 
                     allItems.push(normalizedItem);
