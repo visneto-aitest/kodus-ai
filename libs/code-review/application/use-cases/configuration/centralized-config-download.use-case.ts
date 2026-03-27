@@ -4,6 +4,9 @@ import { createLogger } from '@kodus/flow';
 import { GenerateKodusConfigFileUseCase } from './generate-kodus-config-file.use-case';
 import { GetCodeReviewParameterUseCase } from './get-code-review-parameter.use-case';
 import { IUser } from '@libs/identity/domain/user/interfaces/user.interface';
+import * as yaml from 'js-yaml';
+import * as fs from 'fs';
+import { KodusConfigFile } from '@libs/core/infrastructure/config/types/general/codeReview.type';
 
 @Injectable()
 export class CentralizedConfigDownloadUseCase {
@@ -26,12 +29,43 @@ export class CentralizedConfigDownloadUseCase {
     ): Promise<Array<{ path: string; content: string }>> {
         const entries: Array<{ path: string; content: string }> = [];
 
+        // Default
+        try {
+            const kodusDefaultConfigYMLfile = yaml.load(
+                fs.readFileSync('default-kodus-config.yml', 'utf8'),
+            ) as KodusConfigFile;
+            let yamlString = yaml.dump(kodusDefaultConfigYMLfile);
+            yamlString = `# This file is a copy of the default Kodus configuration. It is provided for reference and can be used as a starting point for your own configuration.
+# Any changes to this file will not affect the actual configuration used by Kodus.
+# Your own configuration should be defined in the global or repository-specific config files.
+# They behave as a diff to this default config, or higher level config that exists, so you only need to include the properties you want to override.
+\n\n${yamlString}`;
+
+            if (yamlString) {
+                entries.push({
+                    path: 'default-kodus-config.yml',
+                    content: yamlString,
+                });
+            }
+        } catch (error) {
+            this.logger.error({
+                message: 'Failed to load default Kodus config file',
+                context: CentralizedConfigDownloadUseCase.name,
+                metadata: {
+                    teamId,
+                    errorMessage: error.message,
+                },
+            });
+        }
+
         // Global
         try {
             const { yamlString } =
                 await this.generateKodusConfigFileUseCase.execute(
                     teamId,
                     'global',
+                    undefined,
+                    { skipAuthorization: options.skipAuthorization },
                 );
 
             if (yamlString) {
@@ -67,6 +101,8 @@ export class CentralizedConfigDownloadUseCase {
                     await this.generateKodusConfigFileUseCase.execute(
                         teamId,
                         repo.id,
+                        undefined,
+                        { skipAuthorization: options.skipAuthorization },
                     );
 
                 if (yamlString) {
@@ -98,6 +134,7 @@ export class CentralizedConfigDownloadUseCase {
                             teamId,
                             repo.id,
                             dir.id,
+                            { skipAuthorization: options.skipAuthorization },
                         );
 
                     if (yamlString) {

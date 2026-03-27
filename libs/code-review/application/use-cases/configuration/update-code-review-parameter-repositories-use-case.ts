@@ -210,7 +210,7 @@ export class UpdateCodeReviewParameterRepositoriesUseCase {
 
     private async ensureManualChangesAllowed(
         organizationAndTeamData: OrganizationAndTeamData,
-        source?: 'cli' | 'web',
+        source?: 'cli' | 'web' | 'sync',
     ): Promise<void> {
         if (source === 'sync') {
             return;

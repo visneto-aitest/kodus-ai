@@ -44,6 +44,9 @@ export class GenerateKodusConfigFileUseCase {
         teamId: string,
         repositoryId?: string,
         directoryId?: string,
+        options: {
+            skipAuthorization?: boolean;
+        } = {},
     ): Promise<{ yamlString?: string }> {
         try {
             const organizationId = this.request.user?.organization.uuid;
@@ -52,7 +55,11 @@ export class GenerateKodusConfigFileUseCase {
                 teamId,
             };
 
-            if (repositoryId && repositoryId !== 'global') {
+            if (
+                !options.skipAuthorization &&
+                repositoryId &&
+                repositoryId !== 'global'
+            ) {
                 await this.authorizationService.ensure({
                     user: this.request.user,
                     action: Action.Read,
