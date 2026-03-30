@@ -36,6 +36,8 @@ import path from 'path';
 import { CustomMessageConfig } from 'apps/web/src/lib/services/pull-request-messages/types';
 import { KodusConfigFile } from '@libs/core/infrastructure/config/types/general/codeReview.type';
 import { DeepPartial } from 'typeorm';
+import { CreateOrUpdateKodyRulesUseCase } from '@libs/kodyRules/application/use-cases/create-or-update.use-case';
+import { DeleteRuleInOrganizationByIdKodyRulesUseCase } from '@libs/kodyRules/application/use-cases/delete-rule-in-organization-by-id.use-case';
 
 @Injectable()
 export class CentralizedConfigService implements ICentralizedConfigService {
@@ -57,6 +59,8 @@ export class CentralizedConfigService implements ICentralizedConfigService {
         private readonly pullRequestMessagesService: IPullRequestMessagesService,
         @Inject(CODE_BASE_CONFIG_SERVICE_TOKEN)
         private readonly codeBaseConfigService: ICodeBaseConfigService,
+        private readonly createOrUpdateKodyRulesUseCase: CreateOrUpdateKodyRulesUseCase,
+        private readonly deleteRuleInOrganizationByIdKodyRulesUseCase: DeleteRuleInOrganizationByIdKodyRulesUseCase,
     ) {}
 
     async validateCentralizedConfig(params: {
@@ -705,16 +709,7 @@ export class CentralizedConfigService implements ICentralizedConfigService {
     }> {
         const { repositoryId, directoryPath } = configFileMeta;
 
-        // Extract custom messages from config
-        const customMessages = configFile.customMessages;
-        if (!customMessages) {
-            return {
-                success: true,
-                message: 'No custom messages to sync',
-            };
-        }
-
-        // Determine config level and resolve directory ID
+        // 1. Determine config level and resolve directory ID FIRST
         let configLevel: ConfigLevel;
         let repositoryIdForMessages: string | undefined;
         let directoryId: string | undefined;
@@ -800,9 +795,65 @@ export class CentralizedConfigService implements ICentralizedConfigService {
             }
         }
 
+        // 2. Now check if custom messages exist in the file
+        const customMessages = configFile.customMessages;
+
+        if (!customMessages) {
+            try {
+                const existingEntity =
+                    await this.pullRequestMessagesService?.findOne({
+                        organizationId: organizationAndTeamData.organizationId,
+                        configLevel,
+                        repositoryId: repositoryIdForMessages,
+                        directoryId,
+                    });
+
+                if (existingEntity?.uuid) {
+                    this.logger.log({
+                        message:
+                            'Removing orphaned custom messages (file exists but messages block was removed)',
+                        context: CentralizedConfigService.name,
+                        metadata: {
+                            organizationAndTeamData,
+                            configLevel,
+                            repositoryId: repositoryIdForMessages,
+                            directoryId,
+                            entityUuid: existingEntity.uuid,
+                        },
+                    });
+
+                    await this.pullRequestMessagesService.delete(
+                        existingEntity.uuid,
+                    );
+
+                    return {
+                        success: true,
+                        message:
+                            'Orphaned custom messages removed successfully',
+                    };
+                }
+            } catch (error) {
+                this.logger.warn({
+                    message:
+                        'Failed to check or remove orphaned custom messages',
+                    context: CentralizedConfigService.name,
+                    metadata: {
+                        organizationAndTeamData,
+                        configLevel,
+                        repositoryId: repositoryIdForMessages,
+                    },
+                    error,
+                });
+            }
+
+            return {
+                success: true,
+                message: 'No custom messages to sync',
+            };
+        }
+
+        // 3. Proceed with normal creation/updating if custom messages DO exist
         try {
-            // For custom messages, we need to store the COMPLETE resolved messages,
-            // not just diffs. Get the resolved messages by merging with inheritance.
             const resolvedCustomMessages =
                 await this.resolveCustomMessagesWithInheritance(
                     organizationAndTeamData,
@@ -814,7 +865,6 @@ export class CentralizedConfigService implements ICentralizedConfigService {
                     customMessages,
                 );
 
-            // Create the pull request messages entity with ALL required fields
             const pullRequestMessages = {
                 organizationId: organizationAndTeamData.organizationId,
                 configLevel,
@@ -825,13 +875,10 @@ export class CentralizedConfigService implements ICentralizedConfigService {
                 globalSettings: resolvedCustomMessages.globalSettings,
             };
 
-            // Create a mock user info for the sync operation
             const userInfo = {
                 uuid: actor.userId,
                 email: actor.userEmail,
-                organization: {
-                    uuid: actor.organizationId,
-                },
+                organization: { uuid: actor.organizationId },
             };
 
             await this.createOrUpdatePullRequestMessagesUseCase.execute(
@@ -851,13 +898,9 @@ export class CentralizedConfigService implements ICentralizedConfigService {
                 },
             });
 
-            return {
-                success: true,
-                message,
-            };
+            return { success: true, message };
         } catch (error) {
             const message = 'Failed to sync custom messages';
-
             this.logger.error({
                 message,
                 context: CentralizedConfigService.name,
@@ -870,10 +913,7 @@ export class CentralizedConfigService implements ICentralizedConfigService {
                 error,
             });
 
-            return {
-                success: false,
-                message,
-            };
+            return { success: false, message };
         }
     }
 
@@ -1239,4 +1279,19 @@ export class CentralizedConfigService implements ICentralizedConfigService {
         }
     }
     //#endregion
+
+    //#region Kody Rules Sync Helpers
+    private async syncKodyRules(
+        configFile: KodusConfigFile,
+        organizationAndTeamData: OrganizationAndTeamData,
+        actor: {
+            organizationId: string;
+            source: 'web' | 'sync' | 'cli';
+            userEmail: string;
+            userId: string;
+        },
+    ): Promise<{
+        success: boolean;
+        message: string;
+    }> {}
 }

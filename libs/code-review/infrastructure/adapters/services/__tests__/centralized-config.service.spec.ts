@@ -13,6 +13,8 @@ import { DeleteRepositoryCodeReviewParameterUseCase } from '@libs/code-review/ap
 import { UpdateOrCreateCodeReviewParameterUseCase } from '@libs/code-review/application/use-cases/configuration/update-or-create-code-review-parameter-use-case';
 import { CreateOrUpdatePullRequestMessagesUseCase } from '@libs/code-review/application/use-cases/pullRequestMessages/create-or-update-pull-request-messages.use-case';
 import { PULL_REQUEST_MESSAGES_SERVICE_TOKEN } from '@libs/code-review/domain/pullRequestMessages/contracts/pullRequestMessages.service.contract';
+import { CreateOrUpdateKodyRulesUseCase } from '@libs/kodyRules/application/use-cases/create-or-update.use-case';
+import { DeleteRuleInOrganizationByIdKodyRulesUseCase } from '@libs/kodyRules/application/use-cases/delete-rule-in-organization-by-id.use-case';
 import { CentralizedConfigService } from '../centralized-config.service';
 
 describe('CentralizedConfigService', () => {
@@ -26,6 +28,8 @@ describe('CentralizedConfigService', () => {
     let mockCreateOrUpdatePullRequestMessagesUseCase: any;
     let mockPullRequestMessagesService: any;
     let mockCodeBaseConfigService: any;
+    let mockCreateOrUpdateKodyRulesUseCase: any;
+    let mockDeleteRuleInOrganizationByIdKodyRulesUseCase: any;
 
     const organizationAndTeamData: OrganizationAndTeamData = {
         organizationId: 'org-1',
@@ -78,6 +82,14 @@ describe('CentralizedConfigService', () => {
             getDirectoryIdForPath: jest.fn(),
         };
 
+        mockCreateOrUpdateKodyRulesUseCase = {
+            execute: jest.fn(),
+        };
+
+        mockDeleteRuleInOrganizationByIdKodyRulesUseCase = {
+            execute: jest.fn(),
+        };
+
         const module: TestingModule = await Test.createTestingModule({
             providers: [
                 CentralizedConfigService,
@@ -116,6 +128,14 @@ describe('CentralizedConfigService', () => {
                 {
                     provide: CODE_BASE_CONFIG_SERVICE_TOKEN,
                     useValue: mockCodeBaseConfigService,
+                },
+                {
+                    provide: CreateOrUpdateKodyRulesUseCase,
+                    useValue: mockCreateOrUpdateKodyRulesUseCase,
+                },
+                {
+                    provide: DeleteRuleInOrganizationByIdKodyRulesUseCase,
+                    useValue: mockDeleteRuleInOrganizationByIdKodyRulesUseCase,
                 },
             ],
         }).compile();
@@ -336,6 +356,98 @@ describe('CentralizedConfigService', () => {
                     suggestionCopyPrompt: false,
                 },
             });
+        });
+
+        it('should sync config file with only custom messages', async () => {
+            const configFiles: IConfigFileMeta[] = [{}]; // Global config
+
+            const configFileWithOnlyCustomMessages = {
+                customMessages: {
+                    globalSettings: {
+                        hideComments: false,
+                        suggestionCopyPrompt: true,
+                    },
+                    startReviewMessage: {
+                        status: 'every_push',
+                        content: 'Custom start message',
+                    },
+                    endReviewMessage: {
+                        status: 'every_push',
+                        content: 'Custom end message',
+                    },
+                },
+            };
+
+            // Mock config file fetch
+            mockCodeBaseConfigService.getKodusConfigFile.mockResolvedValue(
+                configFileWithOnlyCustomMessages,
+            );
+
+            // Mock parameter operations - different mocks for different keys
+            mockParametersService.findByKey.mockImplementation(
+                (key, orgAndTeamData) => {
+                    if (key === ParametersKey.CENTRALIZED_CONFIG) {
+                        return Promise.resolve({
+                            configValue: {
+                                enabled: true,
+                                repository: {
+                                    id: 'centralized-repo-1',
+                                    name: 'centralized-repo',
+                                },
+                            },
+                        });
+                    }
+                    if (key === ParametersKey.CODE_REVIEW_CONFIG) {
+                        return Promise.resolve({
+                            configValue: {},
+                        });
+                    }
+                    return Promise.resolve({
+                        configValue: {},
+                    });
+                },
+            );
+
+            mockUpdateOrCreateCodeReviewParameterUseCase.execute.mockResolvedValue(
+                undefined,
+            );
+
+            const result = await service.synchronizeConfigs({
+                organizationAndTeamData,
+                configFiles,
+                actor,
+            });
+
+            expect(result.success).toBe(true);
+            expect(
+                mockCreateOrUpdatePullRequestMessagesUseCase.execute,
+            ).toHaveBeenCalledWith(expect.any(Object), {
+                organizationId: 'org-1',
+                configLevel: ConfigLevel.GLOBAL,
+                repositoryId: 'global',
+                directoryId: undefined,
+                startReviewMessage: {
+                    status: 'every_push',
+                    content: 'Custom start message',
+                },
+                endReviewMessage: {
+                    status: 'every_push',
+                    content: 'Custom end message',
+                },
+                globalSettings: {
+                    hideComments: false,
+                    suggestionCopyPrompt: true,
+                },
+            });
+
+            // Verify that customMessages are removed and only an empty config is stored in Postgres
+            expect(
+                mockUpdateOrCreateCodeReviewParameterUseCase.execute,
+            ).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    configValue: {},
+                }),
+            );
         });
 
         it('should skip custom messages sync when customMessages is not present', async () => {
