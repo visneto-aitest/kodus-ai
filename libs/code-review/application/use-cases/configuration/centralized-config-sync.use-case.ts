@@ -1,13 +1,14 @@
+import { createLogger } from '@kodus/flow';
 import {
     CENTRALIZED_CONFIG_SERVICE_TOKEN,
     ICentralizedConfigService,
 } from '@libs/code-review/domain/contracts/CentralizedConfigService.contract';
 import { OrganizationAndTeamData } from '@libs/core/infrastructure/config/types/general/organizationAndTeamData';
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 
 @Injectable()
 export class CentralizedConfigSyncUseCase {
-    private readonly logger = new Logger(CentralizedConfigSyncUseCase.name);
+    private readonly logger = createLogger(CentralizedConfigSyncUseCase.name);
 
     constructor(
         @Inject(CENTRALIZED_CONFIG_SERVICE_TOKEN)
