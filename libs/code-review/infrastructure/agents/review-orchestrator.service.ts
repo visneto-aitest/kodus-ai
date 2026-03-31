@@ -18,6 +18,7 @@ import {
 export interface OrchestratorInput extends ReviewAgentInput {
     reviewOptions: ReviewOptions;
     kodyRules?: Partial<IKodyRule>[];
+    bugReplicas?: number;
 }
 
 export interface OrchestratorOutput {
@@ -45,9 +46,59 @@ export class ReviewOrchestratorService {
         private readonly kodyRulesAgent?: KodyRulesAgentProvider,
     ) {}
 
+    private parseReplicaCount(
+        rawValue: number | string | undefined,
+        source: string,
+    ): number | null {
+        if (rawValue === undefined || rawValue === null || rawValue === '') {
+            return null;
+        }
+
+        const parsed =
+            typeof rawValue === 'number'
+                ? rawValue
+                : Number.parseInt(rawValue, 10);
+
+        if (!Number.isFinite(parsed) || parsed < 1) {
+            this.logger.warn({
+                message: `[AGENT] Invalid ${source}="${rawValue}", ignoring replica override`,
+                context: ReviewOrchestratorService.name,
+            });
+            return null;
+        }
+
+        return parsed;
+    }
+
+    private resolveBugReplicaCount(configuredBugReplicas?: number): number {
+        const configuredValue = this.parseReplicaCount(
+            configuredBugReplicas,
+            'codeReviewConfig.bugReplicas',
+        );
+        if (configuredValue) return configuredValue;
+
+        const envValue = this.parseReplicaCount(
+            process.env.KODUS_REVIEW_BUG_REPLICAS,
+            'KODUS_REVIEW_BUG_REPLICAS',
+        );
+        if (envValue) return envValue;
+
+        const legacyBenchmarkValue = this.parseReplicaCount(
+            process.env.KODUS_BENCHMARK_BUG_REPLICAS,
+            'KODUS_BENCHMARK_BUG_REPLICAS',
+        );
+        if (legacyBenchmarkValue) return legacyBenchmarkValue;
+
+        return 1;
+    }
+
     async execute(input: OrchestratorInput): Promise<OrchestratorOutput> {
         const startTime = Date.now();
-        const { reviewOptions, kodyRules, ...agentInput } = input;
+        const { reviewOptions, kodyRules, bugReplicas, ...agentInput } = input;
+        const bugReplicaCount =
+            reviewOptions.bug !== false
+                ? this.resolveBugReplicaCount(bugReplicas)
+                : 1;
 
         // Determine which agents to run based on review options
         const agentTasks: Array<{
@@ -56,7 +107,36 @@ export class ReviewOrchestratorService {
         }> = [];
 
         if (reviewOptions.bug !== false) {
-            agentTasks.push({ name: 'bug', provider: this.bugAgent });
+            for (
+                let replicaIndex = 1;
+                replicaIndex <= bugReplicaCount;
+                replicaIndex += 1
+            ) {
+                const replicaLabel =
+                    bugReplicaCount === 1 ? 'bug' : `bug-r${replicaIndex}`;
+
+                agentTasks.push({
+                    name: replicaLabel,
+                    provider: {
+                        execute: (inp: ReviewAgentInput) =>
+                            this.bugAgent.execute({
+                                ...inp,
+                                agentRuntimeName:
+                                    bugReplicaCount === 1
+                                        ? undefined
+                                        : `kodus-bug-review-agent-r${replicaIndex}`,
+                                agentReplicaIndex:
+                                    bugReplicaCount === 1
+                                        ? undefined
+                                        : replicaIndex,
+                                agentReplicaTotal:
+                                    bugReplicaCount === 1
+                                        ? undefined
+                                        : bugReplicaCount,
+                            }),
+                    },
+                });
+            }
         }
         if (reviewOptions.security !== false) {
             agentTasks.push({
@@ -103,6 +183,7 @@ export class ReviewOrchestratorService {
             metadata: {
                 prNumber: agentInput.prNumber,
                 agents: agentTasks.map((t) => t.name),
+                bugReplicaCount,
                 filesCount: agentInput.changedFiles.length,
             },
         });
