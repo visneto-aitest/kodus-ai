@@ -40,7 +40,8 @@ export class CentralizedConfigSyncListener {
 
         if (!validation.success) {
             this.logger.log({
-                message: 'Centralized config validation failed, skipping sync',
+                message:
+                    'Centralized config not enabled or validation failed, skipping sync',
                 context: CentralizedConfigSyncListener.name,
                 metadata: {
                     organizationAndTeamData: event.organizationAndTeamData,

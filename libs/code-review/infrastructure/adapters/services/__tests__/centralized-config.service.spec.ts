@@ -16,8 +16,8 @@ import { PULL_REQUEST_MESSAGES_SERVICE_TOKEN } from '@libs/code-review/domain/pu
 import { CreateOrUpdateKodyRulesUseCase } from '@libs/kodyRules/application/use-cases/create-or-update.use-case';
 import { DeleteRuleInOrganizationByIdKodyRulesUseCase } from '@libs/kodyRules/application/use-cases/delete-rule-in-organization-by-id.use-case';
 import { KODY_RULES_SERVICE_TOKEN } from '@libs/kodyRules/domain/contracts/kodyRules.service.contract';
-import { CentralizedConfigService } from '../centralized-config.service';
 import * as yaml from 'js-yaml';
+import { CentralizedConfigService } from '../centralized-config.service';
 
 describe('CentralizedConfigService', () => {
     let service: CentralizedConfigService;
@@ -80,6 +80,8 @@ describe('CentralizedConfigService', () => {
 
         mockPullRequestMessagesService = {
             findOne: jest.fn(),
+            find: jest.fn(),
+            delete: jest.fn(),
         };
 
         mockCodeBaseConfigService = {
@@ -590,6 +592,130 @@ describe('CentralizedConfigService', () => {
             expect(result.message).toBe(
                 'Config files synchronized successfully',
             );
+        });
+
+        it('should create empty config placeholders for rule-only scopes', async () => {
+            const configFiles: IConfigFileMeta[] = [
+                {
+                    repositoryId: 'repo-1',
+                    directoryPath: '/src',
+                    centralizedDirectoryPath: 'repo-1/src/.kody-rules/review',
+                },
+            ];
+
+            mockCodeBaseConfigService.getKodusConfigFile.mockResolvedValue(
+                null,
+            );
+
+            mockIntegrationConfigService.findIntegrationConfigFormatted.mockResolvedValue(
+                [{ id: 'repo-1', name: 'repo-1', full_name: 'org/repo-1' }],
+            );
+
+            mockCodeBaseConfigService.getDirectoryIdForPath.mockResolvedValue(
+                'dir-1',
+            );
+
+            mockPullRequestMessagesService.findOne.mockResolvedValue({
+                uuid: 'message-1',
+            });
+
+            mockParametersService.findByKey.mockImplementation((key) => {
+                if (key === ParametersKey.CENTRALIZED_CONFIG) {
+                    return Promise.resolve({
+                        configValue: {
+                            enabled: true,
+                            repository: {
+                                id: 'centralized-repo-1',
+                                name: 'centralized-repo',
+                            },
+                        },
+                    });
+                }
+
+                if (key === ParametersKey.CODE_REVIEW_CONFIG) {
+                    return Promise.resolve({
+                        configValue: {},
+                    });
+                }
+
+                return Promise.resolve({
+                    configValue: {},
+                });
+            });
+
+            mockUpdateOrCreateCodeReviewParameterUseCase.execute.mockResolvedValue(
+                undefined,
+            );
+
+            const result = await service.synchronizeConfigs({
+                organizationAndTeamData,
+                configFiles,
+                actor,
+            });
+
+            expect(result.success).toBe(true);
+            expect(
+                mockUpdateOrCreateCodeReviewParameterUseCase.execute,
+            ).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    configValue: {},
+                    repositoryId: 'repo-1',
+                    directoryPath: '/src',
+                }),
+            );
+            expect(
+                mockCreateOrUpdatePullRequestMessagesUseCase.execute,
+            ).not.toHaveBeenCalled();
+            expect(mockPullRequestMessagesService.delete).toHaveBeenCalledWith(
+                'message-1',
+            );
+        });
+    });
+
+    describe('removeStaleConfigs', () => {
+        it('should remove stale custom messages even when regular config does not change', async () => {
+            const configFiles: IConfigFileMeta[] = [];
+
+            const codeReviewConfig = {
+                configValue: {
+                    configs: {},
+                    repositories: [],
+                },
+            };
+
+            mockParametersService.findByKey.mockImplementation((key) => {
+                if (key === ParametersKey.CODE_REVIEW_CONFIG) {
+                    return Promise.resolve(codeReviewConfig);
+                }
+
+                return Promise.resolve({ configValue: {} });
+            });
+
+            mockIntegrationConfigService.findIntegrationConfigFormatted.mockResolvedValue(
+                [],
+            );
+
+            mockPullRequestMessagesService.find.mockResolvedValue([
+                {
+                    uuid: 'global-message-1',
+                    configLevel: ConfigLevel.GLOBAL,
+                },
+            ]);
+
+            const result = await service.removeStaleConfigs({
+                organizationAndTeamData,
+                configFiles,
+                actor,
+            });
+
+            expect(result.success).toBe(true);
+            expect(result.message).toBe('No stale configs to remove');
+            expect(mockPullRequestMessagesService.delete).toHaveBeenCalledWith(
+                'global-message-1',
+            );
+            expect(
+                mockCreateOrUpdateParametersUseCase.execute,
+            ).not.toHaveBeenCalled();
         });
     });
 

@@ -673,9 +673,11 @@ export default class CodeBaseConfigService implements ICodeBaseConfigService {
             return;
         }
 
-        const kodusConfigYMLfile = yaml.load(
-            kodusConfigFileContent,
-        ) as KodusConfigFile;
+        const parsedConfig = yaml.load(kodusConfigFileContent);
+        const kodusConfigYMLfile =
+            parsedConfig && typeof parsedConfig === 'object'
+                ? (parsedConfig as KodusConfigFile)
+                : ({} as KodusConfigFile);
 
         // strip properties not in default config
         for (const key in kodusConfigYMLfile) {

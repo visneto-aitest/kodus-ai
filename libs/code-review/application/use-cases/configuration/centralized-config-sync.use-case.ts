@@ -1,7 +1,9 @@
 import { createLogger } from '@kodus/flow';
 import {
     CENTRALIZED_CONFIG_SERVICE_TOKEN,
+    IConfigFileMeta,
     ICentralizedConfigService,
+    IKodyRuleFileMeta,
 } from '@libs/code-review/domain/contracts/CentralizedConfigService.contract';
 import { OrganizationAndTeamData } from '@libs/core/infrastructure/config/types/general/organizationAndTeamData';
 import { Inject, Injectable } from '@nestjs/common';
@@ -62,11 +64,23 @@ export class CentralizedConfigSyncUseCase {
                     repository,
                 });
 
+            // Discover Kody rule files in the repository
+            const ruleFilesMeta =
+                await this.centralizedConfigService.discoverKodyRulesFiles({
+                    organizationAndTeamData,
+                    repository,
+                });
+
+            const configScopesToSync = this.mergeConfigScopes(
+                configFilesMeta,
+                ruleFilesMeta,
+            );
+
             // Synchronize configs
             const syncResult =
                 await this.centralizedConfigService.synchronizeConfigs({
                     organizationAndTeamData,
-                    configFiles: configFilesMeta,
+                    configFiles: configScopesToSync,
                     actor,
                 });
 
@@ -90,7 +104,7 @@ export class CentralizedConfigSyncUseCase {
             const cleanupResult =
                 await this.centralizedConfigService.removeStaleConfigs({
                     organizationAndTeamData,
-                    configFiles: configFilesMeta,
+                    configFiles: configScopesToSync,
                     actor,
                 });
 
@@ -109,13 +123,6 @@ export class CentralizedConfigSyncUseCase {
                     message: `Failed to remove stale configs: ${cleanupResult.message}`,
                 };
             }
-
-            // Discover Kody rule files in the repository
-            const ruleFilesMeta =
-                await this.centralizedConfigService.discoverKodyRulesFiles({
-                    organizationAndTeamData,
-                    repository,
-                });
 
             // Synchronize Kody rules
             const syncRulesResult =
@@ -184,5 +191,36 @@ export class CentralizedConfigSyncUseCase {
                 message: 'Error syncing centralized config',
             };
         }
+    }
+
+    private mergeConfigScopes(
+        configFiles: IConfigFileMeta[],
+        ruleFiles: IKodyRuleFileMeta[],
+    ): IConfigFileMeta[] {
+        const buildScopeKey = (scope: {
+            repositoryId?: string;
+            directoryPath?: string;
+        }) => `${scope.repositoryId ?? 'global'}::${scope.directoryPath ?? ''}`;
+
+        const mergedByScope = new Map<string, IConfigFileMeta>();
+
+        for (const configFile of configFiles) {
+            mergedByScope.set(buildScopeKey(configFile), configFile);
+        }
+
+        for (const ruleFile of ruleFiles) {
+            const ruleScope: IConfigFileMeta = {
+                repositoryId: ruleFile.repositoryId,
+                directoryPath: ruleFile.directoryPath,
+                centralizedDirectoryPath: ruleFile.centralizedDirectoryPath,
+            };
+
+            const scopeKey = buildScopeKey(ruleScope);
+            if (!mergedByScope.has(scopeKey)) {
+                mergedByScope.set(scopeKey, ruleScope);
+            }
+        }
+
+        return Array.from(mergedByScope.values());
     }
 }

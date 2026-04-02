@@ -267,10 +267,7 @@ export class CentralizedConfigService implements ICentralizedConfigService {
             userEmail: string;
             userId: string;
         };
-    }): Promise<{
-        success: boolean;
-        message: string;
-    }> {
+    }): Promise<{ success: boolean; message: string }> {
         const { organizationAndTeamData, configFiles, actor } = params;
 
         try {
@@ -293,75 +290,104 @@ export class CentralizedConfigService implements ICentralizedConfigService {
                 });
             }
 
-            // Get the centralized config repository once
             const centralizedRepository =
                 await this.getCentralizedConfigRepository(
                     organizationAndTeamData,
                 );
 
             for (const configFileMeta of configFiles) {
-                const {
-                    centralizedDirectoryPath,
-                    repositoryId,
-                    directoryPath,
-                } = configFileMeta;
+                try {
+                    const {
+                        centralizedDirectoryPath,
+                        repositoryId,
+                        directoryPath,
+                    } = configFileMeta;
 
-                const configFile = await this.fetchConfigFile({
-                    organizationAndTeamData,
-                    repository: centralizedRepository,
-                    dir: centralizedDirectoryPath,
-                });
-
-                if (!configFile) {
-                    this.logger.warn({
-                        message:
-                            'Config file not found or could not be fetched',
-                        context: CentralizedConfigService.name,
-                        metadata: {
-                            organizationAndTeamData,
-                            centralizedDirectoryPath,
-                            repositoryId,
-                            directoryPath,
-                        },
+                    const configFile = await this.fetchConfigFile({
+                        organizationAndTeamData,
+                        repository: centralizedRepository,
+                        dir: centralizedDirectoryPath,
                     });
-                    continue;
-                }
 
-                // Remove custom messages from config before storing in Postgres
-                const configWithoutCustomMessages = { ...configFile };
-                delete configWithoutCustomMessages.customMessages;
+                    if (!configFile && !this.isKodyRulesScope(configFileMeta)) {
+                        this.logger.warn({
+                            message:
+                                'Config file not found or could not be fetched',
+                            context: CentralizedConfigService.name,
+                            metadata: {
+                                organizationAndTeamData,
+                                centralizedDirectoryPath,
+                                repositoryId,
+                                directoryPath,
+                            },
+                        });
+                        continue;
+                    }
 
-                await this.updateOrCreateCodeReviewParameterUseCase.execute({
-                    actor,
-                    skipAuthorization: true,
-                    configValue: configWithoutCustomMessages,
-                    organizationAndTeamData,
-                    repositoryId,
-                    directoryPath,
-                });
+                    let configToSave = {};
+                    let configForMessages = {} as KodusConfigFile;
 
-                // Extract and sync custom messages separately
-                const syncCustomMessagesResult = await this.syncCustomMessages(
-                    configFile,
-                    configFileMeta,
-                    organizationAndTeamData,
-                    centralizedRepository,
-                    actor,
-                );
+                    if (configFile) {
+                        const { customMessages: _, ...restOfConfig } =
+                            configFile;
+                        configToSave = restOfConfig;
+                        configForMessages = configFile;
+                    } else {
+                        // We know it's a KodyRulesScope missing a file here
+                        this.logger.log({
+                            message:
+                                'Created empty config placeholder for centralized rules scope',
+                            context: CentralizedConfigService.name,
+                            metadata: {
+                                organizationAndTeamData,
+                                centralizedDirectoryPath,
+                                repositoryId,
+                                directoryPath,
+                            },
+                        });
+                    }
 
-                if (!syncCustomMessagesResult.success) {
-                    this.logger.warn({
-                        message:
-                            'Failed to sync custom messages for config file',
-                        context: CentralizedConfigService.name,
-                        metadata: {
+                    await this.updateOrCreateCodeReviewParameterUseCase.execute(
+                        {
+                            actor,
+                            skipAuthorization: true,
+                            configValue: configToSave,
                             organizationAndTeamData,
-                            centralizedDirectoryPath,
                             repositoryId,
                             directoryPath,
-                            syncCustomMessagesMessage:
-                                syncCustomMessagesResult.message,
                         },
+                    );
+
+                    const syncCustomMessagesResult =
+                        await this.syncCustomMessages(
+                            configForMessages,
+                            configFileMeta,
+                            organizationAndTeamData,
+                            centralizedRepository,
+                            actor,
+                        );
+
+                    if (!syncCustomMessagesResult.success) {
+                        this.logger.warn({
+                            message: configFile
+                                ? 'Failed to sync custom messages for config file'
+                                : 'Failed to clean custom messages for centralized rules scope',
+                            context: CentralizedConfigService.name,
+                            metadata: {
+                                organizationAndTeamData,
+                                centralizedDirectoryPath,
+                                repositoryId,
+                                directoryPath,
+                                syncCustomMessagesMessage:
+                                    syncCustomMessagesResult.message,
+                            },
+                        });
+                    }
+                } catch (innerError) {
+                    this.logger.error({
+                        message: `Error processing individual config file: ${configFileMeta.centralizedDirectoryPath}`,
+                        context: CentralizedConfigService.name,
+                        error: innerError,
                     });
                 }
             }
@@ -580,23 +606,14 @@ export class CentralizedConfigService implements ICentralizedConfigService {
 
             if (
                 !hasChanges &&
-                (!desiredHasGlobalConfig ||
-                    JSON.stringify(reconciledConfig.configs) !==
-                        JSON.stringify(
-                            refreshedCodeReviewConfig.configValue.configs,
-                        ))
+                JSON.stringify(reconciledConfig.configs) !==
+                    JSON.stringify(
+                        refreshedCodeReviewConfig.configValue.configs,
+                    )
             ) {
                 hasChanges = true;
             }
 
-            if (!hasChanges) {
-                return {
-                    success: true,
-                    message: 'No stale configs to remove',
-                };
-            }
-
-            // Clean up stale custom messages before updating the main config
             const staleMessagesResult = await this.removeStaleCustomMessages(
                 configFiles,
                 organizationAndTeamData,
@@ -611,6 +628,13 @@ export class CentralizedConfigService implements ICentralizedConfigService {
                         removeStaleMessagesMessage: staleMessagesResult.message,
                     },
                 });
+            }
+
+            if (!hasChanges) {
+                return {
+                    success: true,
+                    message: 'No stale configs to remove',
+                };
             }
 
             await this.createOrUpdateParametersUseCase.execute(
@@ -669,6 +693,19 @@ export class CentralizedConfigService implements ICentralizedConfigService {
 
             return depthA - depthB;
         });
+    }
+
+    private isKodyRulesScope(configFileMeta: IConfigFileMeta): boolean {
+        const centralizedDirectoryPath =
+            configFileMeta.centralizedDirectoryPath;
+
+        if (!centralizedDirectoryPath) {
+            return false;
+        }
+
+        return /(^|\/)\.kody-rules\/(review|memories)(\/|$)/.test(
+            centralizedDirectoryPath,
+        );
     }
 
     //#region Custom Messages Sync Helpers

@@ -206,4 +206,106 @@ describe('CentralizedConfigSyncUseCase', () => {
         );
         expect(centralizedConfigService.removeStaleConfigs).toHaveBeenCalled();
     });
+
+    it('merges rule-only scopes into config sync', async () => {
+        const centralizedConfigService = {
+            validateCentralizedConfig: jest.fn().mockResolvedValue({
+                success: true,
+                message: 'Centralized config is valid and enabled',
+            }),
+            getCentralizedConfigRepository: jest.fn().mockResolvedValue({
+                id: 'central-repo-id',
+                name: 'kodus',
+            }),
+            discoverConfigFiles: jest.fn().mockResolvedValue([
+                {},
+                {
+                    repositoryId: 'repo-1-id',
+                    centralizedDirectoryPath: 'repo-1',
+                },
+            ]),
+            discoverKodyRulesFiles: jest.fn().mockResolvedValue([
+                {
+                    repositoryId: 'repo-1-id',
+                    directoryPath: '/src',
+                    centralizedDirectoryPath: 'repo-1/src/.kody-rules/review',
+                    ruleType: 'standard',
+                    ruleFilePath: 'repo-1/src/.kody-rules/review/rule.yml',
+                    sourcePath: 'repo-1/src/.kody-rules/review/rule.yml',
+                },
+                {
+                    repositoryId: 'repo-1-id',
+                    directoryPath: '/src',
+                    centralizedDirectoryPath: 'repo-1/src/.kody-rules/memories',
+                    ruleType: 'memory',
+                    ruleFilePath: 'repo-1/src/.kody-rules/memories/rule.yml',
+                    sourcePath: 'repo-1/src/.kody-rules/memories/rule.yml',
+                },
+            ]),
+            synchronizeConfigs: jest.fn().mockResolvedValue({
+                success: true,
+                message: 'Config files synchronized successfully',
+            }),
+            synchronizeKodyRules: jest.fn().mockResolvedValue({
+                success: true,
+                message: 'Kody rules synchronized successfully',
+            }),
+            removeStaleConfigs: jest.fn().mockResolvedValue({
+                success: true,
+                message: 'Stale configs removed successfully',
+            }),
+            removeStaleKodyRules: jest.fn().mockResolvedValue({
+                success: true,
+                message: 'Stale Kody rules removed successfully',
+            }),
+        };
+
+        const useCase = new CentralizedConfigSyncUseCase(
+            centralizedConfigService as any,
+        );
+
+        const result = await useCase.execute({
+            organizationAndTeamData,
+        } as any);
+
+        expect(result.success).toBe(true);
+        expect(
+            centralizedConfigService.synchronizeConfigs,
+        ).toHaveBeenCalledWith(
+            expect.objectContaining({
+                configFiles: [
+                    {},
+                    {
+                        repositoryId: 'repo-1-id',
+                        centralizedDirectoryPath: 'repo-1',
+                    },
+                    {
+                        repositoryId: 'repo-1-id',
+                        directoryPath: '/src',
+                        centralizedDirectoryPath:
+                            'repo-1/src/.kody-rules/review',
+                    },
+                ],
+            }),
+        );
+        expect(
+            centralizedConfigService.removeStaleConfigs,
+        ).toHaveBeenCalledWith(
+            expect.objectContaining({
+                configFiles: [
+                    {},
+                    {
+                        repositoryId: 'repo-1-id',
+                        centralizedDirectoryPath: 'repo-1',
+                    },
+                    {
+                        repositoryId: 'repo-1-id',
+                        directoryPath: '/src',
+                        centralizedDirectoryPath:
+                            'repo-1/src/.kody-rules/review',
+                    },
+                ],
+            }),
+        );
+    });
 });
