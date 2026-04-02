@@ -34,7 +34,7 @@ export class GetCodeManagementMemberListUseCase implements IUseCase {
             teamId,
         };
 
-        const cacheKey = teamId
+        const cacheKey = teamId !== undefined
             ? `org_members_${organizationAndTeamData.organizationId}_${teamId}`
             : `org_members_${organizationAndTeamData.organizationId}`;
 
@@ -85,7 +85,7 @@ export class GetCodeManagementMemberListUseCase implements IUseCase {
         { name: string; id: string | number }[]
     > {
         const organizationId = this.request.user.organization.uuid;
-        const cacheKey = teamId
+        const cacheKey = teamId !== undefined
             ? `org_members_${organizationId}_${teamId}`
             : `org_members_${organizationId}`;
 
