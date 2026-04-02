@@ -303,11 +303,15 @@ export class CentralizedConfigService implements ICentralizedConfigService {
                         directoryPath,
                     } = configFileMeta;
 
-                    const configFile = await this.fetchConfigFile({
-                        organizationAndTeamData,
-                        repository: centralizedRepository,
-                        dir: centralizedDirectoryPath,
-                    });
+                    let configFile;
+
+                    if (!this.isKodyRulesScope(configFileMeta)) {
+                        configFile = await this.fetchConfigFile({
+                            organizationAndTeamData,
+                            repository: centralizedRepository,
+                            dir: centralizedDirectoryPath,
+                        });
+                    }
 
                     if (!configFile && !this.isKodyRulesScope(configFileMeta)) {
                         this.logger.warn({
@@ -336,7 +340,7 @@ export class CentralizedConfigService implements ICentralizedConfigService {
                         // We know it's a KodyRulesScope missing a file here
                         this.logger.log({
                             message:
-                                'Created empty config placeholder for centralized rules scope',
+                                'Creating empty config placeholder for centralized rules scope',
                             context: CentralizedConfigService.name,
                             metadata: {
                                 organizationAndTeamData,
