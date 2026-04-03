@@ -100,43 +100,23 @@ export const useSuspenseGetInheritedKodyRules = (params: {
     }>(KODY_RULES_PATHS.GET_INHERITED_RULES, { params });
 };
 
-export const useKodyRulesCountByRepository = (
+export const useKodyRulesCount = (
     repositoryId: string,
+    directoryId?: string,
     enabled = true,
 ) => {
     const { data } = useFetch<Array<KodyRule>>(
         KODY_RULES_PATHS.FIND_BY_ORGANIZATION_ID_AND_FILTER,
-        { params: { repositoryId } },
+        { params: { repositoryId, directoryId } },
         enabled,
         { staleTime: 60_000 },
     );
 
     return useMemo(() => {
-        if (!data) {
-            return {
-                repositoryOverrideCount: 0,
-                directoryOverrideCounts: new Map<string, number>(),
-            };
-        }
+        if (!data) return 0;
 
-        const activeRules = data.filter(
+        return data.filter(
             (rule) => rule.status === KodyRulesStatus.ACTIVE,
-        );
-
-        const repositoryOverrideCount = activeRules.filter(
-            (rule) => !rule.directoryId,
         ).length;
-
-        const directoryOverrideCounts = new Map<string, number>();
-        for (const rule of activeRules) {
-            if (rule.directoryId) {
-                directoryOverrideCounts.set(
-                    rule.directoryId,
-                    (directoryOverrideCounts.get(rule.directoryId) ?? 0) + 1,
-                );
-            }
-        }
-
-        return { repositoryOverrideCount, directoryOverrideCounts };
     }, [data]);
 };

@@ -16,6 +16,7 @@ import {
     TooltipContent,
     TooltipTrigger,
 } from "@components/ui/tooltip";
+import { useKodyRulesCount } from "@services/kodyRules/hooks";
 import { cn } from "src/core/utils/components";
 
 import { useCodeReviewRouteParams } from "../../_hooks";
@@ -34,7 +35,6 @@ export const PerDirectory = ({
     repository,
     configs,
     customMessagesOverrideCount,
-    kodyRulesOverrideCount,
 }: {
     repository: Pick<CodeReviewRepositoryConfig, "id" | "name" | "isSelected">;
     directory: Pick<
@@ -44,7 +44,6 @@ export const PerDirectory = ({
     routes: Array<{ label: string; href: string }>;
     configs?: FormattedCodeReviewConfig;
     customMessagesOverrideCount?: number;
-    kodyRulesOverrideCount?: number;
 }) => {
     const searchParams = useSearchParams();
     const { repositoryId, pageName, directoryId } = useCodeReviewRouteParams();
@@ -54,10 +53,14 @@ export const PerDirectory = ({
         routes.map((route) => route.href),
         FormattedConfigLevel.DIRECTORY,
     );
+    const directoryKodyRulesCount = useKodyRulesCount(
+        repository.id,
+        directory.id,
+    );
     const resolvedOverrideCount =
         configOverrideCount +
         (customMessagesOverrideCount ?? 0) +
-        (kodyRulesOverrideCount ?? 0);
+        directoryKodyRulesCount;
 
     return (
         <Collapsible
@@ -135,7 +138,7 @@ export const PerDirectory = ({
                                         customMessagesOverrideCount ?? 0
                                     }
                                     kodyRulesOverrideCount={
-                                        kodyRulesOverrideCount ?? 0
+                                        directoryKodyRulesCount
                                     }
                                 />
                             </SidebarMenuSubItem>
