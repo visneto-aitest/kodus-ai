@@ -36,6 +36,8 @@ import { GetJobStatusUseCase } from '@libs/core/workflow/application/use-cases/g
 import { EnqueueImplementationCheckUseCase } from '@libs/code-review/application/use-cases/enqueue-implementation-check.use-case';
 import { AutomationModule } from '@libs/automation/modules/automation.module';
 import { ASTEventHandler } from '@libs/core/workflow/infrastructure/ast-event-handler.service';
+import { AstGraphBuildJobProcessor } from '@libs/code-review/workflow/ast-graph-build-job.processor';
+import { AstGraphIncrementalJobProcessor } from '@libs/code-review/workflow/ast-graph-incremental-job.processor';
 import { EcsModule } from '@libs/ee/infrastructure/ecs/ecs.module';
 import { environment } from '@libs/ee/configs/environment';
 import { TASK_PROTECTION_SERVICE_TOKEN } from '../domain/contracts/task-protection.service.contract';
@@ -85,6 +87,8 @@ const workerProviders = [
 
     // Processors
     WebhookProcessingJobProcessorService,
+    AstGraphBuildJobProcessor,
+    AstGraphIncrementalJobProcessor,
 
     // Consumers
     WorkflowJobConsumer,

@@ -2,6 +2,14 @@ import { AIEngineModule } from '@libs/ai-engine/modules/ai-engine.module';
 import { CodeAnalysisOrchestrator } from '@libs/ee/codeBase/codeAnalysisOrchestrator.service';
 import { forwardRef, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { TypeOrmModule } from '@nestjs/typeorm';
+
+import { RepositoryRepository } from '@libs/code-review/infrastructure/adapters/repositories/repository.repository';
+import { AstGraphRepository } from '@libs/code-review/infrastructure/adapters/repositories/astGraph.repository';
+import { AstGraphBuildService } from '@libs/code-review/infrastructure/adapters/services/astGraphBuild.service';
+import { RepositoryModel } from '@libs/code-review/infrastructure/adapters/repositories/schemas/repository.model';
+import { AstNodeModel } from '@libs/code-review/infrastructure/adapters/repositories/schemas/astNode.model';
+import { AstEdgeModel } from '@libs/code-review/infrastructure/adapters/repositories/schemas/astEdge.model';
 
 import { CodeReviewFeedbackModule } from '@libs/code-review/modules/codeReviewFeedback.module';
 import { ContextReferenceModule } from '@libs/code-review/modules/contextReference.module';
@@ -101,6 +109,7 @@ import { DocumentationContextModule } from './documentation-context.module';
         forwardRef(() => KodyASTModule),
         forwardRef(() => DryRunModule),
         forwardRef(() => DocumentationContextModule),
+        TypeOrmModule.forFeature([RepositoryModel, AstNodeModel, AstEdgeModel]),
         GlobalCacheModule,
     ],
     providers: [
@@ -176,6 +185,9 @@ import { DocumentationContextModule } from './documentation-context.module';
             useClass: CodeAstAnalysisService,
         },
         SafeguardPipelineService,
+        RepositoryRepository,
+        AstGraphRepository,
+        AstGraphBuildService,
     ],
     exports: [
         PULL_REQUEST_MANAGER_SERVICE_TOKEN,
@@ -196,6 +208,9 @@ import { DocumentationContextModule } from './documentation-context.module';
         pipelineProvider,
         AST_ANALYSIS_SERVICE_TOKEN,
         SafeguardPipelineService,
+        RepositoryRepository,
+        AstGraphRepository,
+        AstGraphBuildService,
     ],
 })
 export class CodebaseModule {}
