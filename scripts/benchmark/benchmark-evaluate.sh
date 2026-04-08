@@ -184,12 +184,15 @@ for (const entry of manifest.prs) {
     if (!file.suggestions) continue;
     for (const s of file.suggestions) {
       if (!s.suggestionContent || s.suggestionContent.length < 20) continue;
+      // Skip suggestions discarded by the verifier (safeguard) — these are confirmed FPs
+      if (s.priorityStatus === 'discarded-by-safeguard') continue;
       const entry2 = {
         comment: (s.suggestionContent || '').substring(0, 500),
         location: (s.relevantFile || file.filename) + ':' + (s.relevantLinesStart || 'general'),
         severity: s.severity || 'unknown',
         label: s.label || 'unknown',
         deliveryStatus: s.deliveryStatus || 'unknown',
+        priorityStatus: s.priorityStatus || 'prioritized',
       };
       suggestions.severity.push(entry2);
     }
@@ -269,7 +272,7 @@ echo "============================================================"
 echo "BENCHMARK RESULTS — $RUN_NAME"
 echo "============================================================"
 
-for LEVEL in "severity"; do
+for LEVEL in "all" "critical" "high" "medium"; do
   OUTPUT="$RESULTS_DIR/results-${LEVEL}.json"
   [ -f "$OUTPUT" ] || continue
 

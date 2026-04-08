@@ -185,12 +185,30 @@ async function main() {
     process.stderr.write("  Building match matrix...\n");
     const matrix = await buildMatchMatrix(client, golden, candidates);
 
-    // Step 2: Compute single severity-based result set
-    process.stderr.write("  Computing severity results...\n");
-    const severity = computeGreedyMatching(matrix, golden, candidates, () => true);
-    severity.level = "severity";
-    fs.writeFileSync(path.join(outputDir, "results-severity.json"), JSON.stringify(severity, null, 2));
-    process.stderr.write("    severity: F1=" + severity.f1.toFixed(3) + " P=" + severity.precision.toFixed(3) + " R=" + severity.recall.toFixed(3) + " TP=" + severity.tp + " FP=" + severity.fp + "\n");
+    // Step 2: Compute results at multiple severity thresholds from the same matrix
+    const severityThresholds = {
+        critical: new Set(["critical"]),
+        high: new Set(["critical", "high"]),
+        medium: new Set(["critical", "high", "medium"]),
+        all: new Set(["critical", "high", "medium", "low", "unknown"]),
+    };
+
+    for (const [level, accepted] of Object.entries(severityThresholds)) {
+        process.stderr.write(`  Computing ${level} results...\n`);
+        const result = computeGreedyMatching(matrix, golden, candidates, (c) =>
+            accepted.has((c.severity || "unknown").toLowerCase())
+        );
+        result.level = level;
+        fs.writeFileSync(path.join(outputDir, `results-${level}.json`), JSON.stringify(result, null, 2));
+        process.stderr.write(`    ${level}: F1=${result.f1.toFixed(3)} P=${result.precision.toFixed(3)} R=${result.recall.toFixed(3)} TP=${result.tp} FP=${result.fp}\n`);
+    }
+
+    // Also keep the "severity" alias pointing to "all" for backwards compat
+    try {
+        const allResult = JSON.parse(fs.readFileSync(path.join(outputDir, "results-all.json"), "utf8"));
+        allResult.level = "severity";
+        fs.writeFileSync(path.join(outputDir, "results-severity.json"), JSON.stringify(allResult, null, 2));
+    } catch {}
 
     // Save raw matrix for debugging
     fs.writeFileSync(path.join(outputDir, "match-matrix.json"), JSON.stringify(matrix, null, 2));

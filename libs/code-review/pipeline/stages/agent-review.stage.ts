@@ -10,6 +10,7 @@ import type { LangSmithTelemetryMetadata } from '@libs/code-review/infrastructur
 import { BasePipelineStage } from '@libs/core/infrastructure/pipeline/abstracts/base-stage.abstract';
 import { StageVisibility } from '@libs/core/infrastructure/pipeline/enums/stage-visibility.enum';
 import { CodeSuggestion } from '@libs/core/infrastructure/config/types/general/codeReview.type';
+import { PriorityStatus } from '@libs/platformData/domain/pullRequests/enums/priorityStatus.enum';
 import { ReviewOrchestratorService } from '@libs/code-review/infrastructure/agents/review-orchestrator.service';
 import { ObservabilityService } from '@libs/core/log/observability.service';
 import {
@@ -368,6 +369,7 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                     context.repository?.defaultBranch,
                 callGraph,
                 reviewMode: context.codeReviewConfig?.reviewMode || 'normal',
+                severityLevelFilter: context.codeReviewConfig?.suggestionControl?.severityLevelFilter,
             });
 
             const durationMs = Date.now() - startTime;
@@ -390,6 +392,21 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                     durationMs,
                 },
             });
+
+            // Collect suggestions discarded by severity filter and verify
+            const allDiscarded: Partial<CodeSuggestion>[] = [];
+            for (const agentResult of result.agentResults) {
+                if (agentResult.discardedBySeverity?.length) {
+                    for (const s of agentResult.discardedBySeverity) {
+                        allDiscarded.push({ ...s, priorityStatus: PriorityStatus.DISCARDED_BY_SEVERITY });
+                    }
+                }
+                if (agentResult.discardedByVerify?.length) {
+                    for (const s of agentResult.discardedByVerify) {
+                        allDiscarded.push({ ...s, priorityStatus: PriorityStatus.DISCARDED_BY_SAFEGUARD });
+                    }
+                }
+            }
 
             // Snap suggestion line numbers to valid diff ranges before passing downstream.
             // GitHub rejects inline comments on lines that aren't part of the diff.
@@ -550,6 +567,72 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                 s.suggestionContent = content;
             }
 
+            // Reclassify severity using dedicated criteria (Gemini Flash)
+            // The agent assigns rough severity during investigation; this step
+            // applies the definitive criteria (default or client-custom) without
+            // biasing the agent's bug-finding behavior.
+            try {
+                const { classifySeverity } = require('@libs/code-review/infrastructure/agents/llm/classify-severity');
+                const severityMap = await classifySeverity(
+                    deduped.map((s) => ({
+                        relevantFile: s.relevantFile || '',
+                        suggestionContent: s.suggestionContent || '',
+                        oneSentenceSummary: s.oneSentenceSummary || '',
+                        existingCode: s.existingCode || '',
+                        improvedCode: s.improvedCode || '',
+                    })),
+                    context.codeReviewConfig?.v2PromptOverrides,
+                );
+                for (let i = 0; i < deduped.length; i++) {
+                    const classified = severityMap.get(i);
+                    if (classified) deduped[i].severity = classified;
+                }
+                this.logger.log({
+                    message: `[AGENT] Reclassified severity for ${deduped.length} suggestions`,
+                    context: this.stageName,
+                });
+            } catch (err) {
+                this.logger.warn({
+                    message: `[AGENT] Severity classification failed, keeping agent-assigned severity: ${err instanceof Error ? err.message : String(err)}`,
+                    context: this.stageName,
+                });
+            }
+
+            // Clean up suggestion text: remove WHAT/WHY/HOW labels, merge into natural prose
+            try {
+                const { formatSuggestionContent } = require('@libs/code-review/infrastructure/agents/llm/format-suggestion-content');
+                const formatted = await formatSuggestionContent(
+                    deduped.map((s) => ({
+                        suggestionContent: s.suggestionContent || '',
+                        existingCode: s.existingCode || '',
+                        improvedCode: s.improvedCode || '',
+                        relevantFile: s.relevantFile || '',
+                        language: s.language || '',
+                    })),
+                    {
+                        customWritingGuidelines:
+                            context.codeReviewConfig?.v2PromptOverrides?.generation?.main,
+                        byokConfig: context.codeReviewConfig?.byokConfig,
+                        languageResultPrompt:
+                            context.codeReviewConfig?.languageResultPrompt,
+                    },
+                );
+                for (const [i, fmt] of formatted) {
+                    if (deduped[i]) {
+                        deduped[i].suggestionContent = fmt.suggestionContent;
+                    }
+                }
+                this.logger.log({
+                    message: `[AGENT] Formatted ${formatted.size}/${deduped.length} suggestion contents`,
+                    context: this.stageName,
+                });
+            } catch (err) {
+                this.logger.warn({
+                    message: `[AGENT] Content formatting failed, keeping original text: ${err instanceof Error ? err.message : String(err)}`,
+                    context: this.stageName,
+                });
+            }
+
             // Separate PR-level kody rules (no file/lines) from file-level suggestions.
             // PR-level suggestions go to validSuggestionsByPR → CreatePrLevelCommentsStage.
             const prLevelSuggestions = deduped.filter(
@@ -604,9 +687,12 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                         (f) => f.filename === filename,
                     );
                     if (file) {
+                        const discardedForFile = allDiscarded.filter(
+                            (s) => s.relevantFile === filename,
+                        );
                         draft.fileAnalysisResults.push({
                             validSuggestionsToAnalyze: suggestions,
-                            discardedSuggestionsBySafeGuard: [],
+                            discardedSuggestionsBySafeGuard: discardedForFile,
                             file,
                         });
                     }
@@ -634,6 +720,7 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
 
                 draft.dedupTrace = dedupTrace;
                 draft.validSuggestions = deduped;
+                draft.discardedSuggestions = allDiscarded;
             });
         } catch (error) {
             const durationMs = Date.now() - startTime;

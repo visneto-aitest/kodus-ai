@@ -83,6 +83,14 @@ const logger = createLogger('AgentLoop');
 const MAX_STEPS_NORMAL = 15;
 const MAX_STEPS_DEEP = 100;
 const AGENT_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes max per agent
+const LLM_CALL_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes max per individual LLM call
+
+/** Create an AbortSignal that fires after the given ms. */
+function timeoutSignal(ms: number): AbortSignal {
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), ms);
+    return controller.signal;
+}
 
 /** Schema for structured output */
 const suggestionSchema = z.object({
@@ -130,6 +138,8 @@ export interface AgentLoopInput {
     callGraph?: string;
     /** Review mode: 'normal' skips verify only for very-high-confidence findings, 'deep' verifies everything. */
     reviewMode?: 'normal' | 'deep';
+    /** Minimum severity level to keep. Findings below this threshold are discarded before verify. */
+    severityLevelFilter?: string;
 }
 
 export interface AgentLoopOutput {
@@ -151,6 +161,10 @@ export interface AgentLoopOutput {
         reasoningTokens: number;
         totalTokens: number;
     };
+    /** Suggestions discarded by severity filter (before verify). */
+    discardedBySeverity?: FindingsOutput['suggestions'];
+    /** Suggestions discarded by the verifier. */
+    droppedByVerify?: FindingsOutput['suggestions'];
     /** Token usage for the verification sub-step only (included in total usage). */
     verificationUsage?: {
         inputTokens: number;
@@ -564,6 +578,7 @@ export async function runAgentLoop(
                 .join('\n');
 
             const secondChanceResult = await generateText({
+                abortSignal: timeoutSignal(LLM_CALL_TIMEOUT_MS),
                 model: input.model,
                 system: input.systemPrompt,
                 prompt: `You have already investigated this code review task using ${allToolCalls.length} tool calls. Here is a summary of your investigation:
@@ -791,7 +806,37 @@ Respond with ONLY the JSON:
         }
     }
 
+    // Filter by minimum severity level BEFORE verify (saves verify tokens)
+    let discardedBySeverity: FindingsOutput['suggestions'] = [];
+    const severityLevelFilter = input.severityLevelFilter;
+    if (severityLevelFilter && severityLevelFilter !== 'low' && findings.suggestions.length > 0) {
+        const acceptedLevels: Record<string, string[]> = {
+            critical: ['critical'],
+            high: ['critical', 'high'],
+            medium: ['critical', 'high', 'medium'],
+            low: ['critical', 'high', 'medium', 'low'],
+        };
+        const accepted = acceptedLevels[severityLevelFilter] || acceptedLevels.low;
+        const before = findings.suggestions.length;
+        discardedBySeverity = findings.suggestions.filter((s) =>
+            !accepted.includes((s.severity || 'medium').toLowerCase()),
+        );
+        findings = {
+            ...findings,
+            suggestions: findings.suggestions.filter((s) =>
+                accepted.includes((s.severity || 'medium').toLowerCase()),
+            ),
+        };
+        if (discardedBySeverity.length > 0) {
+            logger.log({
+                message: `[AGENT-SEVERITY-FILTER] Filtered ${discardedBySeverity.length}/${before} findings below ${severityLevelFilter} threshold`,
+                context: 'AgentLoop',
+            });
+        }
+    }
+
     let verificationUsage = { inputTokens: 0, outputTokens: 0, reasoningTokens: 0 };
+    let droppedByVerify: FindingsOutput['suggestions'] = [];
 
     if (findings.suggestions.length > 0) {
         const verificationResult = await verifyFindingsWithTools({
@@ -802,6 +847,7 @@ Respond with ONLY the JSON:
         });
 
         findings = verificationResult.findings;
+        droppedByVerify = verificationResult.droppedByVerify || [];
         totalInputTokens += verificationResult.usage.inputTokens;
         totalOutputTokens += verificationResult.usage.outputTokens;
         totalReasoningTokens += verificationResult.usage.reasoningTokens;
@@ -852,6 +898,8 @@ Respond with ONLY the JSON:
             reasoningTokens: finalReasoningTokens,
             totalTokens: finalInputTokens + finalOutputTokens,
         },
+        discardedBySeverity,
+        droppedByVerify,
         verificationUsage,
         coverage: coverageSummary,
         verification: verificationTrace,
@@ -912,6 +960,7 @@ async function runCoverageRecoveryPass(params: {
 
     try {
         const recoveryResult = await generateText({
+            abortSignal: timeoutSignal(LLM_CALL_TIMEOUT_MS),
             model: input.model,
             system:
                 input.systemPrompt +
@@ -1079,6 +1128,7 @@ async function runLowCoverageSecondChance(params: {
 
     try {
         const secondChanceResult = await generateText({
+            abortSignal: timeoutSignal(LLM_CALL_TIMEOUT_MS),
             model: input.model,
             system:
                 input.systemPrompt +
@@ -1241,6 +1291,7 @@ async function runSynthesisRescuePass(params: {
 
     try {
         const synthesisResult = await generateText({
+            abortSignal: timeoutSignal(LLM_CALL_TIMEOUT_MS),
             model: input.model,
             experimental_telemetry: {
                 isEnabled: true,
@@ -1396,6 +1447,7 @@ async function verifyFindingsWithTools(params: {
     tools: Record<string, any>;
 }): Promise<{
     findings: FindingsOutput;
+    droppedByVerify: FindingsOutput['suggestions'];
     trace: VerificationTraceSummary | null;
     usage: {
         inputTokens: number;
@@ -1411,6 +1463,7 @@ async function verifyFindingsWithTools(params: {
     if (!internalModel || findings.suggestions.length === 0) {
         return {
             findings,
+            droppedByVerify: [],
             trace: null,
             usage: {
                 inputTokens: 0,
@@ -1526,6 +1579,7 @@ async function verifyFindingsWithTools(params: {
 
         let droppedByVerifier = 0;
         let droppedByEvidenceFilter = 0;
+        const droppedSuggestions: FindingsOutput['suggestions'] = [];
 
         const verifiedSuggestions = findings.suggestions
             .map((suggestion, index) => {
@@ -1533,6 +1587,7 @@ async function verifyFindingsWithTools(params: {
                 if (!decision) return suggestion;
                 if (!decision.keep) {
                     droppedByVerifier++;
+                    droppedSuggestions.push(suggestion);
                     decisionTraces.push({
                         index,
                         relevantFile: suggestion.relevantFile,
@@ -1562,6 +1617,7 @@ async function verifyFindingsWithTools(params: {
 
                 if (!passesEvidenceFilter) {
                     droppedByEvidenceFilter++;
+                    droppedSuggestions.push(suggestion);
                     decisionTraces.push({
                         index,
                         relevantFile: suggestion.relevantFile,
@@ -1634,6 +1690,7 @@ async function verifyFindingsWithTools(params: {
                         : findings.reasoning,
                 suggestions: verifiedSuggestions,
             },
+            droppedByVerify: droppedSuggestions,
             trace: {
                 beforeCount: findings.suggestions.length,
                 afterCount: verifiedSuggestions.length,
@@ -1656,6 +1713,7 @@ async function verifyFindingsWithTools(params: {
 
         return {
             findings,
+            droppedByVerify: [],
             trace: null,
             usage: {
                 inputTokens: 0,
@@ -1753,6 +1811,7 @@ async function verifySingleFindingWithTools(params: {
     );
 
     const verificationRun: any = await generateText({
+        abortSignal: timeoutSignal(LLM_CALL_TIMEOUT_MS),
         model: internalModel as any,
         experimental_telemetry: {
             isEnabled: true,
@@ -1859,6 +1918,7 @@ async function verifySingleFindingWithTools(params: {
 
         try {
             const secondChanceResult: any = await generateText({
+                abortSignal: timeoutSignal(LLM_CALL_TIMEOUT_MS),
                 model: internalModel as any,
                 experimental_telemetry: {
                     isEnabled: true,
@@ -2435,6 +2495,7 @@ async function structureVerificationDecisionWithFallbackModel(
         }
 
         const result: any = await generateText({
+            abortSignal: timeoutSignal(LLM_CALL_TIMEOUT_MS),
             model: internalModel as any,
             output: Output.object({
                 schema: jsonSchema({
@@ -2692,6 +2753,7 @@ async function structureWithFallbackModel(
         }
 
         const result: any = await generateText({
+            abortSignal: timeoutSignal(LLM_CALL_TIMEOUT_MS),
             model: internalModel as any,
             output: Output.object({
                 schema: jsonSchema({

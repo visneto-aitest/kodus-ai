@@ -79,7 +79,6 @@ export async function classifySeverity(
 
         const result: any = await generateText({
             model: model as any,
-            output: Output.object({ schema: severityResultSchema }) as any,
             prompt: `Classify the severity of each code review suggestion based on these criteria:
 
 **CRITICAL**: ${flags.critical || DEFAULT_SEVERITY_FLAGS.critical}
@@ -94,17 +93,28 @@ Suggestions to classify:
 
 ${suggestionsText}
 
-For each suggestion, determine its severity based on the IMPACT described. Consider:
-- Race conditions, data corruption, state inconsistency → typically HIGH or CRITICAL
-- Security vulnerabilities with real attack vectors → HIGH or CRITICAL
-- Missing error handling that causes crashes → HIGH
-- Performance issues in hot paths → HIGH
-- Edge cases that rarely occur → LOW or MEDIUM`,
+Respond with ONLY a JSON object:
+\`\`\`json
+{"classifications": [{"index": 0, "severity": "high", "reason": "brief reason"}]}
+\`\`\``,
         });
 
+        const text = result.text || '';
+        const jsonMatch = text.match(/\{[\s\S]*"classifications"[\s\S]*\}/);
+        if (!jsonMatch) {
+            logger.warn({
+                message: `[SEVERITY] No JSON in response (${text.length} chars)`,
+                context: 'SeverityClassifier',
+            });
+            return new Map(suggestions.map((_, i) => [i, 'medium']));
+        }
+
+        const parsed = JSON.parse(jsonMatch[0]);
         const classifications = new Map<number, string>();
-        for (const c of (result.object as any).classifications || []) {
-            classifications.set(c.index, c.severity);
+        for (const c of parsed.classifications || []) {
+            if (typeof c.index === 'number' && typeof c.severity === 'string') {
+                classifications.set(c.index, c.severity.toLowerCase());
+            }
         }
 
         logger.log({

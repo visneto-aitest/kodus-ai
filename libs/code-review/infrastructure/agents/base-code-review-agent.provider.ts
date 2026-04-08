@@ -27,10 +27,10 @@ import {
 
 const DEFAULT_SEVERITY_FLAGS = {
     critical:
-        'Application crash/downtime. Data loss/corruption. Security breach. Critical operation failure.',
-    high: 'Important functionality broken. Memory leaks causing eventual crash. Performance degradation affecting UX.',
-    medium: 'Partially broken functionality. Performance issues in specific scenarios. Incorrect but recoverable data.',
-    low: 'Minor performance overhead. Incorrect metrics/logs. Rarely affecting few users. Edge-case issues.',
+        'Runtime crash, data loss, or security breach that affects all users. The service goes down or data is corrupted. Examples: unhandled null dereference on a main code path, SQL injection, infinite recursion, writing to the wrong database table.',
+    high: 'A core feature is broken or produces wrong results for most users. Examples: wrong return value from a public API, race condition that corrupts shared state, broken authentication flow, missing permission check on a sensitive endpoint.',
+    medium: 'A feature is broken in a specific scenario or edge case. Most users are unaffected but the bug is real. Examples: off-by-one in pagination, incorrect behavior when input is empty, stale cache after update, wrong error message shown to user.',
+    low: 'Minor issue with minimal user impact. Examples: dead code, misleading log level, missing type annotation, hardcoded value that should be configurable, cosmetic inconsistency.',
 } as const;
 
 function resolvePromptOverrideText(value: unknown): string {
@@ -128,6 +128,8 @@ export interface ReviewAgentInput {
     agentReplicaTotal?: number;
     /** Review mode: 'normal' skips verify only for very-high-confidence findings, 'deep' verifies everything. */
     reviewMode?: 'normal' | 'deep';
+    /** Minimum severity level to keep. Findings below this threshold are discarded before verify. */
+    severityLevelFilter?: string;
     /** Optional per-agent step budget for the main investigation loop. */
     maxSteps?: number;
     /** Categories allowed for this run when using a mixed/generalist reviewer. */
@@ -139,6 +141,8 @@ export interface ReviewAgentInput {
  */
 export interface ReviewAgentOutput {
     suggestions: Partial<CodeSuggestion>[];
+    discardedBySeverity?: Partial<CodeSuggestion>[];
+    discardedByVerify?: Partial<CodeSuggestion>[];
     agentName: string;
     agentCategory?: string;
     agentReplicaIndex?: number;
@@ -280,6 +284,7 @@ export abstract class BaseCodeReviewAgentProvider {
                 baseBranch: input.baseBranch,
                 callGraph: input.callGraph,
                 reviewMode: input.reviewMode,
+                severityLevelFilter: input.severityLevelFilter,
                 maxSteps: input.maxSteps,
 
                 onStepFinish: (step: any) => {
@@ -499,6 +504,20 @@ export abstract class BaseCodeReviewAgentProvider {
 
             return {
                 suggestions,
+                discardedBySeverity: (agentResult.discardedBySeverity || []).map((s) => ({
+                    relevantFile: s.relevantFile,
+                    suggestionContent: s.suggestionContent,
+                    severity: s.severity || 'medium',
+                    label: this.getCategoryLabel(),
+                    oneSentenceSummary: s.oneSentenceSummary || '',
+                })),
+                discardedByVerify: (agentResult.droppedByVerify || []).map((s) => ({
+                    relevantFile: s.relevantFile,
+                    suggestionContent: s.suggestionContent,
+                    severity: s.severity || 'medium',
+                    label: this.getCategoryLabel(),
+                    oneSentenceSummary: s.oneSentenceSummary || '',
+                })),
                 agentName: identity.name,
                 agentCategory,
                 agentReplicaIndex: input.agentReplicaIndex,
@@ -729,7 +748,6 @@ ${coverageTargets ? `${coverageTargets}\n` : ''}
     - Concrete findings include build-time and contract failures too. If the diff introduces a signature mismatch, wrong delegate call, impossible method call, or dropped required side effect, you may report it even without a runtime trace.
     - For wrappers, middleware, providers, caches, and adapters, verify both behavior and wiring: the changed code may be wrong because it calls the wrong target, preserves the wrong cached semantics, or silently stops propagating tracing/logging/metrics/auth state.
     - For security flows, challenge any value that became static, shared, or reused across requests/users when it should be per-request, per-session, or per-principal.
-    - If the system prompt includes client-specific severity criteria, use those criteria when choosing critical/high/medium/low. Treat those criteria as authoritative over your default intuition.
     ${mixedLabelRules}
     ${mixedLabelLensRules}
     - Assign a confidence score (1-10) to each finding. Be honest — overconfidence wastes verification budget:
@@ -839,22 +857,9 @@ ${coverageTargets ? `${coverageTargets}\n` : ''}
             }
         }
 
-        const severityFlags = input.v2PromptOverrides?.severity?.flags;
-        if (
-            severityFlags &&
-            Object.values(severityFlags).some((value) => Boolean(value))
-        ) {
-            const severityGuidance = [
-                `### Critical\n${resolvePromptOverrideText(severityFlags.critical) || DEFAULT_SEVERITY_FLAGS.critical}`,
-                `### High\n${resolvePromptOverrideText(severityFlags.high) || DEFAULT_SEVERITY_FLAGS.high}`,
-                `### Medium\n${resolvePromptOverrideText(severityFlags.medium) || DEFAULT_SEVERITY_FLAGS.medium}`,
-                `### Low\n${resolvePromptOverrideText(severityFlags.low) || DEFAULT_SEVERITY_FLAGS.low}`,
-            ].join('\n\n');
-
-            parts.push(
-                `## Client Severity Criteria\nUse these criteria when assigning the final severity field for each finding.\n\n${severityGuidance}`,
-            );
-        }
+        // Severity classification is handled by a separate post-processing step (classify-severity.ts)
+        // to avoid biasing the agent's investigation. The agent assigns a rough severity but
+        // the final classification uses dedicated criteria (default or client-custom).
 
         const generationMain = resolvePromptOverrideText(
             input.generationMain ?? input.v2PromptOverrides?.generation?.main,
