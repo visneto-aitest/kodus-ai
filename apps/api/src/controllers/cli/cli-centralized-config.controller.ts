@@ -292,6 +292,7 @@ export class CliCentralizedConfigController {
             {
                 enabled: false,
                 repository: null,
+                activePullRequest: null,
             },
             context,
         );

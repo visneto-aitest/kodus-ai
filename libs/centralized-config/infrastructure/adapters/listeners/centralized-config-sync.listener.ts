@@ -1,5 +1,6 @@
 import { createLogger } from '@kodus/flow';
 import { CentralizedConfigSyncUseCase } from '@libs/centralized-config/application/use-cases/centralized-config-sync.use-case';
+import { CentralizedConfigPrService } from '@libs/centralized-config/infrastructure/adapters/services/centralized-config-pr.service';
 import {
     CENTRALIZED_CONFIG_SERVICE_TOKEN,
     ICentralizedConfigService,
@@ -14,6 +15,7 @@ export class CentralizedConfigSyncListener {
 
     constructor(
         private readonly centralizedConfigSyncUseCase: CentralizedConfigSyncUseCase,
+        private readonly centralizedConfigPrService: CentralizedConfigPrService,
         @Inject(CENTRALIZED_CONFIG_SERVICE_TOKEN)
         private readonly centralizedConfigService: ICentralizedConfigService,
     ) {}
@@ -61,6 +63,14 @@ export class CentralizedConfigSyncListener {
                 pullRequestNumber: event.pullRequestNumber,
             },
         });
+
+        await this.centralizedConfigPrService.clearActivePullRequestMetadataIfMatching(
+            {
+                organizationAndTeamData: event.organizationAndTeamData,
+                repository: event.repository,
+                pullRequestNumber: event.pullRequestNumber,
+            },
+        );
 
         // Proceed with the sync using the use case
         await this.centralizedConfigSyncUseCase.execute({

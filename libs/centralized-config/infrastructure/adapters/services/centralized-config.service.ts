@@ -907,6 +907,7 @@ export class CentralizedConfigService implements ICentralizedConfigService {
                 pullRequestMessages,
                 {
                     skipAuthorization: true,
+                    skipCentralizedPr: true,
                 },
             );
 
@@ -1850,8 +1851,11 @@ export class CentralizedConfigService implements ICentralizedConfigService {
             const existingRules = existingEntity?.toJson?.()?.rules || [];
 
             for (const rule of existingRules) {
-                if (rule.status !== KodyRulesStatus.ACTIVE) {
-                    continue; // Skip non-active rules
+                if (
+                    rule.status !== KodyRulesStatus.ACTIVE &&
+                    rule.status !== KodyRulesStatus.PENDING_MERGE
+                ) {
+                    continue; // Skip rules that are outside centralized active/pending_merge lifecycle.
                 }
 
                 const sourcePath = rule.centralizedSourcePath;

@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 
 import { CentralizedConfigSyncUseCase } from '@libs/centralized-config/application/use-cases/centralized-config-sync.use-case';
+import { CentralizedConfigPrService } from '@libs/centralized-config/infrastructure/adapters/services/centralized-config-pr.service';
 import {
     CENTRALIZED_CONFIG_SERVICE_TOKEN,
     ICentralizedConfigService,
@@ -13,6 +14,10 @@ describe('CentralizedConfigSyncListener', () => {
 
     const centralizedConfigSyncUseCaseMock = {
         execute: jest.fn(),
+    };
+
+    const centralizedConfigPrServiceMock = {
+        clearActivePullRequestMetadataIfMatching: jest.fn(),
     };
 
     const centralizedConfigServiceMock: jest.Mocked<ICentralizedConfigService> =
@@ -31,6 +36,7 @@ describe('CentralizedConfigSyncListener', () => {
 
     beforeEach(async () => {
         centralizedConfigSyncUseCaseMock.execute.mockReset();
+        centralizedConfigPrServiceMock.clearActivePullRequestMetadataIfMatching.mockReset();
         jest.clearAllMocks();
 
         const module: TestingModule = await Test.createTestingModule({
@@ -39,6 +45,10 @@ describe('CentralizedConfigSyncListener', () => {
                 {
                     provide: CentralizedConfigSyncUseCase,
                     useValue: centralizedConfigSyncUseCaseMock,
+                },
+                {
+                    provide: CentralizedConfigPrService,
+                    useValue: centralizedConfigPrServiceMock,
                 },
                 {
                     provide: CENTRALIZED_CONFIG_SERVICE_TOKEN,
@@ -81,6 +91,13 @@ describe('CentralizedConfigSyncListener', () => {
             organizationAndTeamData: event.organizationAndTeamData,
             repository: event.repository,
         });
+        expect(
+            centralizedConfigPrServiceMock.clearActivePullRequestMetadataIfMatching,
+        ).toHaveBeenCalledWith({
+            organizationAndTeamData: event.organizationAndTeamData,
+            repository: event.repository,
+            pullRequestNumber: event.pullRequestNumber,
+        });
         expect(centralizedConfigSyncUseCaseMock.execute).toHaveBeenCalledWith({
             organizationAndTeamData: event.organizationAndTeamData,
             repository: event.repository,
@@ -116,6 +133,9 @@ describe('CentralizedConfigSyncListener', () => {
             organizationAndTeamData: event.organizationAndTeamData,
             repository: event.repository,
         });
+        expect(
+            centralizedConfigPrServiceMock.clearActivePullRequestMetadataIfMatching,
+        ).not.toHaveBeenCalled();
         expect(centralizedConfigSyncUseCaseMock.execute).not.toHaveBeenCalled();
     });
 });

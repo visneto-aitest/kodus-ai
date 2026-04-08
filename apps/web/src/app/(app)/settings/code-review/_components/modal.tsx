@@ -61,6 +61,7 @@ import {
     type KodyRule,
     type LibraryRule,
 } from "@services/kodyRules/types";
+import { isCentralizedPrResponse } from "@services/parameters/types";
 import {
     AtSign,
     CheckIcon,
@@ -83,6 +84,7 @@ import { useMCPMentions } from "src/core/hooks/use-mcp-mentions";
 import { cn } from "src/core/utils/components";
 
 import type { FormattedDirectoryCodeReviewConfig } from "../_types";
+import { getCentralizedPrToastPayload } from "../_utils/centralized-pr-feedback";
 import { ExternalReferencesDisplay } from "../[repositoryId]/pr-summary/_components/external-references-display";
 
 const severityLevelFilterOptions = {
@@ -525,7 +527,7 @@ export const KodyRuleAddOrUpdateItemModal = ({
                 }
             }
 
-            await createOrUpdateKodyRule(
+            const mutationResult = await createOrUpdateKodyRule(
                 {
                     path: newPath,
                     rule: config.rule,
@@ -550,10 +552,19 @@ export const KodyRuleAddOrUpdateItemModal = ({
                 directory?.id,
             );
 
-            toast({
-                description: `${entityLabel} ${rule?.uuid ? "updated" : "created"}`,
-                variant: "success",
-            });
+            if (isCentralizedPrResponse(mutationResult)) {
+                toast(
+                    getCentralizedPrToastPayload(
+                        mutationResult,
+                        `${entityLabel} change proposed through centralized pull request.`,
+                    ),
+                );
+            } else {
+                toast({
+                    description: `${entityLabel} ${rule?.uuid ? "updated" : "created"}`,
+                    variant: "success",
+                });
+            }
 
             if (!onClose) {
                 magicModal.hide(true);
@@ -592,7 +603,7 @@ export const KodyRuleAddOrUpdateItemModal = ({
         }
 
         try {
-            await createOrUpdateKodyRule(
+            const mutationResult = await createOrUpdateKodyRule(
                 {
                     path: rule?.path,
                     rule: rule?.rule,
@@ -616,6 +627,16 @@ export const KodyRuleAddOrUpdateItemModal = ({
                 rule?.repositoryId,
                 rule?.directoryId,
             );
+
+            if (isCentralizedPrResponse(mutationResult)) {
+                toast(
+                    getCentralizedPrToastPayload(
+                        mutationResult,
+                        "Rule inheritance change proposed through centralized pull request.",
+                    ),
+                );
+                return;
+            }
 
             setIsInheritanceDisabled(val);
 

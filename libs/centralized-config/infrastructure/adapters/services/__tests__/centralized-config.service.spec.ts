@@ -1131,4 +1131,37 @@ describe('CentralizedConfigService', () => {
             );
         });
     });
+
+    describe('removeStaleKodyRules', () => {
+        it('should remove stale pending_merge rules not present in centralized files', async () => {
+            mockKodyRulesService.findByOrganizationId.mockResolvedValue({
+                toJson: () => ({
+                    rules: [
+                        {
+                            uuid: 'pending-merge-rule-1',
+                            title: 'Pending merge rule',
+                            status: 'pending_merge',
+                            centralizedSourcePath:
+                                '.kody-rules/review/pending.yml',
+                        },
+                    ],
+                }),
+            });
+
+            mockDeleteRuleInOrganizationByIdKodyRulesUseCase.execute.mockResolvedValue(
+                true,
+            );
+
+            const result = await service.removeStaleKodyRules({
+                organizationAndTeamData,
+                actor,
+                ruleFiles: [],
+            });
+
+            expect(result.success).toBe(true);
+            expect(
+                mockDeleteRuleInOrganizationByIdKodyRulesUseCase.execute,
+            ).toHaveBeenCalledWith('pending-merge-rule-1', actor);
+        });
+    });
 });

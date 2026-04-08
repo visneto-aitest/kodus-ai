@@ -1,4 +1,5 @@
 import { authorizedFetch } from "@services/fetch";
+import type { CentralizedPrResponse } from "@services/parameters/types";
 import { ProgrammingLanguage } from "src/core/enums/programming-language";
 import { axiosAuthorized } from "src/core/utils/axios";
 
@@ -39,17 +40,19 @@ export type ReviewFastIDERulesResponse = {
     errors?: unknown[];
 };
 
+export type KodyRuleMutationResponse = KodyRule | CentralizedPrResponse;
+
 export const createOrUpdateKodyRule = async (
     rule: KodyRule,
     repositoryId?: string,
     directoryId?: string,
-) => {
+): Promise<KodyRuleMutationResponse> => {
     const response = await axiosAuthorized.post<any>(
         KODY_RULES_PATHS.CREATE_OR_UPDATE,
         { ...rule, repositoryId, directoryId },
     );
 
-    return response.data as KodyRule;
+    return response.data as KodyRuleMutationResponse;
 };
 
 export const addKodyRuleToRepositories = async (props: {
@@ -69,13 +72,15 @@ export const addKodyRuleToRepositories = async (props: {
     return response.data as KodyRule[];
 };
 
-export const deleteKodyRule = async (ruleId: string) => {
+export const deleteKodyRule = async (
+    ruleId: string,
+): Promise<boolean | CentralizedPrResponse> => {
     const response = await axiosAuthorized.deleted<any>(
         KODY_RULES_PATHS.DELETE_BY_ORGANIZATION_ID_AND_ROLE_UUID,
         { params: { ruleId } },
     );
 
-    return response.data;
+    return response.data as boolean | CentralizedPrResponse;
 };
 
 export const getLibraryKodyRulesWithFeedback = async (params?: {

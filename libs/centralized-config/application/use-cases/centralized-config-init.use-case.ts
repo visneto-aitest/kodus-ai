@@ -173,7 +173,8 @@ export class CentralizedConfigInitUseCase {
             this.logger.error({
                 message,
                 context: CentralizedConfigInitUseCase.name,
-                error,
+                error:
+                    error instanceof Error ? error : new Error(String(error)),
                 metadata: {
                     organizationId,
                     teamId,
@@ -218,6 +219,7 @@ export class CentralizedConfigInitUseCase {
                     id: repository.id,
                     name: repository.name,
                 },
+                activePullRequest: null,
             },
             organizationAndTeamData,
         );
@@ -231,6 +233,7 @@ export class CentralizedConfigInitUseCase {
             {
                 enabled: false,
                 repository: null,
+                activePullRequest: null,
             },
             organizationAndTeamData,
         );

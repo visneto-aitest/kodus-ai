@@ -322,10 +322,35 @@ export class BitbucketService implements Omit<
                 );
             }
 
+            const branchAlreadyExists =
+                resolvedBranchName === resolvedBaseBranch
+                    ? true
+                    : await this.checkBitbucketBranchExists({
+                          bitbucketAPI,
+                          workspace,
+                          repositoryId: repository.id,
+                          branchName: resolvedBranchName,
+                      });
+
+            const baseBranchHead =
+                !branchAlreadyExists &&
+                resolvedBranchName !== resolvedBaseBranch
+                    ? await this.getBitbucketBranchHeadHash({
+                          bitbucketAPI,
+                          workspace,
+                          repositoryId: repository.id,
+                          branchName: resolvedBaseBranch,
+                      })
+                    : null;
+
             const form = new FormData();
 
             form.append('branch', resolvedBranchName);
             form.append('message', resolvedMessage);
+
+            if (!branchAlreadyExists && baseBranchHead) {
+                form.append('parents', baseBranchHead);
+            }
 
             if (
                 bitbucketAuthDetail.authMode === AuthMode.TOKEN &&
@@ -374,6 +399,69 @@ export class BitbucketService implements Omit<
 
             return false;
         }
+    }
+
+    private async checkBitbucketBranchExists(params: {
+        bitbucketAPI: any;
+        workspace: string;
+        repositoryId: string;
+        branchName: string;
+    }): Promise<boolean> {
+        const head = await this.getBitbucketBranchHeadHash(params);
+        return Boolean(head);
+    }
+
+    private async getBitbucketBranchHeadHash(params: {
+        bitbucketAPI: any;
+        workspace: string;
+        repositoryId: string;
+        branchName: string;
+    }): Promise<string | null> {
+        try {
+            const commitsResponse = await params.bitbucketAPI.commits.list({
+                repo_slug: `{${params.repositoryId}}`,
+                workspace: `{${params.workspace}}`,
+                include: params.branchName,
+                pagelen: 1,
+            });
+
+            const commit = commitsResponse?.data?.values?.[0];
+            return typeof commit?.hash === 'string' ? commit.hash : null;
+        } catch (error) {
+            if (this.isBitbucketBranchNotFoundError(error)) {
+                return null;
+            }
+
+            throw error;
+        }
+    }
+
+    private isBitbucketBranchNotFoundError(error: unknown): boolean {
+        const candidate = error as
+            | {
+                  status?: number;
+                  message?: string;
+                  response?: {
+                      status?: number;
+                      data?: { error?: { message?: string } };
+                  };
+              }
+            | undefined;
+
+        const status = candidate?.status || candidate?.response?.status;
+        const message =
+            candidate?.response?.data?.error?.message ||
+            candidate?.message ||
+            '';
+
+        const normalizedMessage = message.toLowerCase();
+
+        return (
+            status === 404 ||
+            normalizedMessage.includes('not found') ||
+            normalizedMessage.includes('unknown revision') ||
+            normalizedMessage.includes('invalid branch')
+        );
     }
 
     getWorkflows(params: any): Promise<Workflow[]> {

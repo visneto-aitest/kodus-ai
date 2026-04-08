@@ -476,12 +476,25 @@ export class GitlabService implements Omit<
 
             const gitlabAPI = this.instanceGitlabApi(gitlabAuthDetail);
 
-            const commitOptions =
+            const branchAlreadyExists =
                 resolvedBranchName === resolvedBaseBranch
+                    ? true
+                    : await this.checkGitlabBranchExists(
+                          gitlabAPI,
+                          repository.id,
+                          resolvedBranchName,
+                      );
+
+            const commitOptions =
+                resolvedBranchName === resolvedBaseBranch || branchAlreadyExists
                     ? undefined
                     : {
                           startBranch: resolvedBaseBranch,
                       };
+
+            const fileExistsReferenceBranch = branchAlreadyExists
+                ? resolvedBranchName
+                : resolvedBaseBranch;
 
             const tokenAuthorIdentity =
                 gitlabAuthDetail.authMode === AuthMode.TOKEN && author?.name
@@ -491,29 +504,72 @@ export class GitlabService implements Omit<
                       }
                     : undefined;
 
-            const actions = files.map((file) => {
-                const operation = file.operation || 'upsert';
+            const fileExistsEntries = await Promise.all(
+                files.map(async (file) => {
+                    const operation = file.operation || 'upsert';
 
-                if (operation === 'delete') {
+                    if (operation === 'upsert' || operation === 'delete') {
+                        const exists = await this.checkGitlabFileExists(
+                            gitlabAPI,
+                            repository.id,
+                            fileExistsReferenceBranch,
+                            file.path,
+                        );
+
+                        return [file.path, exists] as const;
+                    }
+
+                    return [file.path, false] as const;
+                }),
+            );
+
+            const fileExistsByPath = new Map(fileExistsEntries);
+
+            const actions = files
+                .map((file) => {
+                    const operation = file.operation || 'upsert';
+                    const fileExists = fileExistsByPath.get(file.path) === true;
+
+                    if (operation === 'delete') {
+                        if (!fileExists) {
+                            return null;
+                        }
+
+                        return {
+                            action: 'delete' as const,
+                            filePath: file.path,
+                        };
+                    }
+
+                    if (typeof file.content !== 'string') {
+                        throw new Error(
+                            `File content is required for upsert operation: ${file.path}`,
+                        );
+                    }
+
                     return {
-                        action: 'delete' as const,
+                        action: fileExists
+                            ? ('update' as const)
+                            : ('create' as const),
                         filePath: file.path,
+                        content: file.content,
+                        encoding: 'text' as const,
                     };
-                }
+                })
+                .filter(
+                    (
+                        action,
+                    ): action is {
+                        action: 'create' | 'update' | 'delete';
+                        filePath: string;
+                        content?: string;
+                        encoding?: 'text';
+                    } => Boolean(action),
+                );
 
-                if (typeof file.content !== 'string') {
-                    throw new Error(
-                        `File content is required for upsert operation: ${file.path}`,
-                    );
-                }
-
-                return {
-                    action: 'create' as const,
-                    filePath: file.path,
-                    content: file.content,
-                    encoding: 'text' as const,
-                };
-            });
+            if (actions.length === 0) {
+                return true;
+            }
 
             const res = await gitlabAPI.Commits.create(
                 repository.id,
@@ -540,6 +596,64 @@ export class GitlabService implements Omit<
             });
             return false;
         }
+    }
+
+    private async checkGitlabBranchExists(
+        gitlabAPI: any,
+        repositoryId: string,
+        branchName: string,
+    ): Promise<boolean> {
+        try {
+            await gitlabAPI.Branches.show(repositoryId, branchName);
+            return true;
+        } catch (error) {
+            if (this.isGitlabNotFoundError(error)) {
+                return false;
+            }
+
+            throw error;
+        }
+    }
+
+    private async checkGitlabFileExists(
+        gitlabAPI: any,
+        repositoryId: string,
+        branchName: string,
+        filePath: string,
+    ): Promise<boolean> {
+        try {
+            await gitlabAPI.RepositoryFiles.show(
+                repositoryId,
+                filePath,
+                branchName,
+            );
+            return true;
+        } catch (error) {
+            if (this.isGitlabNotFoundError(error)) {
+                return false;
+            }
+
+            throw error;
+        }
+    }
+
+    private isGitlabNotFoundError(error: unknown): boolean {
+        const candidate = error as
+            | {
+                  status?: number;
+                  statusCode?: number;
+                  response?: { status?: number };
+                  cause?: { response?: { status?: number } };
+              }
+            | undefined;
+
+        const status =
+            candidate?.status ||
+            candidate?.statusCode ||
+            candidate?.response?.status ||
+            candidate?.cause?.response?.status;
+
+        return status === 404;
     }
 
     private async handleIntegration(

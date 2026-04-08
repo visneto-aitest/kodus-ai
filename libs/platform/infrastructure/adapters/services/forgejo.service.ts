@@ -411,41 +411,95 @@ export class ForgejoService implements Omit<
                       }
                     : undefined;
 
+            const branchAlreadyExists =
+                resolvedBranchName === resolvedBaseBranch
+                    ? true
+                    : await this.checkForgejoBranchExists(
+                          client,
+                          repoInfo,
+                          resolvedBranchName,
+                      );
+
+            const fileExistsReferenceBranch = branchAlreadyExists
+                ? resolvedBranchName
+                : resolvedBaseBranch;
+
+            const fileExistsEntries = await Promise.all(
+                files.map(async (file) => {
+                    const operation = file.operation || 'upsert';
+
+                    if (operation === 'upsert' || operation === 'delete') {
+                        const exists = await this.checkForgejoFileExists(
+                            client,
+                            repoInfo,
+                            fileExistsReferenceBranch,
+                            file.path,
+                        );
+
+                        return [file.path, exists] as const;
+                    }
+
+                    return [file.path, false] as const;
+                }),
+            );
+
+            const fileExistsByPath = new Map(fileExistsEntries);
+
+            const changes = files
+                .map((file) => {
+                    const operation = file.operation || 'upsert';
+                    const fileExists = fileExistsByPath.get(file.path) === true;
+
+                    if (operation === 'delete') {
+                        if (!fileExists) {
+                            return null;
+                        }
+
+                        return {
+                            operation: 'delete' as const,
+                            path: file.path,
+                        } as any;
+                    }
+
+                    if (typeof file.content !== 'string') {
+                        throw new Error(
+                            `File content is required for upsert operation: ${file.path}`,
+                        );
+                    }
+
+                    return {
+                        operation: fileExists
+                            ? ('update' as const)
+                            : ('create' as const),
+                        path: file.path,
+                        content: file.content,
+                    } as any;
+                })
+                .filter((change): change is NonNullable<typeof change> =>
+                    Boolean(change),
+                );
+
+            if (changes.length === 0) {
+                return true;
+            }
+
             const res = await repoChangeFiles({
                 client,
                 path: repoInfo,
                 body: {
-                    files: files.map((f) => {
-                        const operation = f.operation || 'upsert';
-
-                        if (operation === 'delete') {
-                            return {
-                                operation: 'delete' as const,
-                                path: f.path,
-                            };
-                        }
-
-                        if (typeof f.content !== 'string') {
-                            throw new Error(
-                                `File content is required for upsert operation: ${f.path}`,
-                            );
-                        }
-
-                        return {
-                            operation: 'create' as const,
-                            path: f.path,
-                            content: f.content,
-                        };
-                    }),
+                    files: changes,
                     message: resolvedMessage,
-                    branch: resolvedBaseBranch,
+                    branch: branchAlreadyExists
+                        ? resolvedBranchName
+                        : resolvedBaseBranch,
                     ...(tokenAuthorIdentity
                         ? {
                               author: tokenAuthorIdentity,
                               committer: tokenAuthorIdentity,
                           }
                         : {}),
-                    ...(resolvedBranchName !== resolvedBaseBranch
+                    ...(!branchAlreadyExists &&
+                    resolvedBranchName !== resolvedBaseBranch
                         ? {
                               new_branch: resolvedBranchName,
                           }
@@ -467,6 +521,78 @@ export class ForgejoService implements Omit<
             });
             return false;
         }
+    }
+
+    private async checkForgejoBranchExists(
+        client: Client,
+        repoInfo: { owner: string; repo: string },
+        branchName: string,
+    ): Promise<boolean> {
+        try {
+            await getTree({
+                client,
+                path: {
+                    owner: repoInfo.owner,
+                    repo: repoInfo.repo,
+                    sha: branchName,
+                },
+                query: {
+                    recursive: false,
+                },
+            });
+
+            return true;
+        } catch (error) {
+            if (this.isForgejoNotFoundError(error)) {
+                return false;
+            }
+
+            throw error;
+        }
+    }
+
+    private async checkForgejoFileExists(
+        client: Client,
+        repoInfo: { owner: string; repo: string },
+        branchName: string,
+        filePath: string,
+    ): Promise<boolean> {
+        try {
+            await repoGetContents({
+                client,
+                path: {
+                    owner: repoInfo.owner,
+                    repo: repoInfo.repo,
+                    filepath: filePath.replace(/^\/+/, ''),
+                },
+                query: {
+                    ref: branchName,
+                },
+            });
+
+            return true;
+        } catch (error) {
+            if (this.isForgejoNotFoundError(error)) {
+                return false;
+            }
+
+            throw error;
+        }
+    }
+
+    private isForgejoNotFoundError(error: unknown): boolean {
+        const candidate = error as
+            | {
+                  status?: number;
+                  code?: number;
+                  response?: { status?: number };
+              }
+            | undefined;
+
+        const status =
+            candidate?.status || candidate?.code || candidate?.response?.status;
+
+        return status === 404;
     }
 
     private extractRepoInfo(

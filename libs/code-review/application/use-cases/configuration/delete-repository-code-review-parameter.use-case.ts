@@ -1,10 +1,15 @@
 import { CreateOrUpdateParametersUseCase } from '@libs/organization/application/use-cases/parameters/create-or-update-use-case';
-import { ForbiddenException, Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { REQUEST } from '@nestjs/core';
 import { produce } from 'immer';
 
 import { createLogger } from '@kodus/flow';
+import {
+    CentralizedConfigPrService,
+    CentralizedPrMetadata,
+} from '@libs/centralized-config/infrastructure/adapters/services/centralized-config-pr.service';
 import { DeleteByRepositoryOrDirectoryPullRequestMessagesUseCase } from '@libs/code-review/application/use-cases/pullRequestMessages/delete-by-repository-or-directory.use-case';
+import { buildKodusConfigCentralizedMutationRequest } from '@libs/centralized-config/utils/kodus-config-centralized-pr.builder';
 import { ParametersKey } from '@libs/core/domain/enums';
 import { CodeReviewParameter } from '@libs/core/infrastructure/config/types/general/codeReviewConfig.type';
 import { ActionType } from '@libs/core/infrastructure/config/types/general/codeReviewSettingsLog.type';
@@ -45,6 +50,8 @@ export class DeleteRepositoryCodeReviewParameterUseCase {
 
         @Inject(REQUEST)
         private readonly request: UserRequest,
+
+        private readonly centralizedConfigPrService: CentralizedConfigPrService,
     ) {}
 
     async execute(
@@ -57,7 +64,11 @@ export class DeleteRepositoryCodeReviewParameterUseCase {
                 userEmail?: string;
             };
         },
-    ): Promise<ParametersEntity<ParametersKey.CODE_REVIEW_CONFIG> | boolean> {
+    ): Promise<
+        | ParametersEntity<ParametersKey.CODE_REVIEW_CONFIG>
+        | boolean
+        | CentralizedPrMetadata
+    > {
         const { teamId, repositoryId, directoryId } = body;
 
         try {
@@ -75,11 +86,6 @@ export class DeleteRepositoryCodeReviewParameterUseCase {
                 teamId: body.organizationAndTeamData?.teamId ?? teamId,
             };
 
-            await this.ensureManualChangesAllowed(
-                organizationAndTeamData,
-                body.actor?.source,
-            );
-
             const codeReviewConfigParam =
                 await this.parametersService.findByKey(
                     ParametersKey.CODE_REVIEW_CONFIG,
@@ -88,6 +94,20 @@ export class DeleteRepositoryCodeReviewParameterUseCase {
 
             if (!codeReviewConfigParam || !codeReviewConfigParam.configValue) {
                 throw new Error('Code review config not found');
+            }
+
+            if (body.actor?.source !== 'sync') {
+                const centralizedPr =
+                    await this.createCentralizedDeleteMutationIfEnabled({
+                        organizationAndTeamData,
+                        codeReviewConfig: codeReviewConfigParam.configValue,
+                        repositoryId,
+                        directoryId,
+                    });
+
+                if (centralizedPr) {
+                    return centralizedPr;
+                }
             }
 
             const codeReviewConfig = codeReviewConfigParam.configValue;
@@ -119,31 +139,64 @@ export class DeleteRepositoryCodeReviewParameterUseCase {
             this.logger.error({
                 message: 'Could not delete code review configuration',
                 context: DeleteRepositoryCodeReviewParameterUseCase.name,
-                error: error,
+                error: this.normalizeError(error),
                 metadata: { body },
             });
             throw error;
         }
     }
 
-    private async ensureManualChangesAllowed(
-        organizationAndTeamData: OrganizationAndTeamData,
-        source?: 'cli' | 'web' | 'sync',
-    ): Promise<void> {
-        if (source === 'sync') {
-            return;
+    private normalizeError(error: unknown): Error {
+        return error instanceof Error ? error : new Error(String(error));
+    }
+
+    private async createCentralizedDeleteMutationIfEnabled(params: {
+        organizationAndTeamData: OrganizationAndTeamData;
+        codeReviewConfig: CodeReviewParameter;
+        repositoryId?: string;
+        directoryId?: string;
+    }): Promise<CentralizedPrMetadata | null> {
+        const { organizationAndTeamData, repositoryId, directoryId } = params;
+
+        if (!repositoryId) {
+            return null;
         }
 
-        const centralizedConfig = await this.parametersService.findByKey(
-            ParametersKey.CENTRALIZED_CONFIG,
-            organizationAndTeamData,
+        const repository = params.codeReviewConfig.repositories.find(
+            (repo) => repo.id === repositoryId,
         );
 
-        if (centralizedConfig?.configValue?.enabled === true) {
-            throw new ForbiddenException(
-                'Code review settings are locked while centralized configuration is enabled.',
-            );
+        if (!repository) {
+            return null;
         }
+
+        const directory = directoryId
+            ? repository.directories?.find((dir) => dir.id === directoryId)
+            : undefined;
+
+        const pr =
+            await this.centralizedConfigPrService.createMutationPullRequestIfEnabled(
+                buildKodusConfigCentralizedMutationRequest({
+                    centralizedConfigPrService: this.centralizedConfigPrService,
+                    organizationAndTeamData,
+                    repositoryId,
+                    directoryPath: directory?.path,
+                    configFileContent: null,
+                    title: `Remove Kodus config for ${repository.name}${directory ? ` (${directory.path})` : ''}`,
+                    description:
+                        'This pull request proposes removing a code review scope configuration from centralized config.',
+                    commitMessage: `remove code review config for ${repository.name}`,
+                    sourceBranchPrefix: 'kodus-centralized-config-delete',
+                    centralizedModeMessage:
+                        'Centralized config is enabled. Code review settings removal proposed through a pull request.',
+                }),
+            );
+
+        if (pr.mode !== 'centralized-pr') {
+            return null;
+        }
+
+        return pr;
     }
 
     private async deleteRepositoryConfig(

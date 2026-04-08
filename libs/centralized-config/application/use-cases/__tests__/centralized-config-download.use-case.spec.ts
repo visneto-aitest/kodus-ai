@@ -414,7 +414,7 @@ describe('CentralizedConfigDownloadUseCase', () => {
         );
     });
 
-    it('marks rules as pending with sourcePath internally but does not expose them in downloaded yaml', async () => {
+    it('marks rules as pending_merge with sourcePath internally but does not expose them in downloaded yaml', async () => {
         const getCodeReviewParameterUseCase = {
             execute: jest.fn().mockResolvedValue({
                 configValue: {
@@ -488,7 +488,7 @@ describe('CentralizedConfigDownloadUseCase', () => {
         expect(createOrUpdateKodyRulesUseCase.execute).toHaveBeenCalledWith(
             expect.objectContaining({
                 uuid: 'rule-1',
-                status: 'pending',
+                status: 'pending_merge',
                 centralizedSourcePath: ruleEntry!.path,
             }),
             'org-1',

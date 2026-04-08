@@ -71,7 +71,10 @@ export class CentralizedConfigDownloadUseCase {
             this.logger.error({
                 message: 'Failed to execute centralized config download',
                 context: CentralizedConfigDownloadUseCase.name,
-                metadata: { teamId, errorMessage: error.message },
+                metadata: {
+                    teamId,
+                    errorMessage: this.getErrorMessage(error),
+                },
             });
             throw error;
         }
@@ -147,7 +150,7 @@ export class CentralizedConfigDownloadUseCase {
                         metadata: {
                             teamId,
                             repoId: repo.id,
-                            errorMessage: error.message,
+                            errorMessage: this.getErrorMessage(error),
                         },
                     });
                 }
@@ -197,7 +200,7 @@ export class CentralizedConfigDownloadUseCase {
                                     teamId,
                                     repoId: repo.id,
                                     dirId: dir.id,
-                                    errorMessage: error.message,
+                                    errorMessage: this.getErrorMessage(error),
                                 },
                             });
                         }
@@ -237,7 +240,10 @@ export class CentralizedConfigDownloadUseCase {
             this.logger.error({
                 message: 'Failed to load default Kodus config file',
                 context: CentralizedConfigDownloadUseCase.name,
-                metadata: { teamId, errorMessage: error.message },
+                metadata: {
+                    teamId,
+                    errorMessage: this.getErrorMessage(error),
+                },
             });
             return null;
         }
@@ -265,7 +271,10 @@ export class CentralizedConfigDownloadUseCase {
             this.logger.error({
                 message: 'Failed to generate global Kodus config file',
                 context: CentralizedConfigDownloadUseCase.name,
-                metadata: { teamId, errorMessage: error.message },
+                metadata: {
+                    teamId,
+                    errorMessage: this.getErrorMessage(error),
+                },
             });
         }
         return null;
@@ -400,7 +409,7 @@ export class CentralizedConfigDownloadUseCase {
         skipAuthorization?: boolean,
     ): Promise<void> {
         const shouldUpdateRule =
-            rule.status !== KodyRulesStatus.PENDING ||
+            rule.status !== KodyRulesStatus.PENDING_MERGE ||
             rule.centralizedSourcePath !== sourcePath;
 
         if (!shouldUpdateRule || !rule.uuid) {
@@ -411,7 +420,7 @@ export class CentralizedConfigDownloadUseCase {
             {
                 ...rule,
                 uuid: rule.uuid,
-                status: KodyRulesStatus.PENDING,
+                status: KodyRulesStatus.PENDING_MERGE,
                 centralizedSourcePath: sourcePath,
             } as any,
             organizationId,
@@ -555,7 +564,7 @@ export class CentralizedConfigDownloadUseCase {
                 metadata: {
                     teamId,
                     organizationId,
-                    errorMessage: error.message,
+                    errorMessage: this.getErrorMessage(error),
                 },
             });
         }
@@ -790,6 +799,10 @@ export class CentralizedConfigDownloadUseCase {
     private normalizeDirectoryPath(path?: string): string {
         if (!path) return '';
         return path.replace(/^\/+/, '').replace(/\/+$/, '');
+    }
+
+    private getErrorMessage(error: unknown): string {
+        return error instanceof Error ? error.message : String(error);
     }
 
     private getRuleFileName(rule: IKodyRule): string {

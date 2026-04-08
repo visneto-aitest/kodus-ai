@@ -132,6 +132,7 @@ export enum KodyRulesOrigin {
 
 export enum KodyRulesStatus {
     ACTIVE = 'active',
+    PENDING_MERGE = 'pending_merge',
     REJECTED = 'rejected',
     PENDING = 'pending',
     APPLIED = 'applied',

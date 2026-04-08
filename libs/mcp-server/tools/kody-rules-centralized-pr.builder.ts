@@ -33,13 +33,12 @@ export function buildKodyRuleCentralizedMutationRequest(
         organizationAndTeamData: params.organizationAndTeamData,
         repositoryId: params.repositoryId,
         files: ({ repositoryFolder }) => {
-            const fileName = `${params.centralizedConfigPrService.sanitizeFileName(params.ruleContent.title, 'rule')}.yml`;
-            const path = params.centralizedConfigPrService.buildCentralizedPath(
-                {
-                    repositoryFolder,
-                    relativePath: `.kody-rules/${rulesDirectory}/${fileName}`,
-                },
-            );
+            const path = buildKodyRuleCentralizedFilePath({
+                centralizedConfigPrService: params.centralizedConfigPrService,
+                repositoryFolder,
+                rulesDirectory,
+                ruleContent: params.ruleContent,
+            });
 
             if (params.operation === 'delete') {
                 return [{ path, operation: 'delete' }];
@@ -63,6 +62,42 @@ export function buildKodyRuleCentralizedMutationRequest(
         sourceBranch: () =>
             `kodus-centralized-${params.ruleType}-${params.operation}-${Date.now()}`,
     };
+}
+
+export function buildKodyRuleCentralizedFilePath(params: {
+    centralizedConfigPrService: CentralizedConfigPrService;
+    repositoryFolder: string;
+    rulesDirectory: string;
+    ruleContent: Partial<IKodyRule>;
+}): string {
+    const normalizedSourcePath = normalizeCentralizedSourcePath(
+        params.ruleContent.centralizedSourcePath,
+    );
+
+    if (normalizedSourcePath) {
+        return normalizedSourcePath;
+    }
+
+    const fileName = `${params.centralizedConfigPrService.sanitizeFileName(params.ruleContent.title, 'rule')}.yml`;
+
+    return params.centralizedConfigPrService.buildCentralizedPath({
+        repositoryFolder: params.repositoryFolder,
+        relativePath: `.kody-rules/${params.rulesDirectory}/${fileName}`,
+    });
+}
+
+function normalizeCentralizedSourcePath(path?: string): string | null {
+    const normalized = path?.trim();
+
+    if (
+        !normalized ||
+        normalized.startsWith('/') ||
+        normalized.includes('..')
+    ) {
+        return null;
+    }
+
+    return normalized;
 }
 
 function formatRuleToYaml(rule: Partial<IKodyRule>): string {

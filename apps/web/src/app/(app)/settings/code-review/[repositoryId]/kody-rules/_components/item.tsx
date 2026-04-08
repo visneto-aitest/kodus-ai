@@ -15,6 +15,7 @@ import {
     TooltipTrigger,
 } from "@components/ui/tooltip";
 import {
+    KodyRulesStatus,
     KodyRulesType,
     type KodyRuleWithInheritanceDetails,
 } from "@services/kodyRules/types";
@@ -57,6 +58,7 @@ export const KodyRuleItem = ({
     const isExcluded = isInherited && !!rule.excluded;
     const isMemory =
         (rule.type ?? KodyRulesType.STANDARD) === KodyRulesType.MEMORY;
+    const isPendingMerge = rule.status === KodyRulesStatus.PENDING_MERGE;
     const entityLabel = isMemory ? "memory" : "rule";
 
     return (
@@ -75,6 +77,27 @@ export const KodyRuleItem = ({
                                 className="min-h-auto px-2.5 py-1">
                                 auto-sync
                             </Badge>
+                        )}
+
+                        {isPendingMerge && (
+                            <Tooltip delayDuration={500}>
+                                <TooltipTrigger>
+                                    <Badge
+                                        active
+                                        size="xs"
+                                        className="bg-warning/10 text-warning ring-warning/40 pointer-events-none h-6 min-h-auto rounded-lg px-2 text-[10px] leading-px uppercase ring-1">
+                                        Pending merge
+                                    </Badge>
+                                </TooltipTrigger>
+
+                                <TooltipContent>
+                                    <p>
+                                        This {entityLabel} is staged in a
+                                        centralized pull request and is not
+                                        active until merge.
+                                    </p>
+                                </TooltipContent>
+                            </Tooltip>
                         )}
 
                         {isInherited && (

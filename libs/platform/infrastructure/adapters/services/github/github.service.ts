@@ -871,6 +871,27 @@ export class GithubService
             });
             const baseSha = baseRef.object.sha;
 
+            let parentSha = baseSha;
+            let branchAlreadyExists = resolvedBranchName === resolvedBaseBranch;
+
+            if (resolvedBranchName !== resolvedBaseBranch) {
+                try {
+                    const { data: sourceBranchRef } =
+                        await octokit.rest.git.getRef({
+                            owner,
+                            repo: repository.name,
+                            ref: `heads/${resolvedBranchName}`,
+                        });
+
+                    parentSha = sourceBranchRef.object.sha;
+                    branchAlreadyExists = true;
+                } catch (error) {
+                    if ((error as { status?: number })?.status !== 404) {
+                        throw error;
+                    }
+                }
+            }
+
             const treeItems = await Promise.all(
                 files.map(async (file) => {
                     const operation = file.operation || 'upsert';
@@ -908,7 +929,7 @@ export class GithubService
                 owner,
                 repo: repository.name,
                 tree: treeItems,
-                base_tree: baseSha,
+                base_tree: parentSha,
             });
 
             const { data: commit } = await octokit.rest.git.createCommit({
@@ -916,7 +937,7 @@ export class GithubService
                 repo: repository.name,
                 message: resolvedMessage,
                 tree: tree.sha,
-                parents: [baseSha],
+                parents: [parentSha],
                 ...(tokenAuthorIdentity
                     ? {
                           author: tokenAuthorIdentity,
@@ -925,7 +946,7 @@ export class GithubService
                     : {}),
             });
 
-            if (resolvedBranchName === resolvedBaseBranch) {
+            if (branchAlreadyExists) {
                 await octokit.rest.git.updateRef({
                     owner,
                     repo: repository.name,

@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 
+import { CentralizedPrMetadata } from '@libs/centralized-config/infrastructure/adapters/services/centralized-config-pr.service';
 import { ParametersKey } from '@libs/core/domain/enums/parameters-key.enum';
 import { OrganizationAndTeamData } from '@libs/core/infrastructure/config/types/general/organizationAndTeamData';
 import {
@@ -25,7 +26,7 @@ export class UpdateCliRepositorySettingsUseCase {
         repositoryId: string;
         organizationAndTeamData: OrganizationAndTeamData;
         settings: CliRepositorySettings;
-    }): Promise<CliRepositorySettings> {
+    }): Promise<CliRepositorySettings | CentralizedPrMetadata> {
         const parameter = await this.parametersService.findByKey(
             ParametersKey.CODE_REVIEW_CONFIG,
             params.organizationAndTeamData,
@@ -35,7 +36,8 @@ export class UpdateCliRepositorySettingsUseCase {
             params.repositoryId,
         );
 
-        await this.updateOrCreateCodeReviewParameterUseCase.execute({
+        const result =
+            await this.updateOrCreateCodeReviewParameterUseCase.execute({
             actor: {
                 source: 'cli',
             },
@@ -56,6 +58,15 @@ export class UpdateCliRepositorySettingsUseCase {
             repositoryId: params.repositoryId,
             skipAuthorization: true,
         } as any);
+
+        if (
+            result &&
+            typeof result === 'object' &&
+            'mode' in result &&
+            result.mode === 'centralized-pr'
+        ) {
+            return result as CentralizedPrMetadata;
+        }
 
         return params.settings;
     }
