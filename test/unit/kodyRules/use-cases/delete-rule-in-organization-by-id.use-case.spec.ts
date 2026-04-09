@@ -20,16 +20,29 @@ describe('DeleteRuleInOrganizationByIdKodyRulesUseCase', () => {
     let kodyRulesServiceMock: jest.Mocked<IKodyRulesService>;
     let centralizedConfigPrServiceMock: {
         createMutationPullRequestIfEnabled: jest.Mock;
+        resolveRepositoryFolderName: jest.Mock;
+        buildCentralizedPath: jest.Mock;
+        sanitizeFileName: jest.Mock;
     };
 
     beforeEach(async () => {
         kodyRulesServiceMock = {
             findById: jest.fn(),
+            createOrUpdate: jest.fn(),
             deleteRuleWithLogging: jest.fn(),
         } as unknown as jest.Mocked<IKodyRulesService>;
 
         centralizedConfigPrServiceMock = {
             createMutationPullRequestIfEnabled: jest.fn(),
+            resolveRepositoryFolderName: jest.fn().mockResolvedValue('global'),
+            buildCentralizedPath: jest
+                .fn()
+                .mockImplementation(({ repositoryFolder, relativePath }) =>
+                    repositoryFolder === 'global'
+                        ? relativePath
+                        : `${repositoryFolder}/${relativePath}`,
+                ),
+            sanitizeFileName: jest.fn().mockReturnValue('no-console-logs'),
         };
 
         const module: TestingModule = await Test.createTestingModule({
@@ -105,6 +118,7 @@ describe('DeleteRuleInOrganizationByIdKodyRulesUseCase', () => {
         expect(
             kodyRulesServiceMock.deleteRuleWithLogging,
         ).not.toHaveBeenCalled();
+        expect(kodyRulesServiceMock.createOrUpdate).toHaveBeenCalled();
     });
 
     it('falls back to direct delete for sync actor', async () => {

@@ -894,6 +894,91 @@ describe('UpdateOrCreateCodeReviewParameterUseCase', () => {
         );
     });
 
+    it('bypasses centralized PR when payload is empty for repository selection', async () => {
+        const createOrUpdateParametersUseCase = {
+            execute: jest.fn().mockResolvedValue(true),
+        };
+
+        const centralizedConfigPrService = {
+            getScopedKodusConfigFileContent: jest.fn().mockResolvedValue({
+                automatedReviewActive: false,
+            }),
+            createMutationPullRequestIfEnabled: jest.fn().mockResolvedValue({
+                mode: 'centralized-pr',
+                prUrl: 'https://example.test/pr/selection',
+                pending: true,
+            }),
+        };
+
+        const useCase = new UpdateOrCreateCodeReviewParameterUseCase(
+            {
+                findByKey: jest.fn().mockResolvedValue({
+                    configValue: {
+                        id: 'global',
+                        name: 'Global',
+                        isSelected: true,
+                        configs: {},
+                        repositories: [
+                            {
+                                id: 'repo-1',
+                                name: 'alpha',
+                                isSelected: false,
+                                configs: {},
+                                directories: [],
+                            },
+                        ],
+                    },
+                }),
+            } as any,
+            createOrUpdateParametersUseCase as any,
+            {
+                findIntegrationConfigFormatted: jest.fn().mockResolvedValue([
+                    {
+                        id: 'repo-1',
+                        name: 'alpha',
+                        directories: [],
+                    },
+                ]),
+            } as any,
+            {
+                emit: jest.fn(),
+            } as any,
+            {} as any,
+            {
+                ensure: jest.fn(),
+            } as any,
+            {
+                detectAndSaveReferences: jest.fn(),
+            } as any,
+            {
+                buildConfigKey: jest.fn().mockReturnValue('config-key'),
+            } as any,
+            centralizedConfigPrService as any,
+        );
+
+        const result = await useCase.execute({
+            actor: {
+                source: 'web',
+                organizationId: 'org-1',
+                userId: 'user-1',
+                userEmail: 'user@test.dev',
+            },
+            configValue: {},
+            organizationAndTeamData: {
+                organizationId: 'org-1',
+                teamId: 'team-1',
+            },
+            repositoryId: 'repo-1',
+            skipAuthorization: true,
+        } as any);
+
+        expect(
+            centralizedConfigPrService.createMutationPullRequestIfEnabled,
+        ).not.toHaveBeenCalled();
+        expect(createOrUpdateParametersUseCase.execute).toHaveBeenCalled();
+        expect(result).toBe(true);
+    });
+
     it('removes a reverted-to-default key from existing scoped centralized file content', async () => {
         const createOrUpdateParametersUseCase = {
             execute: jest.fn().mockResolvedValue(true),

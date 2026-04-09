@@ -121,6 +121,16 @@ export class UpdateOrCreateCodeReviewParameterUseCase {
                     this.request?.user?.organization?.uuid;
             }
 
+            const isSelectionScopeMutation =
+                this.isSelectionOnlyConfigPayload(body.configValue) &&
+                (!!repositoryId || !!directoryId || !!directoryPath);
+
+            await this.ensureManualChangesAllowed(
+                organizationAndTeamData,
+                body.actor?.source,
+                isSelectionScopeMutation,
+            );
+
             if (!body.skipAuthorization) {
                 await this.authorizationService.ensure({
                     user: this.request?.user,
@@ -383,15 +393,22 @@ export class UpdateOrCreateCodeReviewParameterUseCase {
             deepDifference(parentConfig, newResolvedConfig),
         );
 
-        const centralizedPr = await this.createCentralizedMutationIfEnabled({
-            organizationAndTeamData,
-            actor,
-            level,
-            repository,
-            directory,
-            oldDelta: oldConfig,
-            newDelta,
-        });
+        const isSelectionOnlyPayload =
+            this.isSelectionOnlyConfigPayload(sanitizedIncomingConfig) &&
+            isCreation &&
+            level !== ConfigLevel.GLOBAL;
+
+        const centralizedPr = isSelectionOnlyPayload
+            ? null
+            : await this.createCentralizedMutationIfEnabled({
+                  organizationAndTeamData,
+                  actor,
+                  level,
+                  repository,
+                  directory,
+                  oldDelta: oldConfig,
+                  newDelta,
+              });
 
         if (centralizedPr) {
             return centralizedPr;
@@ -946,6 +963,37 @@ export class UpdateOrCreateCodeReviewParameterUseCase {
         >;
 
         return rest as CreateOrUpdateCodeReviewParameterDto['configValue'];
+    }
+
+    private isSelectionOnlyConfigPayload(
+        config: CreateOrUpdateCodeReviewParameterDto['configValue'],
+    ): boolean {
+        if (!config || typeof config !== 'object' || Array.isArray(config)) {
+            return false;
+        }
+
+        return Object.keys(config).length === 0;
+    }
+
+    private async ensureManualChangesAllowed(
+        organizationAndTeamData: OrganizationAndTeamData,
+        source?: 'cli' | 'web' | 'sync',
+        allowSelectionMutation = false,
+    ): Promise<void> {
+        if (source === 'sync' || allowSelectionMutation) {
+            return;
+        }
+
+        const centralizedConfig = await this.parametersService.findByKey(
+            ParametersKey.CENTRALIZED_CONFIG,
+            organizationAndTeamData,
+        );
+
+        if (centralizedConfig?.configValue?.enabled === true) {
+            throw new ForbiddenException(
+                'Code review settings are locked while centralized configuration is enabled.',
+            );
+        }
     }
 
     private applyDeltaKeyRemovals(params: {

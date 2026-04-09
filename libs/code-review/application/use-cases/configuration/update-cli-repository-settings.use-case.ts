@@ -38,26 +38,27 @@ export class UpdateCliRepositorySettingsUseCase {
 
         const result =
             await this.updateOrCreateCodeReviewParameterUseCase.execute({
-            actor: {
-                source: 'cli',
-            },
-            configValue: {
-                automatedReviewActive: params.settings.reviewEnabled,
-                pullRequestApprovalActive: params.settings.autoApproveEnabled,
-                ignorePaths: params.settings.ignoredFilePatterns,
-                baseBranches: params.settings.baseBranchPatterns,
-                ignoredTitleKeywords: params.settings.ignoredTitlePatterns,
-                suggestionControl: {
-                    ...(repositoryConfig?.configs?.suggestionControl ?? {}),
-                    severityLevelFilter: this.toSuggestionSeverity(
-                        params.settings.requestChangesMinSeverity,
-                    ),
+                actor: {
+                    source: 'cli',
                 },
-            },
-            organizationAndTeamData: params.organizationAndTeamData,
-            repositoryId: params.repositoryId,
-            skipAuthorization: true,
-        } as any);
+                configValue: {
+                    automatedReviewActive: params.settings.reviewEnabled,
+                    pullRequestApprovalActive:
+                        params.settings.autoApproveEnabled,
+                    ignorePaths: params.settings.ignoredFilePatterns,
+                    baseBranches: params.settings.baseBranchPatterns,
+                    ignoredTitleKeywords: params.settings.ignoredTitlePatterns,
+                    suggestionControl: {
+                        ...(repositoryConfig?.configs?.suggestionControl ?? {}),
+                        severityLevelFilter: this.toSuggestionSeverity(
+                            params.settings.requestChangesMinSeverity,
+                        ),
+                    },
+                },
+                organizationAndTeamData: params.organizationAndTeamData,
+                repositoryId: params.repositoryId,
+                skipAuthorization: true,
+            } as any);
 
         if (
             result &&
