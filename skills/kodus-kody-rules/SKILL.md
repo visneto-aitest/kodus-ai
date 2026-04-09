@@ -15,6 +15,16 @@ Manage Kody Rules through Kodus CLI only. Do not suggest creating rule files man
 
 ALWAYS Use `kodus rules` subcommands for all create, update, and view operations. All these rules are ALWAYS managed by the `kodus rules` command from the CLI. Do NOT suggest creating files or storing rules in any other way. When the user wants to create, update or view Kody Rules, utilize the `kodus rules` command with the appropriate subcommands and options as outlined in the instructions files.
 
+## Centralized Config Convention
+
+When centralized config is enabled for the selected team/repository scope, `kodus rules create` and `kodus rules update` may return centralized PR metadata instead of directly created/updated rule records.
+
+- Treat this as success, not failure.
+- Prioritize reporting `prUrl` (and `prNumber` when available).
+- Explain that the change is pending until the centralized PR is merged and synced.
+- Do not claim a rule was directly persisted when the result is centralized PR mode.
+- When output includes both direct results and centralized PR metadata, prefer communicating the centralized PR outcome.
+
 ## Shared Workflow
 
 1. Confirm the requested action:

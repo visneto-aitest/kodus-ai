@@ -33,6 +33,16 @@ If `--repo-id` is omitted, the default repository id is `global`.
 
 6. **Communicate the new Kody Rule**: Inform the user about the new Kody Rule and how it will be applied in future code generation.
 
+## Centralized Config Behavior
+
+When centralized config is enabled, creating a rule may return a centralized PR result instead of a directly persisted rule.
+
+In this case:
+
+1. Report the PR URL (and PR number if present).
+2. State that the rule is pending and will be applied after PR merge and sync.
+3. Do not present the rule as already created in the database.
+
 ## Guidelines for Creating a Kody Rule
 
 1. **Identify the Purpose**: Clearly define what the Kody Rule is intended to achieve. Is it meant to enforce a coding style, ensure best practices, or address a specific use case?

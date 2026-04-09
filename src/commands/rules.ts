@@ -9,6 +9,7 @@ import type {
 import { exitWithCode } from '../utils/cli-exit.js';
 import { normalizeCommandError } from '../utils/command-errors.js';
 import { cliError, cliInfo } from '../utils/logger.js';
+import { isCentralizedPrResponse as isCentralizedPrResponseTypeGuard } from '../types/rules.js';
 
 export type RulesCreateOptions = {
     title: string;
@@ -88,6 +89,24 @@ export async function rulesCreateAction(
             return;
         }
 
+        if (isCentralizedPrResponseTypeGuard(createdRule)) {
+            cliInfo(
+                chalk.green(
+                    'Kody Rule change proposed through centralized pull request.',
+                ),
+            );
+            if (createdRule.message) {
+                cliInfo(createdRule.message);
+            }
+            if (createdRule.prUrl) {
+                cliInfo(`PR URL: ${createdRule.prUrl}`);
+            }
+            if (createdRule.prNumber !== undefined) {
+                cliInfo(`PR Number: ${createdRule.prNumber}`);
+            }
+            return;
+        }
+
         cliInfo(chalk.green('Kody Rule created successfully.'));
         printRule(createdRule, options.repoId ?? 'global');
     } catch (error) {
@@ -113,6 +132,24 @@ export async function rulesUpdateAction(
 
         if (options.json) {
             cliInfo(JSON.stringify(updatedRule, null, 2));
+            return;
+        }
+
+        if (isCentralizedPrResponseTypeGuard(updatedRule)) {
+            cliInfo(
+                chalk.green(
+                    'Kody Rule change proposed through centralized pull request.',
+                ),
+            );
+            if (updatedRule.message) {
+                cliInfo(updatedRule.message);
+            }
+            if (updatedRule.prUrl) {
+                cliInfo(`PR URL: ${updatedRule.prUrl}`);
+            }
+            if (updatedRule.prNumber !== undefined) {
+                cliInfo(`PR Number: ${updatedRule.prNumber}`);
+            }
             return;
         }
 

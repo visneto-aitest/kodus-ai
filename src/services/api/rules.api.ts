@@ -1,4 +1,5 @@
 import type {
+    KodyRuleMutationResult,
     CreateKodyRuleRequest,
     KodyRule,
     UpdateKodyRuleRequest,
@@ -26,8 +27,8 @@ export class RealRulesApi implements IRulesApi {
     async createRule(
         accessToken: string,
         payload: CreateKodyRuleRequest,
-    ): Promise<KodyRule> {
-        return this.requester<KodyRule>('/cli/kody-rules', {
+    ): Promise<KodyRuleMutationResult> {
+        return this.requester<KodyRuleMutationResult>('/cli/kody-rules', {
             method: 'POST',
             headers: this.buildAuthHeaders(accessToken),
             body: JSON.stringify(payload),
@@ -38,8 +39,8 @@ export class RealRulesApi implements IRulesApi {
         accessToken: string,
         ruleId: string,
         payload: UpdateKodyRuleRequest,
-    ): Promise<KodyRule> {
-        return this.requester<KodyRule>(
+    ): Promise<KodyRuleMutationResult> {
+        return this.requester<KodyRuleMutationResult>(
             `/cli/kody-rules/${encodeURIComponent(ruleId)}`,
             {
                 method: 'PATCH',

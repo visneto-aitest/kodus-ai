@@ -22,6 +22,7 @@ import type {
 import type {
     CreateKodyRuleRequest,
     KodyRule,
+    KodyRuleMutationResult,
     UpdateKodyRuleRequest,
     ViewKodyRulesRequest,
 } from '../../types/rules.js';
@@ -151,12 +152,12 @@ export interface IRulesApi {
     createRule(
         accessToken: string,
         payload: CreateKodyRuleRequest,
-    ): Promise<KodyRule>;
+    ): Promise<KodyRuleMutationResult>;
     updateRule(
         accessToken: string,
         ruleId: string,
         payload: UpdateKodyRuleRequest,
-    ): Promise<KodyRule>;
+    ): Promise<KodyRuleMutationResult>;
     viewRules(
         accessToken: string,
         query?: ViewKodyRulesRequest,

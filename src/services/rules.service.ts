@@ -1,4 +1,5 @@
 import type {
+    KodyRuleMutationResult,
     CreateKodyRuleRequest,
     KodyRule,
     KodyRuleScope,
@@ -24,7 +25,9 @@ const VALID_SEVERITIES: KodyRuleSeverity[] = [
 const VALID_SCOPES: KodyRuleScope[] = ['pull request', 'file'];
 
 class RulesService {
-    async createRule(input: CreateKodyRuleRequest): Promise<KodyRule> {
+    async createRule(
+        input: CreateKodyRuleRequest,
+    ): Promise<KodyRuleMutationResult> {
         const accessToken = await authService.getValidToken();
         const payload: CreateKodyRuleRequest = {
             title: this.requireText(input.title, 'title'),
@@ -39,7 +42,9 @@ class RulesService {
         return api.rules.createRule(accessToken, payload);
     }
 
-    async updateRule(input: UpdateKodyRuleInput): Promise<KodyRule> {
+    async updateRule(
+        input: UpdateKodyRuleInput,
+    ): Promise<KodyRuleMutationResult> {
         const accessToken = await authService.getValidToken();
         const ruleId = this.requireText(input.ruleId, 'rule-id');
         let hasRuleChanges = false;

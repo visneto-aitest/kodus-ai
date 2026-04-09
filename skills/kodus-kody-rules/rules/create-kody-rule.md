@@ -29,6 +29,12 @@ kodus rules create --title <title> --rule <rule-content> [--repo-id <repository-
 
 6. **Communicate the new Kody Rule**: Inform the user about the new Kody Rule and how it will be applied in future code generation.
 
+## Centralized Config Behavior
+
+When centralized config is enabled, creating a rule may return centralized PR metadata instead of a direct rule record.
+
+In this case, report PR details and clearly explain the rule will only apply after PR merge and sync.
+
 ## Guidelines for Creating a Kody Rule
 
 1. **Identify the Purpose**: Clearly define what the Kody Rule is intended to achieve. Is it meant to enforce a coding style, ensure best practices, or address a specific use case?

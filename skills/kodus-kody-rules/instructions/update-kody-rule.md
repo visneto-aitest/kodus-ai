@@ -40,6 +40,16 @@ If `--repo-id` is omitted, the default repository id is `global`.
 
 8. **Communicate the updated Kody Rule**: Inform the user about the updated Kody Rule and how the changes will affect future code generation.
 
+## Centralized Config Behavior
+
+When centralized config is enabled, updating a rule may return a centralized PR result instead of an immediate in-database update.
+
+In this case:
+
+1. Report the PR URL (and PR number if present).
+2. State that the update is pending and will be applied after PR merge and sync.
+3. Do not claim the rule content was already updated in the database.
+
 ## Guidelines for Updating a Kody Rule
 
 1. **Identify the Changes**: Clearly define what changes are being made to the existing Kody Rule. Are you modifying the rule's behavior, scope, severity, or other attributes?

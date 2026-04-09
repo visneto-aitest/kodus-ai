@@ -83,6 +83,24 @@ describe('rulesService', () => {
         });
     });
 
+    it('passes through centralized PR response on create', async () => {
+        mockRulesApi.createRule.mockResolvedValue({
+            mode: 'centralized-pr',
+            prUrl: 'https://example.com/pr/1',
+            pending: true,
+        } as any);
+
+        const result = await rulesService.createRule({
+            title: 'Use strict equals',
+            rule: 'Prefer === and !==',
+            repositoryId: 'repo-1',
+        });
+
+        expect(result).toEqual(
+            expect.objectContaining({ mode: 'centralized-pr' }),
+        );
+    });
+
     it('validates severity values', async () => {
         await expect(
             rulesService.createRule({

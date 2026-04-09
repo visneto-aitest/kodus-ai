@@ -85,6 +85,31 @@ describe('rules command actions', () => {
         );
     });
 
+    it('prints centralized PR information when create returns centralized-pr mode', async () => {
+        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+        mockRulesService.createRule.mockResolvedValue({
+            mode: 'centralized-pr',
+            prUrl: 'https://example.com/pr/123',
+            prNumber: 123,
+            message: 'Queued in active centralized PR.',
+        } as any);
+
+        await rulesCreateAction({
+            title: 'Use async/await',
+            rule: 'Prefer async/await',
+            repoId: 'global',
+        });
+
+        const output = logSpy.mock.calls
+            .map((call) => call.join(' '))
+            .join('\n');
+        expect(output).toContain(
+            'Kody Rule change proposed through centralized pull request.',
+        );
+        expect(output).toContain('PR URL: https://example.com/pr/123');
+        expect(output).toContain('PR Number: 123');
+    });
+
     it('converts service errors to CLI exits', async () => {
         const errorSpy = vi
             .spyOn(console, 'error')

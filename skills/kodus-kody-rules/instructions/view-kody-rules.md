@@ -44,6 +44,16 @@ Do not alter the content of the rules; display them as they are retrieved to ens
 
 5. **Answer Follow-up Questions**: Be prepared to answer any follow-up questions the user may have about the Kody Rules, such as how to create or update rules, or how specific rules affect code generation.
 
+## Centralized Config Context
+
+When centralized config is enabled, rules may have pending centralized changes.
+
+When relevant, highlight:
+
+- centralized path (`centralizedConfig.path`)
+- centralized status (`pending_add`, `pending_edit`, `pending_delete`, `synced`)
+- whether a previously returned PR URL indicates pending application until merge and sync
+
 ## Guidelines for Viewing Kody Rules
 
 1. **Be Accurate**: When displaying Kody Rules, ensure that the information is accurate and reflects the current state of the rules as retrieved from the system.

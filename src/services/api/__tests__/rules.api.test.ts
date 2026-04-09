@@ -69,6 +69,28 @@ describe('RealRulesApi', () => {
         );
     });
 
+    it('supports centralized PR response payload for create', async () => {
+        const requestWithRetry = vi.fn().mockResolvedValue({
+            mode: 'centralized-pr',
+            prUrl: 'https://example.com/pr/88',
+            pending: true,
+        });
+
+        const api = new RealRulesApi(requestWithRetry);
+        const result = await api.createRule('kodus_team_key', {
+            title: 'Use async/await',
+            rule: 'Prefer async/await over raw promises',
+            repositoryId: 'repo-1',
+            severity: 'high',
+            scope: 'file',
+            path: '**/*.ts',
+        });
+
+        expect(result).toEqual(
+            expect.objectContaining({ mode: 'centralized-pr' }),
+        );
+    });
+
     it('views rules by filters', async () => {
         const requestWithRetry = vi.fn().mockResolvedValue([]);
 

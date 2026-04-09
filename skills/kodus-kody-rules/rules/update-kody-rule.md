@@ -36,6 +36,12 @@ kodus rules update --uuid <uuid> [--repo-id <repository-id>] [--title <title>] [
 
 8. **Communicate the updated Kody Rule**: Inform the user about the updated Kody Rule and how the changes will affect future code generation.
 
+## Centralized Config Behavior
+
+When centralized config is enabled, updating a rule may return centralized PR metadata instead of an immediate rule update.
+
+In this case, report PR details and clarify the update is pending until PR merge and sync.
+
 ## Guidelines for Updating a Kody Rule
 
 1. **Identify the Changes**: Clearly define what changes are being made to the existing Kody Rule. Are you modifying the rule's behavior, scope, severity, or other attributes?
