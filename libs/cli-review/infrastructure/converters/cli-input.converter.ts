@@ -8,7 +8,7 @@ import {
     CliReviewResponse,
     CliReviewIssue,
 } from '@libs/cli-review/domain/types/cli-review.types';
-import { convertToHunksWithLinesNumbers } from '@libs/common/utils/patch';
+import { convertToUnifiedDiffWithLineNumbers } from '@libs/common/utils/patch';
 import { createLogger } from '@kodus/flow';
 import * as crypto from 'crypto';
 
@@ -56,7 +56,7 @@ export class CliInputConverter {
                 files.push({
                     filename,
                     patch: block,
-                    patchWithLinesStr: convertToHunksWithLinesNumbers(block, {
+                    patchWithLinesStr: convertToUnifiedDiffWithLineNumbers(block, {
                         filename,
                     }),
                     status,
@@ -98,7 +98,7 @@ export class CliInputConverter {
         return files.map((file) => ({
             filename: file.path,
             patch: file.diff,
-            patchWithLinesStr: convertToHunksWithLinesNumbers(file.diff, {
+            patchWithLinesStr: convertToUnifiedDiffWithLineNumbers(file.diff, {
                 filename: file.path,
             }),
             status: file.status as any,

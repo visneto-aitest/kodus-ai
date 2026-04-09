@@ -108,6 +108,7 @@ export class AstGraphBuildJobProcessor implements IJobProcessorService {
                 authUsername: cloneParams.auth?.username,
                 branch: payload.defaultBranch,
                 platform: payload.platform as PlatformType,
+                sandboxMetadata: { stage: 'graph-build' },
             });
 
             sandboxId = (sandbox.sandboxHandle as any)?.sandboxId || (sandbox as any)?.id || 'unknown';

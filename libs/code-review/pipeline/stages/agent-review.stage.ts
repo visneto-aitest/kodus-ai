@@ -295,16 +295,26 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
             // Generate call graph context using kodus-graph in E2B sandbox
             let callGraph = '';
             try {
+                const sandboxType = context.sandboxHandle?.type ?? 'unknown';
+                const hasSandboxObj = !!context.sandboxHandle?.sandboxHandle;
                 this.logger.log({
-                    message: `[AGENT] sandboxHandle check: type=${context.sandboxHandle?.type}, hasSandboxHandle=${!!context.sandboxHandle?.sandboxHandle}`,
+                    message: `[AGENT] sandboxHandle check: type=${sandboxType}, hasSandboxHandle=${hasSandboxObj}, platform=${context.platformType}, repoId=${context.repository?.id}`,
                     context: this.stageName,
+                    metadata: { sandboxType, hasSandboxObj, platform: context.platformType, repoExternalId: context.repository?.id },
                 });
+
                 if (context.sandboxHandle?.sandboxHandle) {
                     // Try DB-backed flow first (real diff against main branch)
                     const repo = await this.repositoryRepository.findByExternalId(
                         context.platformType,
                         String(context.repository?.id || ''),
                     );
+
+                    this.logger.log({
+                        message: `[AGENT] repo lookup: found=${!!repo}, astGraphStatus=${repo?.astGraphStatus ?? 'N/A'}, uuid=${repo?.uuid ?? 'N/A'}`,
+                        context: this.stageName,
+                        metadata: { repoExternalId: context.repository?.id, repoUuid: repo?.uuid, astGraphStatus: repo?.astGraphStatus },
+                    });
 
                     if (repo?.astGraphStatus === AstGraphStatus.READY) {
                         callGraph = await this.kodusGraphService.generateContext(
@@ -319,6 +329,11 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                             changedFiles,
                         );
                     }
+                } else {
+                    this.logger.warn({
+                        message: `[AGENT] No sandboxHandle object (type=${sandboxType}), skipping kodus-graph for PR#${prNumber}`,
+                        context: this.stageName,
+                    });
                 }
 
                 if (callGraph) {
@@ -332,6 +347,11 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                         },
                     });
                 } else {
+                    this.logger.warn({
+                        message: `[AGENT] kodus-graph returned empty for PR#${prNumber}, trying JSON fallback`,
+                        context: this.stageName,
+                        metadata: { sandboxType, hasSandboxObj },
+                    });
                     // Fallback to pre-computed JSON if kodus-graph didn't produce output
                     const repoFullName = context.repository?.fullName ||
                         context.pullRequest?.base?.repo?.fullName || '';
@@ -342,6 +362,11 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                             context: this.stageName,
                             metadata: { prNumber, callGraphChars: callGraph.length },
                         });
+                    } else {
+                        this.logger.warn({
+                            message: `[AGENT] No call graph available for PR#${prNumber} (kodus-graph empty + JSON fallback empty)`,
+                            context: this.stageName,
+                        });
                     }
                 }
             } catch (err) {
@@ -349,6 +374,7 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                     message: `[AGENT] Call graph failed for PR#${prNumber}, proceeding without it`,
                     context: this.stageName,
                     error: err,
+                    metadata: { sandboxType: context.sandboxHandle?.type, hasSandboxObj: !!context.sandboxHandle?.sandboxHandle },
                 });
             }
 

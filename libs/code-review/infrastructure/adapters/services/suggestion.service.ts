@@ -38,7 +38,7 @@ import { ISuggestionByPR } from '@libs/platformData/domain/pullRequests/interfac
 
 import { LabelType } from '@libs/common/utils/codeManagement/labels';
 import { SeverityLevel } from '@libs/common/utils/enums/severityLevel.enum';
-import { extractLinesFromDiffHunk } from '@libs/common/utils/patch';
+import { extractLinesFromUnifiedDiff } from '@libs/common/utils/patch';
 import { LLM_ANALYSIS_SERVICE_TOKEN } from './llmAnalysis.service';
 
 import { CodeReviewPipelineContext } from '@libs/code-review/pipeline/context/code-review-pipeline.context';
@@ -208,7 +208,7 @@ export class SuggestionService implements ISuggestionService {
         patchWithLinesStr: string,
         codeSuggestions: Partial<CodeSuggestion>[],
     ) {
-        const visibleRanges = extractLinesFromDiffHunk(patchWithLinesStr);
+        const visibleRanges = extractLinesFromUnifiedDiff(patchWithLinesStr);
 
         return codeSuggestions?.filter((suggestion) => {
             const suggestionStart = suggestion?.relevantLinesStart;

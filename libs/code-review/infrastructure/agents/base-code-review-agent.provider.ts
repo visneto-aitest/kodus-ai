@@ -254,8 +254,8 @@ export abstract class BaseCodeReviewAgentProvider {
             let stepCount = 0;
             const PROGRESS_BATCH_SIZE = 5;
 
-            // Secrets are passed separately to runAgentLoop so that
-            // LangSmith tracing never serializes API keys, tokens, or
+            // Secrets are passed via closure (not as traceable arg) so that
+            // LangSmith tracing never serialises API keys, tokens, or
             // NestJS service instances (which carry ConfigService with all env vars).
             const loopSecrets: AgentLoopSecrets = {
                 remoteCommands: input.remoteCommands,
@@ -323,17 +323,39 @@ export abstract class BaseCodeReviewAgentProvider {
             let agentResult;
             if (process.env.LANGCHAIN_TRACING_V2 === 'true') {
                 const { traceable } = require('langsmith/traceable');
-                const tracedRun = traceable(runAgentLoop, {
-                    name: identity.name,
-                    metadata: {
-                        organizationId:
-                            input.organizationAndTeamData?.organizationId,
-                        teamId: input.organizationAndTeamData?.teamId,
-                        prNumber: input.prNumber,
-                        pullRequestId: input.prNumber,
+                const tracedRun = traceable(
+                    // loopSecrets captured via closure — never serialised by LangSmith
+                    (params: typeof loopParams) =>
+                        runAgentLoop(params, loopSecrets),
+                    {
+                        name: identity.name,
+                        metadata: {
+                            organizationId:
+                                input.organizationAndTeamData?.organizationId,
+                            teamId: input.organizationAndTeamData?.teamId,
+                            prNumber: input.prNumber,
+                            pullRequestId: input.prNumber,
+                        },
+                        processInputs: (inputs: Record<string, any>) => {
+                            // Strip redundant `patch` from changedFiles — patchWithLinesStr
+                            // already carries the same content with line numbers added.
+                            const params = inputs?.args?.[0] ?? inputs;
+                            if (params?.changedFiles) {
+                                return {
+                                    ...params,
+                                    changedFiles: params.changedFiles.map(
+                                        ({
+                                            patch: _patch,
+                                            ...rest
+                                        }: Record<string, any>) => rest,
+                                    ),
+                                };
+                            }
+                            return params;
+                        },
                     },
-                });
-                agentResult = await tracedRun(loopParams, loopSecrets);
+                );
+                agentResult = await tracedRun(loopParams);
             } else {
                 agentResult = await runAgentLoop(loopParams, loopSecrets);
             }
@@ -626,7 +648,6 @@ export abstract class BaseCodeReviewAgentProvider {
         - "Does this affect caching/invalidation?" → changed predicate = stale cache risk
         - "Does this code delegate to another layer (cache, proxy, adapter)?" → is it calling the right target — delegate vs self, concrete vs default?
         - "When code calls through an indirection (session.getProvider(), context.getService(), factory.create()), which concrete object is returned?" → grep for the registration/binding to verify. Only report a self-recursion if you found concrete evidence (e.g. a registration line binding the interface to the current class).
-
       If you cannot confidently answer "this is safe" for any question, investigate more or report it.
 
     PHASE 3 — RESPOND

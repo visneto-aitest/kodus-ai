@@ -147,6 +147,7 @@ export class GatherDocumentationContextStage extends BasePipelineStage<CodeRevie
                                 branch: cloneInfo.branch,
                                 prNumber: cloneInfo.prNumber,
                                 platform: cloneInfo.platform,
+                                sandboxMetadata: { stage: 'documentation' },
                             });
 
                         remoteCommands = sandbox.remoteCommands;

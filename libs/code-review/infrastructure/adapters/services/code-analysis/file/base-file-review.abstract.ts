@@ -17,7 +17,7 @@ import {
     ReviewModeResponse,
 } from '@libs/core/infrastructure/config/types/general/codeReview.type';
 import {
-    convertToHunksWithLinesNumbers,
+    convertToUnifiedDiffWithLineNumbers,
     handlePatchDeletions,
 } from '@libs/common/utils/patch';
 import { TaskStatus } from '@libs/ee/kodyAST/interfaces/code-ast-analysis.interface';
@@ -61,7 +61,7 @@ export abstract class BaseFileReviewContextPreparation implements IFileReviewCon
                     return null;
                 }
 
-                patchWithLinesStr = convertToHunksWithLinesNumbers(
+                patchWithLinesStr = convertToUnifiedDiffWithLineNumbers(
                     patchFormatted,
                     file,
                 );

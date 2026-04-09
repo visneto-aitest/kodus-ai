@@ -36,6 +36,7 @@ export interface IInboxMessageRepository {
     ): Promise<number>;
     deleteProcessedOlderThan(date: Date): Promise<number>;
     getHealthStats(): Promise<InboxHealthStats>;
+    releaseAllByInstance(lockedBy: string): Promise<number>;
 }
 
 export const INBOX_MESSAGE_REPOSITORY_TOKEN = Symbol.for(

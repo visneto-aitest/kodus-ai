@@ -125,6 +125,7 @@ export class CreateSandboxStage extends BasePipelineStage<CodeReviewPipelineCont
                 baseBranch: cloneInfo.baseBranch,
                 prNumber: cloneInfo.prNumber,
                 platform: cloneInfo.platform,
+                sandboxMetadata: { stage: 'agent-review' },
             });
 
             cleanup = sandbox.cleanup;
@@ -162,6 +163,7 @@ export class CreateSandboxStage extends BasePipelineStage<CodeReviewPipelineCont
                         baseBranch: freshCloneInfo.baseBranch,
                         prNumber: freshCloneInfo.prNumber,
                         platform: freshCloneInfo.platform,
+                        sandboxMetadata: { stage: 'agent-review-renewed' },
                     };
                 };
             });
@@ -203,6 +205,7 @@ export class CreateSandboxStage extends BasePipelineStage<CodeReviewPipelineCont
                         baseBranch: cloneInfoRetry.baseBranch,
                         prNumber: cloneInfoRetry.prNumber,
                         platform: cloneInfoRetry.platform,
+                        sandboxMetadata: { stage: 'agent-review' },
                     });
                 cleanup = retryResult.cleanup;
 

@@ -11,7 +11,7 @@ import {
 } from '@libs/code-review/domain/contracts/PullRequestManagerService.contract';
 import { isFileMatchingGlob } from '@libs/common/utils/glob-utils';
 import {
-    convertToHunksWithLinesNumbers,
+    convertToUnifiedDiffWithLineNumbers,
     handlePatchDeletions,
 } from '@libs/common/utils/patch';
 import { FileChange } from '@libs/core/infrastructure/config/types/general/codeReview.type';
@@ -244,7 +244,7 @@ export class FetchChangedFilesStage extends BasePipelineStage<CodeReviewPipeline
                     return file;
                 }
 
-                const patchWithLinesStr = convertToHunksWithLinesNumbers(
+                const patchWithLinesStr = convertToUnifiedDiffWithLineNumbers(
                     patchFormatted,
                     file,
                 );

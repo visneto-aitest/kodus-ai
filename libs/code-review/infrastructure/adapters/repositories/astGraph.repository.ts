@@ -315,6 +315,115 @@ export class AstGraphRepository {
         return result[0]?.graph_json || '{"sha":"","nodes":[],"edges":[]}';
     }
 
+    /**
+     * Export a filtered subgraph as a JSON string built entirely in PostgreSQL.
+     * Only includes nodes in changed files + their direct neighbors (callers/callees).
+     * ~99% reduction vs full export for typical PRs.
+     *
+     * Requires index: CREATE INDEX idx_ast_edges_repo_target ON ast_edges (repo_id, target_qualified)
+     */
+    async exportSubgraphJsonString(
+        repoId: string,
+        changedFiles: string[],
+        sha?: string,
+    ): Promise<string> {
+        if (changedFiles.length === 0) {
+            return '{"sha":"","nodes":[],"edges":[]}';
+        }
+
+        const result = await this.dataSource.query(
+            `WITH changed_nodes AS (
+                SELECT qualified_name
+                FROM ast_nodes
+                WHERE repo_id = $1 AND file_path = ANY($3::text[])
+            ),
+            -- Edges touching changed nodes (direct neighbors)
+            touching_edges AS (
+                SELECT e.*
+                FROM ast_edges e
+                WHERE e.repo_id = $1
+                  AND (
+                      e.source_qualified IN (SELECT qualified_name FROM changed_nodes)
+                      OR e.target_qualified IN (SELECT qualified_name FROM changed_nodes)
+                  )
+            ),
+            -- Parent classes of changed classes (via INHERITS edges in touching_edges)
+            parent_classes AS (
+                SELECT DISTINCT e.target_qualified AS qn
+                FROM touching_edges e
+                WHERE e.kind = 'INHERITS'
+            ),
+            -- Sibling classes: other classes that inherit from the same parent
+            sibling_classes AS (
+                SELECT DISTINCT e.source_qualified AS qn
+                FROM ast_edges e
+                WHERE e.repo_id = $1
+                  AND e.kind = 'INHERITS'
+                  AND e.target_qualified IN (SELECT qn FROM parent_classes)
+            ),
+            -- Sibling edges: INHERITS + CONTAINS edges for sibling classes (to get their methods)
+            sibling_edges AS (
+                SELECT e.*
+                FROM ast_edges e
+                WHERE e.repo_id = $1
+                  AND e.kind IN ('INHERITS', 'CONTAINS')
+                  AND (
+                      e.source_qualified IN (SELECT qn FROM sibling_classes)
+                      OR e.target_qualified IN (SELECT qn FROM sibling_classes)
+                  )
+            ),
+            -- All edges: direct neighbors + sibling relationships
+            all_edges AS (
+                SELECT * FROM touching_edges
+                UNION
+                SELECT * FROM sibling_edges
+            ),
+            neighbor_qnames AS (
+                SELECT DISTINCT source_qualified AS qn FROM all_edges
+                UNION
+                SELECT DISTINCT target_qualified AS qn FROM all_edges
+            ),
+            all_relevant_nodes AS (
+                SELECT n.*
+                FROM ast_nodes n
+                WHERE n.repo_id = $1
+                  AND n.qualified_name IN (SELECT qn FROM neighbor_qnames)
+            )
+            SELECT json_build_object(
+                'sha', $2::text,
+                'nodes', COALESCE((
+                    SELECT json_agg(jsonb_strip_nulls(jsonb_build_object(
+                        'kind', n.kind,
+                        'name', n.name,
+                        'qualified_name', n.qualified_name,
+                        'file_path', n.file_path,
+                        'line_start', COALESCE(n.line_start, 0),
+                        'line_end', COALESCE(n.line_end, 0),
+                        'language', COALESCE(n.language, ''),
+                        'is_test', n.is_test,
+                        'parent_name', n.parent_name,
+                        'params', n.params,
+                        'return_type', n.return_type,
+                        'modifiers', n.modifiers
+                    ))) FROM all_relevant_nodes n
+                ), '[]'::json),
+                'edges', COALESCE((
+                    SELECT json_agg(jsonb_strip_nulls(jsonb_build_object(
+                        'kind', e.kind,
+                        'source_qualified', e.source_qualified,
+                        'target_qualified', e.target_qualified,
+                        'file_path', e.file_path,
+                        'line', COALESCE(e.line, 0),
+                        'confidence', e.confidence
+                    ))) FROM all_edges e
+                ), '[]'::json)
+            )::text AS graph_json`,
+            [repoId, sha || '', changedFiles],
+        );
+
+        return result[0]?.graph_json || '{"sha":"","nodes":[],"edges":[]}';
+    }
+
     // -----------------------------------------------------------------------
     // Private SQL builders
     // -----------------------------------------------------------------------

@@ -506,8 +506,13 @@ export class WorkflowJobConsumer implements OnApplicationShutdown {
             metadata: { activeJobs: this.activeJobs },
         });
 
+        // Wait for active jobs with a timeout to avoid hanging forever
+        // ECS sends SIGKILL after stopTimeout (default 30s), so we must finish before that
+        const maxWaitMs = 25000;
         const checkIntervalMs = 1000;
-        while (this.activeJobs > 0) {
+        const start = Date.now();
+
+        while (this.activeJobs > 0 && Date.now() - start < maxWaitMs) {
             this.logger.log({
                 message: `Waiting for ${this.activeJobs} active jobs to complete...`,
                 context: WorkflowJobConsumer.name,
@@ -517,8 +522,36 @@ export class WorkflowJobConsumer implements OnApplicationShutdown {
             );
         }
 
+        // Release any remaining inbox locks held by this instance
+        // This prevents "Message already claimed but not finished" errors
+        // when new workers try to process the same messages after restart
+        if (this.activeJobs > 0) {
+            this.logger.warn({
+                message: `Shutdown timeout reached with ${this.activeJobs} active jobs. Force-releasing inbox locks.`,
+                context: WorkflowJobConsumer.name,
+                metadata: { activeJobs: this.activeJobs, instanceId: this.instanceId },
+            });
+        }
+
+        try {
+            const released = await this.inboxRepository.releaseAllByInstance(this.instanceId);
+            if (released > 0) {
+                this.logger.log({
+                    message: `Released ${released} inbox locks during shutdown`,
+                    context: WorkflowJobConsumer.name,
+                    metadata: { instanceId: this.instanceId },
+                });
+            }
+        } catch (error) {
+            this.logger.error({
+                message: 'Failed to release inbox locks during shutdown',
+                context: WorkflowJobConsumer.name,
+                error,
+            });
+        }
+
         this.logger.log({
-            message: 'All jobs completed. Proceeding with shutdown.',
+            message: 'Shutdown complete. Inbox locks released.',
             context: WorkflowJobConsumer.name,
         });
     }

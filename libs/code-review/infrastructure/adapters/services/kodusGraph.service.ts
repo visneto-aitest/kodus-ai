@@ -12,24 +12,11 @@ const PROMPT_PATH = `${GRAPH_DIR}/prompt.txt`;
 
 const TIMEOUTS = {
     INSTALL_MS: 120_000, // 2 min — download + install bun + kodus-graph
-    PARSE_MS: 300_000, // 5 min — full repo parse (large repos)
+    PARSE_MS: 300_000, // 5 min — parse changed files (generous for large PRs)
     CONTEXT_MS: 60_000, // 1 min — context generation
 };
 
 const KODUS_GRAPH_VERSION = 'latest';
-
-/** Skip test/fixture/static files to stay within parse timeout on large repos */
-const DEFAULT_EXCLUDES = [
-    '**/tests/**',
-    '**/test/**',
-    '**/__tests__/**',
-    '**/test_*',
-    '**/*.test.*',
-    '**/*.spec.*',
-    '**/fixtures/**',
-    '**/static/**',
-    '**/__mocks__/**',
-];
 
 @Injectable()
 export class KodusGraphService {
@@ -50,35 +37,77 @@ export class KodusGraphService {
         repoId: string,
     ): Promise<string> {
         const sandbox = sandboxHandle as Sandbox;
-        if (!sandbox?.commands) return '';
+        if (!sandbox?.commands) {
+            this.logger.warn({
+                message: `[KODUS-GRAPH] generateContext: sandbox has no commands, skipping`,
+                context: KodusGraphService.name,
+                metadata: { repoId, hasSandbox: !!sandbox, keys: sandbox ? Object.keys(sandbox).slice(0, 5) : [] },
+            });
+            return '';
+        }
 
         const filePaths = changedFiles
             .map((f) => f.filename || f.previous_filename)
             .filter(Boolean) as string[];
-        if (filePaths.length === 0) return '';
+        if (filePaths.length === 0) {
+            this.logger.warn({
+                message: `[KODUS-GRAPH] generateContext: no file paths extracted from ${changedFiles?.length} files`,
+                context: KodusGraphService.name,
+            });
+            return '';
+        }
 
         try {
             // Step 1: Install kodus-graph
+            this.logger.log({
+                message: `[KODUS-GRAPH] Step 1/4: Installing kodus-graph...`,
+                context: KodusGraphService.name,
+                metadata: { repoId, fileCount: filePaths.length },
+            });
             await this.installKodusGraph(sandbox);
 
             // Step 2: Parse ONLY changed files (not --all)
+            this.logger.log({
+                message: `[KODUS-GRAPH] Step 2/4: Parsing ${filePaths.length} changed files...`,
+                context: KodusGraphService.name,
+                metadata: { files: filePaths },
+            });
             await this.parseChangedFiles(sandbox, filePaths);
 
-            // Step 3: Export base graph from DB and write to sandbox
+            // Step 3: Export filtered subgraph from DB and write to sandbox
+            this.logger.log({
+                message: `[KODUS-GRAPH] Step 3/4: Exporting subgraph from DB for repo ${repoId}...`,
+                context: KodusGraphService.name,
+            });
             const repo = await this.repositoryRepo.findById(repoId);
-            await this.writeBaseGraphToSandbox(sandbox, repoId, repo?.astGraphSha ?? undefined);
+            if (!repo) {
+                this.logger.warn({
+                    message: `[KODUS-GRAPH] Step 3/4: repo not found by UUID ${repoId}, falling back to legacy`,
+                    context: KodusGraphService.name,
+                });
+                return this.generateContextLegacy(sandboxHandle, changedFiles);
+            }
+            await this.writeBaseGraphToSandbox(sandbox, repoId, filePaths, repo.astGraphSha ?? undefined);
 
             // Step 4: Generate context with real diff
+            // Always write diff so kodus-graph can filter when baseline is empty
+            const diffPath = await this.writeDiffToSandbox(sandbox, changedFiles);
+            this.logger.log({
+                message: `[KODUS-GRAPH] Step 4/4: Generating prompt context with base graph...`,
+                context: KodusGraphService.name,
+                metadata: { hasDiff: !!diffPath },
+            });
             const prompt = await this.generatePromptContext(
                 sandbox,
                 filePaths,
                 `${GRAPH_DIR}/base-graph.json`, // base graph from DB (main branch)
+                diffPath,
             );
 
             this.logger.log({
                 message: `[KODUS-GRAPH] Context generated with DB baseline: ${prompt.length} chars`,
                 context: KodusGraphService.name,
-                metadata: { changedFiles: filePaths.length, promptChars: prompt.length },
+                metadata: { changedFiles: filePaths.length, promptChars: prompt.length, promptPreview: prompt.substring(0, 200) },
             });
 
             return prompt;
@@ -87,13 +116,16 @@ export class KodusGraphService {
                 message: `[KODUS-GRAPH] Failed with DB baseline, falling back to legacy`,
                 context: KodusGraphService.name,
                 error,
+                metadata: { repoId, fileCount: filePaths.length },
             });
             return this.generateContextLegacy(sandboxHandle, changedFiles);
         }
     }
 
     /**
-     * Legacy flow: parse --all in sandbox. Used as fallback when DB graph not available.
+     * Legacy flow: parse changed files without DB baseline.
+     * Used as fallback when DB graph is not available.
+     * Output has no blast radius from broader repo, but avoids OOM on large repos.
      */
     async generateContextLegacy(
         sandboxHandle: unknown,
@@ -129,13 +161,20 @@ export class KodusGraphService {
             // Step 1: Install bun + kodus-graph
             await this.installKodusGraph(sandbox);
 
-            // Step 2: Parse full repo
-            await this.parseRepo(sandbox);
+            // Step 2: Write unified diff to sandbox so kodus-graph can filter
+            // changed functions by actual diff lines (not mark all as "new").
+            const diffPath = await this.writeDiffToSandbox(sandbox, changedFiles);
 
-            // Step 3: Generate context for changed files
+            // Step 3: Generate context for changed files WITHOUT --graph baseline.
+            // The context command parses internally — no separate parseChangedFiles needed.
+            // Without --graph, oldGraph=null → all parsed functions are treated as "added"
+            // (i.e. changed), which is the correct behavior when there's no DB baseline.
+            // The --diff flag filters this to only functions overlapping real diff hunks.
             const prompt = await this.generatePromptContext(
                 sandbox,
                 filePaths,
+                undefined,
+                diffPath,
             );
 
             this.logger.log({
@@ -160,8 +199,25 @@ export class KodusGraphService {
     }
 
     private async installKodusGraph(sandbox: Sandbox): Promise<void> {
+        // Check installed version — always ensure latest is available.
+        // Use "|| true" to prevent E2B CommandExitError when command fails.
+        const check = await sandbox.commands.run(
+            'export PATH="$HOME/.bun/bin:$PATH" && kodus-graph --version 2>/dev/null || true',
+            { timeoutMs: 5_000 },
+        );
+
+        const installedVersion = (check.stdout || '').trim();
+
+        if (installedVersion && installedVersion === KODUS_GRAPH_VERSION) {
+            this.logger.log({
+                message: `[KODUS-GRAPH] Version ${installedVersion} matches target ${KODUS_GRAPH_VERSION}, skipping install`,
+                context: KodusGraphService.name,
+            });
+            return;
+        }
+
         this.logger.log({
-            message: '[KODUS-GRAPH] Installing bun + kodus-graph...',
+            message: `[KODUS-GRAPH] Installing kodus-graph@${KODUS_GRAPH_VERSION} (installed: ${installedVersion || 'none'})`,
             context: KodusGraphService.name,
         });
 
@@ -170,11 +226,16 @@ export class KodusGraphService {
                 // Install bun if not present
                 'which bun > /dev/null 2>&1 || (curl -fsSL https://bun.sh/install | bash > /dev/null 2>&1)',
                 'export PATH="$HOME/.bun/bin:$PATH"',
-                // Install kodus-graph globally
+                // Install/update kodus-graph globally
                 `bun install -g @kodus/kodus-graph@${KODUS_GRAPH_VERSION} 2>&1`,
             ].join(' && '),
             { timeoutMs: TIMEOUTS.INSTALL_MS },
         );
+
+        this.logger.log({
+            message: `[KODUS-GRAPH] Install output: exit=${result.exitCode}, stdout=${(result.stdout || '').slice(0, 300)}`,
+            context: KodusGraphService.name,
+        });
 
         if (result.exitCode !== 0) {
             throw new Error(
@@ -186,37 +247,6 @@ export class KodusGraphService {
             message: `[KODUS-GRAPH] Installed successfully`,
             context: KodusGraphService.name,
         });
-    }
-
-    private async parseRepo(sandbox: Sandbox): Promise<void> {
-        this.logger.log({
-            message: '[KODUS-GRAPH] Parsing full repo...',
-            context: KodusGraphService.name,
-        });
-
-        const result = await sandbox.commands.run(
-            [
-                'export PATH="$HOME/.bun/bin:$PATH"',
-                `cd ${REPO_DIR}`,
-                `mkdir -p ${GRAPH_DIR}`,
-                `kodus-graph parse --all --repo-dir . --out ${GRAPH_PATH} ${DEFAULT_EXCLUDES.map(p => `--exclude "${p}"`).join(' ')}`,
-            ].join(' && '),
-            { timeoutMs: TIMEOUTS.PARSE_MS },
-        );
-
-        if (result.exitCode !== 0) {
-            throw new Error(
-                `kodus-graph parse failed (exit=${result.exitCode}): ${(result.stderr || '').slice(0, 500)}`,
-            );
-        }
-
-        // Log parse stats from stderr (kodus-graph writes progress to stderr)
-        if (result.stderr) {
-            this.logger.log({
-                message: `[KODUS-GRAPH] Parse output: ${result.stderr.slice(0, 300)}`,
-                context: KodusGraphService.name,
-            });
-        }
     }
 
     private async parseChangedFiles(sandbox: Sandbox, filePaths: string[]): Promise<void> {
@@ -236,28 +266,107 @@ export class KodusGraphService {
                 `kodus-graph parse --files failed (exit=${result.exitCode}): ${(result.stderr || '').slice(0, 500)}`,
             );
         }
+
+        this.logger.log({
+            message: `[KODUS-GRAPH] Step 2/4: Parse completed successfully`,
+            context: KodusGraphService.name,
+            metadata: { stdout: (result.stdout || '').slice(0, 300) },
+        });
     }
 
-    private async writeBaseGraphToSandbox(sandbox: Sandbox, repoId: string, sha?: string): Promise<void> {
-        // JSON built entirely in PostgreSQL — zero intermediate JS objects.
-        const jsonStr = await this.astGraphRepo.exportAsGraphJsonString(repoId, sha);
+    private async writeBaseGraphToSandbox(sandbox: Sandbox, repoId: string, changedFiles: string[], sha?: string): Promise<void> {
+        // Filtered subgraph: only nodes in changed files + direct neighbors.
+        // ~99% reduction vs full export (e.g. ~500 nodes instead of 50k+).
+        const jsonStr = await this.astGraphRepo.exportSubgraphJsonString(repoId, changedFiles, sha);
         const baseGraphPath = `${REPO_DIR}/${GRAPH_DIR}/base-graph.json`;
 
+        this.logger.log({
+            message: `[KODUS-GRAPH] Step 3/4: Subgraph exported: ${jsonStr.length} chars, writing to sandbox at ${baseGraphPath}`,
+            context: KodusGraphService.name,
+            metadata: { repoId, changedFiles, subgraphChars: jsonStr.length, sha },
+        });
+
         await sandbox.files.write(baseGraphPath, jsonStr);
+    }
+
+    /**
+     * Build a unified diff from changedFiles patches and write it to the sandbox.
+     * Used in fallback mode so kodus-graph can filter changed functions by actual diff lines.
+     */
+    private async writeDiffToSandbox(sandbox: Sandbox, changedFiles: FileChange[]): Promise<string | undefined> {
+        const patches: string[] = [];
+        for (const file of changedFiles) {
+            // Use raw patch first; fall back to patchWithLinesStr (which has line numbers prepended).
+            const rawPatch = file.patch || file.patchWithLinesStr;
+            if (!rawPatch) continue;
+            const filePath = file.filename || file.previous_filename || '';
+            if (!filePath) continue;
+
+            let patchBody: string;
+            if (file.patch) {
+                // Raw GitHub patch — use directly.
+                patchBody = file.patch;
+            } else {
+                // patchWithLinesStr format: has "## file: '...'" header and line-numbered content.
+                // Strip the header and line numbers — parseDiffHunks only needs @@ headers.
+                patchBody = rawPatch
+                    .split('\n')
+                    .filter((line) => !line.startsWith('## file:'))
+                    .map((line) => {
+                        // Remove leading line-number prefix (e.g. "   149 +    code" → "+    code")
+                        // Lines look like: "   149      code" or "   152 +    code" or "    10 -    code"
+                        const m = line.match(/^\s*\d+\s([+ -].*)/);
+                        return m ? m[1] : line;
+                    })
+                    .join('\n');
+            }
+
+            // Ensure trailing newline so next file header isn't on the same line.
+            const patchNormalized = patchBody.endsWith('\n') ? patchBody : `${patchBody}\n`;
+            patches.push(`--- a/${filePath}\n+++ b/${filePath}\n${patchNormalized}`);
+        }
+        if (patches.length === 0) {
+            this.logger.warn({
+                message: `[KODUS-GRAPH] No patches found in changedFiles, skipping diff write`,
+                context: KodusGraphService.name,
+            });
+            return undefined;
+        }
+        const diffContent = patches.join('\n');
+        const diffPath = `${REPO_DIR}/${GRAPH_DIR}/pr.diff`;
+        await sandbox.commands.run(`mkdir -p ${REPO_DIR}/${GRAPH_DIR}`, { timeoutMs: 5_000 });
+        await sandbox.files.write(diffPath, diffContent);
+        this.logger.log({
+            message: `[KODUS-GRAPH] Diff written to sandbox: ${diffContent.length} chars, ${patches.length} files`,
+            context: KodusGraphService.name,
+            metadata: { diffChars: diffContent.length, filesWithPatch: patches.length },
+        });
+        return `${GRAPH_DIR}/pr.diff`;
     }
 
     private async generatePromptContext(
         sandbox: Sandbox,
         filePaths: string[],
-        graphPath: string = GRAPH_PATH,
+        graphPath?: string,
+        diffPath?: string,
     ): Promise<string> {
         const filesArg = filePaths.map((f) => `'${f.replace(/'/g, "'\\''")}'`).join(' ');
+
+        const graphArg = graphPath ? ` --graph ${graphPath}` : '';
+        const diffArg = diffPath ? ` --diff ${diffPath}` : '';
+        const cmd = `kodus-graph context --files ${filesArg}${graphArg}${diffArg} --repo-dir . --format prompt --out ${PROMPT_PATH}`;
+        this.logger.log({
+            message: `[KODUS-GRAPH] Step 4/4: Running context command`,
+            context: KodusGraphService.name,
+            metadata: { cmd: cmd.substring(0, 300), graphPath },
+        });
 
         const result = await sandbox.commands.run(
             [
                 'export PATH="$HOME/.bun/bin:$PATH"',
                 `cd ${REPO_DIR}`,
-                `kodus-graph context --files ${filesArg} --graph ${graphPath} --repo-dir . --format prompt --out ${PROMPT_PATH}`,
+                `mkdir -p ${GRAPH_DIR}`,
+                cmd,
             ].join(' && '),
             { timeoutMs: TIMEOUTS.CONTEXT_MS },
         );
@@ -274,6 +383,15 @@ export class KodusGraphService {
             { timeoutMs: 10_000 },
         );
 
-        return readResult.stdout || '';
+        const prompt = readResult.stdout || '';
+        if (!prompt) {
+            this.logger.warn({
+                message: `[KODUS-GRAPH] Step 4/4: prompt file is empty (context command succeeded but produced no output)`,
+                context: KodusGraphService.name,
+                metadata: { stderr: (result.stderr || '').slice(0, 300), stdout: (result.stdout || '').slice(0, 300) },
+            });
+        }
+
+        return prompt;
     }
 }

@@ -141,12 +141,19 @@ export class ReviewOrchestratorService {
             },
         });
 
+        // Strip file bodies from changedFiles before sending to agents.
+        // Agents access full source on demand via readFile in the sandbox.
+        const agentInputWithoutContent: ReviewAgentInput = {
+            ...agentInput,
+            changedFiles: agentInput.changedFiles.map(({ content, fileContent, ...rest }) => rest as any),
+        };
+
         // Dispatch all agents in parallel
         const results = await Promise.allSettled(
             agentTasks.map(async (task) => {
                 try {
                     return await task.provider.execute({
-                        ...agentInput,
+                        ...agentInputWithoutContent,
                         maxSteps: this.getMaxStepsForAgent(
                             task.name,
                             agentInput.reviewMode,

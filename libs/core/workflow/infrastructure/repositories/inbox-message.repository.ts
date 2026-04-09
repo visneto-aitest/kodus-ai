@@ -45,8 +45,8 @@ export class InboxMessageRepository implements IInboxMessageRepository {
      * Claims a message for processing using an atomic UPSERT.
      * Returns the message model if successfully claimed, or null if it's already being processed or finished.
      *
-     * Uses 3-hour timeout for PROCESSING messages to avoid reclaiming long-running jobs
-     * (e.g., code reviews with 2h timeout). Only allows reclaiming messages that are truly stuck.
+     * Uses 2.5-hour timeout for PROCESSING messages to avoid reclaiming long-running jobs
+     * (e.g., code reviews with 2h timeout + 30min margin). Only allows reclaiming messages that are truly stuck.
      */
     async claim(
         messageId: string,
@@ -67,7 +67,7 @@ export class InboxMessageRepository implements IInboxMessageRepository {
                 "attempts" = "inbox_messages"."attempts" + 1,
                 "updatedAt" = NOW()
             WHERE "inbox_messages"."status" NOT IN ($6, $7)
-               OR ("inbox_messages"."status" = $7 AND "inbox_messages"."lockedAt" < NOW() - INTERVAL '3 hours')
+               OR ("inbox_messages"."status" = $7 AND "inbox_messages"."lockedAt" < NOW() - INTERVAL '2.5 hours')
             RETURNING *;
         `;
 
@@ -324,6 +324,47 @@ export class InboxMessageRepository implements IInboxMessageRepository {
                 message: 'Failed to delete old inbox messages',
                 context: InboxMessageRepository.name,
                 error,
+            });
+            throw error;
+        }
+    }
+
+    /**
+     * Releases all locks held by a specific instance (hostname).
+     * Used during graceful shutdown to prevent stuck PROCESSING messages
+     * when the instance is about to be terminated.
+     */
+    async releaseAllByInstance(lockedBy: string): Promise<number> {
+        try {
+            const result = await this.repository.update(
+                {
+                    status: InboxStatus.PROCESSING,
+                    lockedBy,
+                },
+                {
+                    status: InboxStatus.READY,
+                    lockedBy: null,
+                    lockedAt: null,
+                    lastError: `Released during shutdown of instance ${lockedBy}`,
+                },
+            );
+
+            const affected = result.affected || 0;
+            if (affected > 0) {
+                this.logger.log({
+                    message: `Released ${affected} inbox locks for instance ${lockedBy}`,
+                    context: InboxMessageRepository.name,
+                    metadata: { lockedBy, affected },
+                });
+            }
+
+            return affected;
+        } catch (error) {
+            this.logger.error({
+                message: 'Failed to release inbox locks by instance',
+                context: InboxMessageRepository.name,
+                error,
+                metadata: { lockedBy },
             });
             throw error;
         }

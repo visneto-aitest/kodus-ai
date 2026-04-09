@@ -12,6 +12,7 @@ import {
 import { RemoteCommands } from './collectCrossFileContexts.service';
 
 const SANDBOX_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+const SANDBOX_MEMORY_MB = 1536; // 1.5 GB — kodus-graph parse can OOM on large repos at 1 GB
 const REPO_DIR = '/home/user/repo';
 
 const TIMEOUTS = {
@@ -67,7 +68,10 @@ export class E2BSandboxService implements ISandboxProvider {
             },
         });
 
-        const { sandbox, usedTemplate } = await this.createSandbox(apiKey);
+        const { sandbox, usedTemplate } = await this.createSandbox(apiKey, {
+            ...(prNumber != null && { prNumber: String(prNumber) }),
+            ...params.sandboxMetadata,
+        });
 
         this.logger.log({
             message: `[DEBUG] E2B sandbox created (template=${usedTemplate}, id=${sandbox.sandboxId ?? 'unknown'})`,
@@ -288,6 +292,7 @@ export class E2BSandboxService implements ISandboxProvider {
 
     private async createSandbox(
         apiKey: string,
+        metadata?: Record<string, string>,
     ): Promise<{ sandbox: Sandbox; usedTemplate: boolean }> {
         const templateId = this.configService.get<string>(
             'API_E2B_TEMPLATE_ID',
@@ -298,6 +303,8 @@ export class E2BSandboxService implements ISandboxProvider {
                 const sandbox = await Sandbox.create(templateId, {
                     timeoutMs: SANDBOX_TIMEOUT_MS,
                     apiKey,
+                    memoryMB: SANDBOX_MEMORY_MB,
+                    metadata,
                 });
                 return { sandbox, usedTemplate: true };
             } catch (error) {
@@ -312,6 +319,8 @@ export class E2BSandboxService implements ISandboxProvider {
         const sandbox = await Sandbox.create({
             timeoutMs: SANDBOX_TIMEOUT_MS,
             apiKey,
+            memoryMB: SANDBOX_MEMORY_MB,
+            metadata,
         });
         return { sandbox, usedTemplate: false };
     }

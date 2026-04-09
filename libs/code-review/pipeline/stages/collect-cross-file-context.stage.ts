@@ -186,6 +186,7 @@ export class CollectCrossFileContextStage extends BasePipelineStage<CodeReviewPi
                 branch: cloneInfo.branch,
                 prNumber: cloneInfo.prNumber,
                 platform: cloneInfo.platform,
+                sandboxMetadata: { stage: 'cross-file-context' },
             });
 
             cleanup = sandbox.cleanup;
@@ -253,6 +254,7 @@ export class CollectCrossFileContextStage extends BasePipelineStage<CodeReviewPi
                         branch: freshCloneInfo.branch,
                         prNumber: freshCloneInfo.prNumber,
                         platform: freshCloneInfo.platform,
+                        sandboxMetadata: { stage: 'cross-file-renewed' },
                     };
                 };
             });
