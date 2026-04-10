@@ -61,6 +61,7 @@ import { ImplementationVerificationProcessor } from '../workflow/implementation-
 import { LOAD_EXTERNAL_CONTEXT_STAGE_TOKEN } from './stages/contracts/loadExternalContextStage.contract';
 import { ValidateSuggestionsStage } from './stages/validate-suggestions.stage';
 import { CodeReviewPipelineStrategy } from './strategy/code-review-pipeline.strategy';
+import { CodeReviewAgentPipelineStrategy } from './strategy/code-review-agent-pipeline.strategy';
 
 // V3 Agent-First
 import { CreateSandboxStage } from './stages/create-sandbox.stage';
@@ -100,6 +101,7 @@ import { ReviewOrchestratorService } from '../infrastructure/agents/review-orche
         // Strategy
         CodeReviewPipelineStrategyEE,
         CodeReviewPipelineStrategy,
+        CodeReviewAgentPipelineStrategy,
 
         // Job Processor
         CodeReviewJobProcessorService,
@@ -168,6 +170,7 @@ import { ReviewOrchestratorService } from '../infrastructure/agents/review-orche
     exports: [
         CodeReviewPipelineStrategyEE,
         CodeReviewPipelineStrategy,
+        CodeReviewAgentPipelineStrategy,
 
         CodeReviewJobProcessorService,
         CodeReviewPipelineObserver,
