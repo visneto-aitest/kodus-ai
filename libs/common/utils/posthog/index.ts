@@ -13,6 +13,7 @@ export const FEATURE_FLAGS = {
     sso: 'sso',
     cliKeys: 'cli-keys',
     committableSuggestions: 'committable-suggestions',
+    agentReview: 'agent-review',
 } as const;
 
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS];
@@ -30,6 +31,10 @@ class PostHogClient {
         } else {
             this.posthog = null;
         }
+    }
+
+    get isInitialized(): boolean {
+        return this.posthog !== null;
     }
 
     userIdentify(user: IUser): void {
