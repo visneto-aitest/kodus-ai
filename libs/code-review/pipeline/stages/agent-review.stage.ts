@@ -190,18 +190,18 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
         };
     }
 
-    private normalizeSeverity(severity?: string): SeverityLevel {
+    private normalizeSeverity(severity?: string): string {
         switch ((severity || '').toLowerCase()) {
             case 'critical':
             case SeverityLevel.CRITICAL:
                 return SeverityLevel.CRITICAL;
             case 'high':
-            case SeverityLevel.ISSUE:
+            case SeverityLevel.HIGH:
                 return SeverityLevel.HIGH;
             case 'medium':
                 return SeverityLevel.MEDIUM;
             case 'low':
-            case SeverityLevel.WARNING:
+            case SeverityLevel.LOW:
                 return SeverityLevel.LOW;
             default:
                 return SeverityLevel.MEDIUM;
@@ -488,14 +488,14 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                     .filter((r) => r.uuid)
                     .map((r) => [r.uuid!, r]),
             );
-            const kodyRulesWithSeverity = kodyRulesSuggestions.map((s) => {
+            const kodyRulesWithSeverity: Partial<CodeSuggestion>[] = kodyRulesSuggestions.map((s) => {
                 const ruleUuid = s.brokenKodyRulesIds?.[0];
                 const matchedRule = ruleUuid
                     ? kodyRulesById.get(ruleUuid)
                     : undefined;
                 const legacySeverity = matchedRule
                     ? resolveKodyRuleSeverityLevel(matchedRule)
-                    : SeverityLevel.ISSUE;
+                    : SeverityLevel.HIGH;
 
                 return {
                     ...s,
@@ -503,14 +503,13 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                 };
             });
 
-            const severityNormalizedNonRules = nonKodyRulesSuggestions.map(
-                (suggestion) => ({
+            const severityNormalizedNonRules: Partial<CodeSuggestion>[] =
+                nonKodyRulesSuggestions.map((suggestion) => ({
                     ...suggestion,
                     severity: this.normalizeSeverity(suggestion.severity),
-                }),
-            );
+                }));
 
-            const severityNormalized = [
+            const severityNormalized: Partial<CodeSuggestion>[] = [
                 ...severityNormalizedNonRules,
                 ...kodyRulesWithSeverity,
             ];
@@ -754,7 +753,7 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                             suggestionContent: s.suggestionContent || '',
                             oneSentenceSummary: s.oneSentenceSummary || '',
                             label: (s.label as any) || 'kody_rules',
-                            severity: this.normalizeSeverity(s.severity),
+                            severity: this.normalizeSeverity(s.severity) as SeverityLevel,
                             brokenKodyRulesIds: s.brokenKodyRulesIds,
                             deliveryStatus: DeliveryStatus.NOT_SENT,
                         })),

@@ -1512,7 +1512,7 @@ Return ONLY JSON:
         if (!extraFindings && synthesisText.length > 50) {
             const fallbackResult = await structureWithFallbackModel(
                 synthesisText,
-                secrets.byokConfig,
+                byokConfig,
                 input.telemetryMetadata?.organizationId,
             );
             if (fallbackResult) {
@@ -2933,29 +2933,29 @@ async function structureWithFallbackModel(
 } | null> {
     try {
         const nullableStringSchema = {
-            type: ['string', 'null'],
-        } as const;
+            type: ['string', 'null'] as ('string' | 'null')[],
+        };
         const nullableNumberSchema = {
-            type: ['number', 'null'],
-        } as const;
+            type: ['number', 'null'] as ('number' | 'null')[],
+        };
         const nullableLabelSchema = {
             anyOf: [
                 {
-                    type: 'string',
+                    type: 'string' as const,
                     enum: ['bug', 'security', 'performance'],
                 },
-                { type: 'null' },
+                { type: 'null' as const },
             ],
-        } as const;
+        };
         const nullableSeveritySchema = {
             anyOf: [
                 {
-                    type: 'string',
+                    type: 'string' as const,
                     enum: ['critical', 'high', 'medium', 'low'],
                 },
-                { type: 'null' },
+                { type: 'null' as const },
             ],
-        } as const;
+        };
         const internalModel = getInternalModel(byokConfig);
         const structureFallbackSignal = timeoutSignal(LLM_CALL_TIMEOUT_MS);
 
