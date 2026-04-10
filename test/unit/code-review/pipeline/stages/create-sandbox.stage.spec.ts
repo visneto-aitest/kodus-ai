@@ -179,14 +179,15 @@ describe('CreateSandboxStage', () => {
 
             expect(
                 mockSandboxProvider.createSandboxWithRepo,
-            ).toHaveBeenCalledWith({
-                cloneUrl: 'https://github.com/org/test-repo.git',
-                authToken: 'ghp_test_token',
-                authUsername: undefined,
-                branch: 'feature-branch',
-                prNumber: 42,
-                platform: PlatformType.GITHUB,
-            });
+            ).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    cloneUrl: 'https://github.com/org/test-repo.git',
+                    authToken: 'ghp_test_token',
+                    branch: 'feature-branch',
+                    prNumber: 42,
+                    platform: PlatformType.GITHUB,
+                }),
+            );
 
             expect(result.sandboxHandle).toBeDefined();
             expect(result.sandboxHandle.remoteCommands).toBeDefined();

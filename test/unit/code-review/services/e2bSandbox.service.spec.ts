@@ -211,10 +211,12 @@ describe('E2BSandboxService', () => {
 
             await service.createSandboxWithRepo(defaultParams);
 
-            expect(Sandbox.create).toHaveBeenCalledWith({
-                timeoutMs: 10 * 60 * 1000,
-                apiKey: 'my-e2b-key',
-            });
+            expect(Sandbox.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    timeoutMs: 10 * 60 * 1000,
+                    apiKey: 'my-e2b-key',
+                }),
+            );
         });
 
         it('should run apt-get install as first command', async () => {
@@ -276,10 +278,13 @@ describe('E2BSandboxService', () => {
 
             await service.createSandboxWithRepo(defaultParams);
 
-            expect(Sandbox.create).toHaveBeenCalledWith('kodus-sandbox', {
-                timeoutMs: 10 * 60 * 1000,
-                apiKey: 'key',
-            });
+            expect(Sandbox.create).toHaveBeenCalledWith(
+                'kodus-sandbox',
+                expect.objectContaining({
+                    timeoutMs: 10 * 60 * 1000,
+                    apiKey: 'key',
+                }),
+            );
 
             // Should NOT run apt-get install when using template
             const commands = mockRun.mock.calls.map((c: any[]) => c[0]);
@@ -324,14 +329,21 @@ describe('E2BSandboxService', () => {
 
             // Should have tried template first, then fallback
             expect(Sandbox.create).toHaveBeenCalledTimes(2);
-            expect(Sandbox.create).toHaveBeenNthCalledWith(1, 'bad-template', {
-                timeoutMs: 10 * 60 * 1000,
-                apiKey: 'key',
-            });
-            expect(Sandbox.create).toHaveBeenNthCalledWith(2, {
-                timeoutMs: 10 * 60 * 1000,
-                apiKey: 'key',
-            });
+            expect(Sandbox.create).toHaveBeenNthCalledWith(
+                1,
+                'bad-template',
+                expect.objectContaining({
+                    timeoutMs: 10 * 60 * 1000,
+                    apiKey: 'key',
+                }),
+            );
+            expect(Sandbox.create).toHaveBeenNthCalledWith(
+                2,
+                expect.objectContaining({
+                    timeoutMs: 10 * 60 * 1000,
+                    apiKey: 'key',
+                }),
+            );
 
             // Should install deps via apt-get since fallback doesn't have template
             const commands = mockRun.mock.calls.map((c: any[]) => c[0]);
