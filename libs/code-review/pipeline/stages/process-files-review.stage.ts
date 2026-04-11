@@ -10,7 +10,7 @@ import {
     ISuggestionService,
     SUGGESTION_SERVICE_TOKEN,
 } from '@libs/code-review/domain/contracts/SuggestionService.contract';
-import { ASTContentFormatterService } from '@libs/code-review/infrastructure/adapters/services/astContentFormatter.service';
+import { GraphContentFormatter, GraphJson } from '@libs/code-review/infrastructure/adapters/services/graphContentFormatter.service';
 import { CrossFileContextSnippet } from '@libs/code-review/infrastructure/adapters/services/collectCrossFileContexts.service';
 import {
     estimateFixedTokens,
@@ -90,7 +90,7 @@ export class ProcessFilesReview extends BasePipelineStage<CodeReviewPipelineCont
 
         private readonly codeAnalysisOrchestrator: CodeAnalysisOrchestrator,
 
-        private readonly astContentFormatter: ASTContentFormatterService,
+        private readonly graphContentFormatter: GraphContentFormatter,
     ) {
         super();
     }
@@ -437,10 +437,11 @@ export class ProcessFilesReview extends BasePipelineStage<CodeReviewPipelineCont
     ): Promise<FileProcessingResult[]> {
         const { organizationAndTeamData, pullRequest } = context;
 
-        // Fetch AST formatted content for this batch
-        const astResults = await this.astContentFormatter.fetchFormattedContent(
+        // Use graph JSON from pipeline context if available
+        const graphJson = (context as any).callGraphJson as GraphJson | undefined;
+        const astResults = await this.graphContentFormatter.formatContent(
             batch,
-            context,
+            graphJson,
         );
 
         // Create mutable copies with AST content attached (originals may be frozen by Immer)
