@@ -6,7 +6,7 @@ import { getInternalModel } from './byok-to-vercel';
 
 const logger = createLogger('SuggestionFormatter');
 
-const FORMAT_TIMEOUT_MS = 30_000; // 30s per batch
+const FORMAT_TIMEOUT_MS = 90_000; // 90s — Gemini Flash can take >30s under load
 
 const displayNames = new Intl.DisplayNames(['en'], { type: 'language' });
 
@@ -92,15 +92,14 @@ export async function formatSuggestionContent(
         const result: any = await generateText({
             model: model as any,
             abortSignal: controller.signal,
-            prompt: `You are a code review comment editor. Your ONLY job is to clean up the formatting of each suggestion. Do NOT change the technical meaning, do NOT add or remove information, do NOT modify code snippets.
+            prompt: `You are a code review comment editor. Rewrite each suggestion into clean, natural prose.
 
 Rules:
 - Remove labels like "WHAT:", "WHY:", "HOW:", "1.", "2.", "3." from the beginning of sentences.
 - Merge the labeled sentences into a single natural paragraph (1-3 sentences).
 - Keep every technical detail: function names, file names, variable names, error types, line numbers.
-- Keep the same vocabulary. Do NOT paraphrase or use synonyms for technical terms.
 - Do NOT touch existingCode or improvedCode — return them exactly as provided.
-${langInstruction}${customGuidelines}
+${customGuidelines ? `\nThe team has provided custom writing guidelines. Follow them — they take priority over the default rules above.\n${customGuidelines}` : ''}${langInstruction}
 
 Example:
 Input: "WHAT: The join method breaks out of the loop when the timeout expires. WHY: This leaves subsequent flusher processes running indefinitely as orphans. HOW: Remove the remaining_time check."
