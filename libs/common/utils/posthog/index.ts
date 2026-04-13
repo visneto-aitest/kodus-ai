@@ -110,17 +110,52 @@ class PostHogClient {
         this.posthog.shutdown();
     }
 
+    repositoryIdentify(repository: {
+        repositoryId: string;
+        name: string;
+        fullName: string;
+        platform: string;
+        organizationId: string;
+    }): void {
+        if (!this.posthog) {
+            return;
+        }
+
+        this.posthog.groupIdentify({
+            groupType: 'repository',
+            groupKey: repository.repositoryId,
+            properties: {
+                name: repository.name,
+                fullName: repository.fullName,
+                platform: repository.platform,
+                organizationId: repository.organizationId,
+                repositoryId: repository.repositoryId,
+            },
+        });
+
+        this.posthog.shutdown();
+    }
+
     async isFeatureEnabled(
         featureName: string,
         identifier: string,
         organizationAndTeamData: OrganizationAndTeamData,
+        repositoryId?: string,
     ): Promise<boolean> {
         if (!this.posthog) {
             return Promise.resolve(true);
         }
 
+        const groups: Record<string, string> = {
+            organization: organizationAndTeamData.organizationId,
+        };
+
+        if (repositoryId) {
+            groups.repository = repositoryId;
+        }
+
         return await this.posthog.isFeatureEnabled(featureName, identifier, {
-            groups: { organization: organizationAndTeamData.organizationId },
+            groups,
         });
     }
 }

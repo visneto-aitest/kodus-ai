@@ -38,20 +38,47 @@ export const codeReviewPipelineProvider: Provider = {
                     context.organizationAndTeamData?.teamId ||
                     'unknown';
 
+                const repositoryId = context.repository?.id;
+
+                logger.log({
+                    message: `[FEATURE-FLAG] Evaluating agent-review flag`,
+                    context: 'CodeReviewPipelineProvider',
+                    metadata: {
+                        featureIdentifier,
+                        repositoryId,
+                        repositoryName: context.repository?.name,
+                        repositoryFullName: context.repository?.fullName,
+                        organizationId: context.organizationAndTeamData?.organizationId,
+                        teamId: context.organizationAndTeamData?.teamId,
+                        posthogInitialized: posthog.isInitialized,
+                    },
+                });
+
                 let useAgentPipeline = false;
                 if (posthog.isInitialized) {
                     const flagResult = await posthog.isFeatureEnabled(
                         FEATURE_FLAGS.agentReview,
                         featureIdentifier,
                         context.organizationAndTeamData,
+                        repositoryId,
                     );
                     useAgentPipeline = flagResult === true;
+
+                    logger.log({
+                        message: `[FEATURE-FLAG] agent-review result: ${flagResult} (repositoryId=${repositoryId})`,
+                        context: 'CodeReviewPipelineProvider',
+                        metadata: {
+                            flagResult,
+                            repositoryId,
+                            featureIdentifier,
+                        },
+                    });
                 }
 
                 const strategy = useAgentPipeline ? agentStrategy : eeStrategy;
 
                 logger.log({
-                    message: `Pipeline strategy selected: ${strategy.getPipelineName()} (agentFlag=${useAgentPipeline}, posthogInitialized=${posthog.isInitialized}, identifier=${featureIdentifier})`,
+                    message: `Pipeline strategy selected: ${strategy.getPipelineName()} (agentFlag=${useAgentPipeline}, posthogInitialized=${posthog.isInitialized}, identifier=${featureIdentifier}, repositoryId=${repositoryId})`,
                     context: 'CodeReviewPipelineProvider',
                 });
 

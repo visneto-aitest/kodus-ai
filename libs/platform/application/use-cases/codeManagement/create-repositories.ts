@@ -29,6 +29,7 @@ import {
 } from '@libs/organization/domain/team/contracts/team.service.contract';
 import { CodeManagementService } from '@libs/platform/infrastructure/adapters/services/codeManagement.service';
 import { BackfillHistoricalPRsUseCase } from '@libs/platformData/application/use-cases/pullRequests/backfill-historical-prs.use-case';
+import posthog from '@libs/common/utils/posthog';
 
 @Injectable()
 export class CreateRepositoriesUseCase implements IUseCase {
@@ -222,6 +223,14 @@ export class CreateRepositoriesUseCase implements IUseCase {
                         defaultBranch: repo.default_branch,
                     },
                 );
+
+                posthog.repositoryIdentify({
+                    repositoryId: repoRecord.externalId,
+                    name: repoRecord.name,
+                    fullName: repoRecord.fullName,
+                    platform: repoRecord.platform,
+                    organizationId: orgTeam.organizationId,
+                });
 
                 // Only enqueue if graph not already ready or building
                 if (
