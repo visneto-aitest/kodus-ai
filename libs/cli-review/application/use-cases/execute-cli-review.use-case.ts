@@ -107,13 +107,18 @@ export class ExecuteCliReviewUseCase implements IUseCase {
                 },
             });
 
-            // 1. Create automation execution for tracking
-            execution = await this.createAutomationExecution(
-                organizationAndTeamData,
-                correlationId,
-                userEmail,
-                gitContext,
-            );
+            // 1. Create automation execution for tracking (skipped in trial
+            //    mode — trial requests have teamId='trial' which is not a
+            //    valid UUID and would fail the team_automations lookup with
+            //    QueryFailedError: invalid input syntax for type uuid).
+            execution = isTrialMode
+                ? null
+                : await this.createAutomationExecution(
+                      organizationAndTeamData,
+                      correlationId,
+                      userEmail,
+                      gitContext,
+                  );
 
             // 2. Convert CLI input to FileChange[]
             const changedFiles = this.converter.convertToFileChanges(input);
