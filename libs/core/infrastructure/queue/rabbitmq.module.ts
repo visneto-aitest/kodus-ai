@@ -83,10 +83,16 @@ export class RabbitMQWrapperModule {
                         wait: false,
                         timeout: 5000,
                     },
+                    // Both options live under connectionManagerOptions in
+                    // @golevelup/nestjs-rabbitmq v9. Before this PR the
+                    // `reconnectTimeInSeconds` sat at the top level where it
+                    // was silently ignored, causing the library to fall back
+                    // to amqp-connection-manager's 5s default instead of the
+                    // 10s we intended.
                     connectionManagerOptions: {
                         heartbeatIntervalInSeconds: 120,
+                        reconnectTimeInSeconds: 10,
                     },
-                    reconnectTimeInSeconds: 10,
                     enableControllerDiscovery: options.enableConsumers,
                     prefetchCount:
                         configService.get<number>(

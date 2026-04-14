@@ -416,8 +416,18 @@ export class WorkflowJobConsumer implements OnApplicationShutdown {
             metadata: { activeJobs: this.activeJobs },
         });
 
-        const checkIntervalMs = 1000;
-        while (this.activeJobs > 0) {
+        // Cap the wait so we always get a chance to release locks before
+        // ECS sends SIGKILL (default grace period is 30s). 25s of waiting
+        // leaves ~5s headroom for the release-locks query and other
+        // shutdown hooks downstream of this one.
+        const maxWaitMs = 25_000;
+        const checkIntervalMs = 1_000;
+        const waitStart = Date.now();
+
+        while (
+            this.activeJobs > 0 &&
+            Date.now() - waitStart < maxWaitMs
+        ) {
             this.logger.log({
                 message: `Waiting for ${this.activeJobs} active jobs to complete...`,
                 context: WorkflowJobConsumer.name,
@@ -427,8 +437,47 @@ export class WorkflowJobConsumer implements OnApplicationShutdown {
             );
         }
 
+        if (this.activeJobs > 0) {
+            this.logger.warn({
+                message: `Shutdown timeout reached with ${this.activeJobs} active jobs still running — releasing inbox locks anyway so other workers can reclaim the messages.`,
+                context: WorkflowJobConsumer.name,
+                metadata: {
+                    activeJobs: this.activeJobs,
+                    instanceId: this.instanceId,
+                },
+            });
+        }
+
+        // Release every PROCESSING lock held by this host. Prevents the
+        // "dead worker leaves locks" pattern we traced in prod: without
+        // this, orphan locks sit around until the reaper cron's 2.5h
+        // timeout, blocking other workers from picking up the messages.
+        try {
+            const released = await this.inboxRepository.releaseAllByInstance(
+                this.instanceId,
+            );
+            if (released > 0) {
+                this.logger.log({
+                    message: `Released ${released} inbox locks during shutdown`,
+                    context: WorkflowJobConsumer.name,
+                    metadata: {
+                        instanceId: this.instanceId,
+                        released,
+                    },
+                });
+            }
+        } catch (error) {
+            // Never throw from a shutdown hook — best-effort by design.
+            this.logger.error({
+                message: 'Failed to release inbox locks during shutdown',
+                context: WorkflowJobConsumer.name,
+                error,
+                metadata: { instanceId: this.instanceId },
+            });
+        }
+
         this.logger.log({
-            message: 'All jobs completed. Proceeding with shutdown.',
+            message: 'Shutdown complete.',
             context: WorkflowJobConsumer.name,
         });
     }

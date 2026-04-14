@@ -34,6 +34,12 @@ export interface IInboxMessageRepository {
         consumerId: string,
         olderThan: Date,
     ): Promise<number>;
+    /**
+     * Releases every PROCESSING lock held by the given instance (hostname).
+     * Used during graceful shutdown so new workers can reclaim the messages
+     * immediately instead of waiting for the reaper timeout.
+     */
+    releaseAllByInstance(lockedBy: string): Promise<number>;
     deleteProcessedOlderThan(date: Date): Promise<number>;
     getHealthStats(): Promise<InboxHealthStats>;
 }

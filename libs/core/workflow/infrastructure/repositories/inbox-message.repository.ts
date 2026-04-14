@@ -312,6 +312,53 @@ export class InboxMessageRepository implements IInboxMessageRepository {
         }
     }
 
+    /**
+     * Releases all PROCESSING locks held by the given instance (hostname).
+     *
+     * Called during graceful shutdown so new workers can immediately reclaim
+     * these messages. Without this, a dying worker leaves its locks stuck
+     * until the reaper cron's 2.5h timeout elapses — matching the "dead
+     * worker left locks" pattern we've seen in prod after AZ rebalances
+     * and deploys.
+     *
+     * Only touches rows that are both PROCESSING and held by this instance,
+     * so concurrent shutdowns (e.g. two workers replaced in parallel) don't
+     * step on each other's in-flight messages.
+     */
+    async releaseAllByInstance(lockedBy: string): Promise<number> {
+        try {
+            const result = await this.repository.update(
+                {
+                    status: InboxStatus.PROCESSING,
+                    lockedBy,
+                },
+                {
+                    status: InboxStatus.READY,
+                    lockedBy: null,
+                    lockedAt: null,
+                    lastError: `Released during shutdown of instance ${lockedBy}`,
+                },
+            );
+            const affected = result.affected || 0;
+            if (affected > 0) {
+                this.logger.log({
+                    message: `Released ${affected} inbox locks for instance ${lockedBy}`,
+                    context: InboxMessageRepository.name,
+                    metadata: { lockedBy, affected },
+                });
+            }
+            return affected;
+        } catch (error) {
+            this.logger.error({
+                message: 'Failed to release inbox locks by instance',
+                context: InboxMessageRepository.name,
+                error,
+                metadata: { lockedBy },
+            });
+            throw error;
+        }
+    }
+
     async deleteProcessedOlderThan(date: Date): Promise<number> {
         try {
             const result = await this.repository.delete({
