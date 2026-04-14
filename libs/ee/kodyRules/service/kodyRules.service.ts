@@ -76,7 +76,6 @@ import {
     KodyRulesScope,
     KodyRulesStatus,
     KodyRulesType,
-    SeverityLevel,
 } from '@libs/kodyRules/domain/interfaces/kodyRules.interface';
 import { MCPManagerService } from '@libs/mcp-server/services/mcp-manager.service';
 import {
@@ -266,9 +265,6 @@ export class KodyRulesService implements IKodyRulesService {
                 rule: kodyRule?.rule,
                 path: kodyRule?.path,
                 severity: kodyRule?.severity?.toLowerCase(),
-                severityLevel:
-                    kodyRule?.severityLevel ??
-                    (kodyRule?.severity?.toLowerCase() as SeverityLevel),
                 status: kodyRule?.status ?? KodyRulesStatus.ACTIVE,
                 sourcePath: kodyRule?.sourcePath,
                 centralizedConfig: kodyRule?.centralizedConfig,
@@ -338,9 +334,6 @@ export class KodyRulesService implements IKodyRulesService {
                 centralizedConfig: kodyRule.centralizedConfig,
                 sourceAnchor: kodyRule.sourceAnchor,
                 severity: kodyRule.severity?.toLowerCase(),
-                severityLevel:
-                    kodyRule?.severityLevel ??
-                    (kodyRule?.severity?.toLowerCase() as SeverityLevel),
                 status: kodyRule.status ?? KodyRulesStatus.ACTIVE,
                 repositoryId: kodyRule?.repositoryId,
                 directoryId: kodyRule?.directoryId,
@@ -774,15 +767,6 @@ export class KodyRulesService implements IKodyRulesService {
                         filters.severity &&
                         rule.severity?.toLowerCase() !==
                             filters.severity?.toLowerCase()
-                    ) {
-                        return false;
-                    }
-
-                    // Filtro por severityLevel
-                    if (
-                        filters.severityLevel &&
-                        rule.severityLevel?.toLowerCase() !==
-                            filters.severityLevel?.toLowerCase()
                     ) {
                         return false;
                     }

@@ -574,7 +574,6 @@ export const KodyRuleAddOrUpdateItemModal = ({
                     rule: config.rule,
                     title: config.title,
                     severity: isMemory ? "high" : config.severity,
-                    severityLevel: isMemory ? "high" : config.severity,
                     scope: isMemory ? "file" : config.scope,
                     uuid: rule?.uuid,
                     examples: examples,
@@ -653,9 +652,6 @@ export const KodyRuleAddOrUpdateItemModal = ({
                     rule: rule?.rule,
                     title: rule?.title,
                     severity: rule?.severity,
-                    severityLevel:
-                        rule?.severityLevel ??
-                        (rule?.severity as KodyRule["severity"] | undefined),
                     scope: rule?.scope,
                     uuid: rule?.uuid,
                     examples: rule?.examples,

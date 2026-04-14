@@ -114,7 +114,6 @@ export const KodyRuleLibraryItemModal = ({
                 severity: resolveKodyRuleDisplaySeverity(
                     rule,
                 ) as KodyRule["severity"],
-                severityLevel: resolveKodyRuleDisplaySeverity(rule),
                 path: "",
                 examples: rule.examples,
                 origin: KodyRulesOrigin.LIBRARY,

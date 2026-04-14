@@ -122,7 +122,7 @@ export const KodyRuleLibraryItem = ({
                             {rule.title}
                         </Heading>
 
-                        {!!(rule.severityLevel || rule.severity) && (
+                        {!!rule.severity && (
                             <IssueSeverityLevelBadge
                                 severity={resolveKodyRuleDisplaySeverity(rule)}
                             />

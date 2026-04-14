@@ -3,11 +3,9 @@ import {
     IsOptional,
     IsArray,
     IsBoolean,
-    IsEnum,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { ProgrammingLanguage } from '@libs/core/domain/enums/programming-language.enum';
-import { SeverityLevel } from '@libs/common/utils/enums/severityLevel.enum';
 import { PaginationDto } from '@libs/core/domain/dtos/pagination.dto';
 import { KodyRuleFilters } from '@libs/core/infrastructure/config/types/general/kodyRules.type';
 import { ApiPropertyOptional } from '@nestjs/swagger';
@@ -40,15 +38,6 @@ export class FindLibraryKodyRulesDto
     @IsString()
     @ApiPropertyOptional()
     severity?: string;
-
-    @IsOptional()
-    @IsEnum(SeverityLevel)
-    @ApiPropertyOptional({
-        type: String,
-        enum: SeverityLevel,
-        enumName: 'SeverityLevel',
-    })
-    severityLevel?: SeverityLevel;
 
     @IsOptional()
     @Transform(transformToArray)

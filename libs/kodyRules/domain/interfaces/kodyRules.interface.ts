@@ -1,7 +1,4 @@
-import {
-    SeverityLevel,
-    severityLevelSchema,
-} from '@libs/common/utils/enums/severityLevel.enum';
+import { SeverityLevel } from '@libs/common/utils/enums/severityLevel.enum';
 import z from 'zod';
 
 export { SeverityLevel } from '@libs/common/utils/enums/severityLevel.enum';
@@ -63,7 +60,6 @@ export interface IKodyRule {
     sourceAnchor?: string;
     status: KodyRulesStatus;
     severity: string;
-    severityLevel?: SeverityLevel;
     label?: string;
     type?: KodyRulesType;
     extendedContext?: IKodyRulesExtendedContext;
@@ -174,14 +170,12 @@ export enum KodyRuleRequestType {
 
 /**
  * Resolves the effective SeverityLevel for a Kody Rule.
- * - If severityLevel is already set, returns it directly.
- * - Otherwise falls back to the normalized `severity` field.
- * - Defaults to HIGH when neither field is present.
+ * Reads `severity` (the only source of truth); defaults to HIGH when missing
+ * or set to an unrecognized value.
  */
 export function resolveKodyRuleSeverityLevel(
     rule: Partial<IKodyRule>,
 ): SeverityLevel {
-    if (rule.severityLevel) return rule.severityLevel;
     switch ((rule.severity || '').toLowerCase()) {
         case SeverityLevel.CRITICAL:
             return SeverityLevel.CRITICAL;
@@ -291,7 +285,6 @@ export const kodyRuleSchema = z.object({
     sourceAnchor: z.string().optional(),
     status: kodyRulesStatusSchema,
     severity: z.string(),
-    severityLevel: severityLevelSchema.optional(),
     label: z.string().optional(),
     type: kodyRulesTypeSchema.optional(),
     extendedContext: kodyRulesExtendedContextSchema.optional(),

@@ -10,7 +10,6 @@ import {
     KodyRulesScope,
     KodyRulesStatus,
     KodyRulesType,
-    SeverityLevel,
 } from '@libs/kodyRules/domain/interfaces/kodyRules.interface';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
@@ -161,15 +160,6 @@ export class CreateKodyRuleDto {
     @IsEnum(KodyRuleSeverity)
     @ApiProperty({ enum: KodyRuleSeverity, enumName: 'KodyRuleSeverity' })
     severity: KodyRuleSeverity;
-
-    @IsOptional()
-    @IsEnum(SeverityLevel)
-    @ApiPropertyOptional({
-        enum: SeverityLevel,
-        enumName: 'SeverityLevel',
-        example: SeverityLevel.HIGH,
-    })
-    severityLevel?: SeverityLevel;
 
     @IsOptional()
     @IsString()

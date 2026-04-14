@@ -16,7 +16,6 @@ export type KodyRule = {
     path: string;
     scope: "file" | "pull-request";
     severity: "low" | "medium" | "high" | "critical";
-    severityLevel?: SeverityLevel;
     repositoryId?: string;
     directoryId?: string;
     sourcePath?: string;
@@ -70,7 +69,6 @@ export type LibraryRule = {
     rule: string;
     why_is_this_important: string;
     severity?: "Low" | "Medium" | "High" | "Critical";
-    severityLevel?: SeverityLevel;
     bad_example?: string;
     good_example?: string;
     /**
@@ -202,10 +200,8 @@ export type KodyRuleSuggestion = {
 
 export const resolveKodyRuleDisplaySeverity = ({
     severity,
-    severityLevel,
 }: {
     severity?: string;
-    severityLevel?: SeverityLevel;
 }): SeverityLevel => {
     const normalizedSeverity = severity?.toLowerCase();
 
@@ -216,15 +212,6 @@ export const resolveKodyRuleDisplaySeverity = ({
         normalizedSeverity === SeverityLevel.LOW
     ) {
         return normalizedSeverity as SeverityLevel;
-    }
-
-    if (
-        severityLevel === SeverityLevel.CRITICAL ||
-        severityLevel === SeverityLevel.HIGH ||
-        severityLevel === SeverityLevel.MEDIUM ||
-        severityLevel === SeverityLevel.LOW
-    ) {
-        return severityLevel;
     }
 
     return SeverityLevel.LOW;
