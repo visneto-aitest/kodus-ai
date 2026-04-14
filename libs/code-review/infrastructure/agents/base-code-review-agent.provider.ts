@@ -736,7 +736,10 @@ export abstract class BaseCodeReviewAgentProvider {
                     relevantFile: s.relevantFile,
                     suggestionContent: s.suggestionContent,
                     severity: s.severity || 'medium',
-                    label: this.getCategoryLabel(),
+                    label: this.resolveSuggestionLabel(
+                        s as Partial<CodeSuggestion> & { label?: string },
+                        input,
+                    ),
                     oneSentenceSummary: s.oneSentenceSummary || '',
                 })),
                 discardedByVerify: (agentResult.droppedByVerify || []).map(
@@ -744,7 +747,10 @@ export abstract class BaseCodeReviewAgentProvider {
                         relevantFile: s.relevantFile,
                         suggestionContent: s.suggestionContent,
                         severity: s.severity || 'medium',
-                        label: this.getCategoryLabel(),
+                        label: this.resolveSuggestionLabel(
+                            s as Partial<CodeSuggestion> & { label?: string },
+                            input,
+                        ),
                         oneSentenceSummary: s.oneSentenceSummary || '',
                     }),
                 ),

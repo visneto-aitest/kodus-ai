@@ -5,6 +5,7 @@
 import { BugAgentProvider } from '@/code-review/infrastructure/agents/bug-agent.provider';
 import { SecurityAgentProvider } from '@/code-review/infrastructure/agents/security-agent.provider';
 import { PerformanceAgentProvider } from '@/code-review/infrastructure/agents/performance-agent.provider';
+import { GeneralistAgentProvider } from '@/code-review/infrastructure/agents/generalist-agent.provider';
 
 jest.mock('@kodus/flow', () => ({
     createLogger: () => ({
@@ -94,6 +95,64 @@ describe('PerformanceAgentProvider', () => {
         expect(prompt).toContain('n+1');
         expect(prompt).toContain('memory leak');
         expect(prompt).toContain('caching');
+    });
+});
+
+describe('GeneralistAgentProvider — label preservation on discarded suggestions', () => {
+    const agent = createAgent(GeneralistAgentProvider);
+    const input = { requestedCategories: undefined } as any;
+
+    // The bug: generalist's discardedByVerify / discardedBySeverity used to be
+    // tagged with this.getCategoryLabel() ('generalist'), overwriting the
+    // bug/security/performance label the LLM emitted. Downstream filters and
+    // the UI rely on the finding-level category, not the agent-level one.
+    // resolveSuggestionLabel preserves the original label when it is one of
+    // the allowed values and falls back to the first allowed label otherwise.
+
+    const resolve = (label: unknown) =>
+        (agent as any).resolveSuggestionLabel({ label }, input);
+
+    it('preserves a "bug" label emitted by the LLM', () => {
+        expect(resolve('bug')).toBe('bug');
+    });
+
+    it('preserves a "security" label emitted by the LLM', () => {
+        expect(resolve('security')).toBe('security');
+    });
+
+    it('preserves a "performance" label emitted by the LLM', () => {
+        expect(resolve('performance')).toBe('performance');
+    });
+
+    it('normalizes case when the LLM returns mixed case', () => {
+        expect(resolve('Bug')).toBe('bug');
+        expect(resolve('SECURITY')).toBe('security');
+    });
+
+    it('never returns "generalist" — not a valid finding label', () => {
+        expect(resolve('generalist')).not.toBe('generalist');
+    });
+
+    it('falls back to the first allowed category when the label is unknown', () => {
+        // GeneralistAgentProvider.getAllowedSuggestionLabels returns
+        // ['bug', 'security', 'performance'] by default — so fallback is 'bug'.
+        expect(resolve('random-label')).toBe('bug');
+        expect(resolve(undefined)).toBe('bug');
+        expect(resolve(null)).toBe('bug');
+    });
+
+    it('respects requestedCategories when narrowing the allowed set', () => {
+        const narrowInput = {
+            requestedCategories: ['security', 'performance'],
+        } as any;
+        const narrowResolve = (label: unknown) =>
+            (agent as any).resolveSuggestionLabel({ label }, narrowInput);
+
+        // bug is out of the allowed set now — must fall back to the first
+        // allowed category instead of leaking through.
+        expect(narrowResolve('bug')).toBe('security');
+        expect(narrowResolve('security')).toBe('security');
+        expect(narrowResolve('performance')).toBe('performance');
     });
 });
 
