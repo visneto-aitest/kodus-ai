@@ -1,7 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { PromptRunnerService } from '@kodus/kodus-common/llm';
 import { PermissionValidationService } from '@libs/ee/shared/services/permissionValidation.service';
 import { ObservabilityService } from '@libs/core/log/observability.service';
+import { DocumentationSearchExaService } from '@libs/code-review/infrastructure/adapters/services/documentation-search-exa.service';
 import {
     BaseCodeReviewAgentProvider,
     ReviewAgentIdentity,
@@ -14,11 +15,14 @@ export class SecurityAgentProvider extends BaseCodeReviewAgentProvider {
         promptRunnerService: PromptRunnerService,
         permissionValidationService: PermissionValidationService,
         observabilityService: ObservabilityService,
+        @Optional()
+        documentationSearchService?: DocumentationSearchExaService,
     ) {
         super(
             promptRunnerService,
             permissionValidationService,
             observabilityService,
+            documentationSearchService,
         );
     }
 

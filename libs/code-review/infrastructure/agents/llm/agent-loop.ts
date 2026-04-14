@@ -1,4 +1,7 @@
-import { buildAgentTools } from './agent-tools.factory';
+import {
+    buildAgentTools,
+    type DocumentationSearchAdapter,
+} from './agent-tools.factory';
 /**
  * Simple agent loop using Vercel AI SDK with native function calling.
  *
@@ -411,6 +414,15 @@ export interface AgentLoopSecrets {
     remoteCommands: RemoteCommands | undefined;
     byokConfig?: BYOKConfig;
     gitHubToken?: string;
+    /**
+     * External documentation search adapter (Exa-backed). When provided,
+     * registers the `searchDocs` tool on the agent so it can verify
+     * framework/library behavior against official docs. Required for the
+     * verifier to validate findings about third-party APIs.
+     */
+    documentationSearchService?: DocumentationSearchAdapter;
+    /** Options forwarded to the documentation search adapter on each call. */
+    documentationSearchOptions?: Record<string, unknown>;
 }
 
 export interface AgentLoopOutput {
@@ -505,7 +517,13 @@ export async function runAgentLoop(
     input: AgentLoopInput,
     secrets: AgentLoopSecrets,
 ): Promise<AgentLoopOutput> {
-    const tools = buildAgentTools(secrets.remoteCommands, secrets.gitHubToken);
+    const tools = buildAgentTools(
+        secrets.remoteCommands,
+        secrets.gitHubToken,
+        input.repositoryFullName,
+        secrets.documentationSearchService,
+        secrets.documentationSearchOptions,
+    );
     // Self-contained mode: no sandbox, no tools. The agent analyzes diffs
     // and any inlined fileContent in a single LLM call. Used by CLI trial.
     const isSelfContained = Object.keys(tools).length === 0;

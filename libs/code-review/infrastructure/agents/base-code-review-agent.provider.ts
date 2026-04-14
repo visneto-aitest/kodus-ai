@@ -1,6 +1,7 @@
 import { createLogger } from '@kodus/flow';
 import { PromptRunnerService } from '@kodus/kodus-common/llm';
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
+import { DocumentationSearchExaService } from '@libs/code-review/infrastructure/adapters/services/documentation-search-exa.service';
 
 import { OrganizationAndTeamData } from '@libs/core/infrastructure/config/types/general/organizationAndTeamData';
 import {
@@ -139,12 +140,23 @@ export interface AgentProgressEvent {
     agentCategory?: string;
     agentReplicaIndex?: number;
     agentReplicaTotal?: number;
-    status: 'started' | 'investigating' | 'completed' | 'error';
+    status:
+        | 'started'
+        | 'investigating'
+        | 'completed'
+        | 'error'
+        | 'batch_started'
+        | 'batch_completed';
     step?: number;
     toolCalls?: Array<{ tool: string; args: string; durationMs?: number }>;
     findings?: number;
     durationMs?: number;
     totalTokens?: number;
+    /** Batch context: present when the PR was chunked into multiple
+     *  token-budget batches and the event refers to one of them. */
+    batchIndex?: number;
+    batchTotal?: number;
+    batchFiles?: number;
     /** How the agent finished — helps surface timeouts and max-steps in the UI */
     finishReason?: 'stop' | 'timeout' | 'max-steps' | 'error';
     /** How findings were obtained — 'json-parse' (normal), 'second-chance', 'generate-object' (fallback LLM), 'empty' */
@@ -192,6 +204,11 @@ export interface ReviewAgentInput {
     /** Optional replica metadata for replicated agent runs. */
     agentReplicaIndex?: number;
     agentReplicaTotal?: number;
+    /** Batch metadata when the parent executeChunked has split the PR into
+     *  token-budget batches. Forwarded so per-step progress events can show
+     *  "batch i/N · step k" in the UI. */
+    batchIndex?: number;
+    batchTotal?: number;
     /** Review mode: 'fast' skips heavy passes (verify, coverage recovery, synthesis rescue) and caps agent steps; 'normal' skips verify only for very-high-confidence findings; 'deep' verifies everything. */
     reviewMode?: 'fast' | 'normal' | 'deep';
     /** Minimum severity level to keep. Findings below this threshold are discarded before verify. */
@@ -238,6 +255,10 @@ export abstract class BaseCodeReviewAgentProvider {
         protected readonly promptRunnerService: PromptRunnerService,
         protected readonly permissionValidationService: PermissionValidationService,
         protected readonly observabilityService: ObservabilityService,
+        /** Optional: when injected, enables the `searchDocs` tool on the
+         *  agent loop. Falsy when API_EXA_KEY is not configured. */
+        @Optional()
+        protected readonly documentationSearchService?: DocumentationSearchExaService,
     ) {}
 
     protected abstract getIdentity(): ReviewAgentIdentity;
@@ -274,6 +295,30 @@ export abstract class BaseCodeReviewAgentProvider {
             name: input.agentRuntimeName || baseIdentity.name,
         };
         const agentCategory = this.getCategoryLabel();
+
+        // When this execute() call is one batch of a chunked review
+        // (executeChunked has split a large PR by token budget), enrich
+        // every progress event emitted from inside this call with batch
+        // info so the UI can render "batch i/N · step k" labels without
+        // each emit site having to know about chunking.
+        if (
+            input.batchIndex &&
+            input.batchTotal &&
+            input.batchTotal > 1 &&
+            input.onAgentProgress
+        ) {
+            const inner = input.onAgentProgress;
+            const enrichedInput = {
+                ...input,
+                onAgentProgress: (event: AgentProgressEvent) =>
+                    inner({
+                        ...event,
+                        batchIndex: event.batchIndex ?? input.batchIndex,
+                        batchTotal: event.batchTotal ?? input.batchTotal,
+                    }),
+            };
+            input = enrichedInput;
+        }
 
         this.agentLogger.log({
             message: `[AGENT] Starting ${identity.name} for PR#${input.prNumber}`,
@@ -361,6 +406,12 @@ export abstract class BaseCodeReviewAgentProvider {
                 remoteCommands: input.remoteCommands,
                 byokConfig,
                 gitHubToken: input.gitHubToken,
+                documentationSearchService: this.documentationSearchService,
+                documentationSearchOptions: {
+                    organizationAndTeamData: input.organizationAndTeamData,
+                    prNumber: input.prNumber,
+                    byokConfig,
+                },
             };
 
             const loopParams = {
@@ -748,10 +799,14 @@ export abstract class BaseCodeReviewAgentProvider {
         const allDiscardedByVerify: Partial<CodeSuggestion>[] = [];
         let totalTurns = 0;
 
-        for (let i = 0; i < chunks.length; i++) {
+        const batchTotal = chunks.length;
+
+        for (let i = 0; i < batchTotal; i++) {
             const batchFiles = chunks[i];
             const batchFileSet = new Set(batchFiles.map(f => f.filename));
-            const batchLabel = `${identity.name} batch ${i + 1}/${chunks.length}`;
+            const batchIndex = i + 1;
+            const batchLabel = `${identity.name} batch ${batchIndex}/${batchTotal}`;
+            const batchStartedAt = Date.now();
 
             this.agentLogger.log({
                 message: `[AGENT] ${batchLabel} starting: ${batchFiles.length} files`,
@@ -759,11 +814,29 @@ export abstract class BaseCodeReviewAgentProvider {
                 metadata: { files: batchFiles.map(f => f.filename) },
             });
 
+            // Surface batch boundaries in the PR logs UI so users can see
+            // the review is chunked (otherwise the per-step counter appears
+            // to "reset" between batches with no explanation).
+            input.onAgentProgress?.({
+                agentName: identity.name,
+                agentCategory,
+                agentReplicaIndex: input.agentReplicaIndex,
+                agentReplicaTotal: input.agentReplicaTotal,
+                status: 'batch_started',
+                batchIndex,
+                batchTotal,
+                batchFiles: batchFiles.length,
+            });
+
             try {
                 const batchInput: ReviewAgentInput = {
                     ...input,
                     changedFiles: batchFiles,
                     agentRuntimeName: batchLabel,
+                    // Forward batch info so per-step events emitted inside
+                    // execute() can include it in their labels.
+                    batchIndex,
+                    batchTotal,
                 };
 
                 const batchResult = await this.execute(batchInput);
@@ -781,11 +854,36 @@ export abstract class BaseCodeReviewAgentProvider {
                     message: `[AGENT] ${batchLabel} completed: ${batchResult.suggestions.length} findings`,
                     context: identity.name,
                 });
+
+                input.onAgentProgress?.({
+                    agentName: identity.name,
+                    agentCategory,
+                    agentReplicaIndex: input.agentReplicaIndex,
+                    agentReplicaTotal: input.agentReplicaTotal,
+                    status: 'batch_completed',
+                    batchIndex,
+                    batchTotal,
+                    batchFiles: batchFiles.length,
+                    findings: batchResult.suggestions.length,
+                    durationMs: Date.now() - batchStartedAt,
+                });
             } catch (error) {
                 this.agentLogger.error({
                     message: `[AGENT] ${batchLabel} failed: ${error instanceof Error ? error.message : String(error)}`,
                     context: identity.name,
                     error,
+                });
+
+                input.onAgentProgress?.({
+                    agentName: identity.name,
+                    agentCategory,
+                    agentReplicaIndex: input.agentReplicaIndex,
+                    agentReplicaTotal: input.agentReplicaTotal,
+                    status: 'error',
+                    batchIndex,
+                    batchTotal,
+                    batchFiles: batchFiles.length,
+                    durationMs: Date.now() - batchStartedAt,
                 });
             }
         }

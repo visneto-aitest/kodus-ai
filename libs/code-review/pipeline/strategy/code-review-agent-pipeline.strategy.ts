@@ -17,18 +17,14 @@ import {
     ILoadExternalContextStage,
     LOAD_EXTERNAL_CONTEXT_STAGE_TOKEN,
 } from '../stages/contracts/loadExternalContextStage.contract';
-import { FileContextGateStage } from '../stages/file-context-gate.stage';
 import { InitialCommentStage } from '../stages/initial-comment.stage';
-import { ProcessFilesPrLevelReviewStage } from '../stages/process-files-pr-level-review.stage';
+import { BusinessLogicValidationStage } from '../stages/business-logic-validation.stage';
 import { CreatePrLevelCommentsStage } from '../stages/create-pr-level-comments.stage';
 import { ValidateSuggestionsStage } from '../stages/validate-suggestions.stage';
 import { CreateFileCommentsStage } from '../stages/create-file-comments.stage';
 import { AggregateResultsStage } from '../stages/aggregate-result.stage';
 import { UpdateCommentsAndGenerateSummaryStage } from '../stages/finish-comments.stage';
 import { RequestChangesOrApproveStage } from '../stages/finish-process-review.stage';
-
-// EE stages
-import { KodyFineTuningStage } from '@libs/ee/codeReview/stages/kody-fine-tuning.stage';
 
 // Agent-specific stages
 import { CreateSandboxStage } from '../stages/create-sandbox.stage';
@@ -44,10 +40,8 @@ export class CodeReviewAgentPipelineStrategy implements IPipelineStrategy<CodeRe
         private readonly fetchChangedFilesStage: FetchChangedFilesStage,
         @Inject(LOAD_EXTERNAL_CONTEXT_STAGE_TOKEN)
         private readonly loadExternalContextStage: ILoadExternalContextStage,
-        private readonly fileContextGateStage: FileContextGateStage,
         private readonly initialCommentStage: InitialCommentStage,
-        private readonly kodyFineTuningStage: KodyFineTuningStage,
-        private readonly processFilesPrLevelReviewStage: ProcessFilesPrLevelReviewStage,
+        private readonly businessLogicValidationStage: BusinessLogicValidationStage,
         private readonly createSandboxStage: CreateSandboxStage,
         private readonly agentReviewStage: AgentReviewStage,
         private readonly createPrLevelCommentsStage: CreatePrLevelCommentsStage,
@@ -63,6 +57,17 @@ export class CodeReviewAgentPipelineStrategy implements IPipelineStrategy<CodeRe
     }
 
     configureStages(): PipelineStage<CodeReviewPipelineContext>[] {
+        // Removed from this strategy (still used by EE strategy):
+        //   - FileContextGateStage: produced augmentationsByFile (MCP outputs).
+        //     Kody Rules no longer use MCP in the agent engine, and no other
+        //     stage in this pipeline reads that field.
+        //   - KodyFineTuningStage: produced clusterizedSuggestions, only
+        //     consumed by the EE-only ProcessFilesReviewStage.
+        //   - ProcessFilesPrLevelReviewStage: in the agent engine its kody-rules
+        //     and cross-file paths were already short-circuited; the only real
+        //     work was business-logic validation, now lifted into its own
+        //     BusinessLogicValidationStage with rich SUCCESS/SKIPPED/ERROR
+        //     status reporting in the PR logs UI.
         return [
             this.validatePrerequisitesStage,
             this.validateNewCommitsStage,
@@ -70,10 +75,8 @@ export class CodeReviewAgentPipelineStrategy implements IPipelineStrategy<CodeRe
             this.validateConfigStage,
             this.fetchChangedFilesStage,
             this.loadExternalContextStage,
-            this.fileContextGateStage,
             this.initialCommentStage,
-            this.kodyFineTuningStage,
-            this.processFilesPrLevelReviewStage,
+            this.businessLogicValidationStage,
             this.createSandboxStage,
             this.agentReviewStage,
             this.createPrLevelCommentsStage,

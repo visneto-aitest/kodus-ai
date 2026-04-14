@@ -243,6 +243,25 @@ export class CodeReviewPipelineObserver implements IPipelineObserver {
 
         let label = options?.label;
 
+        // BusinessLogicValidationStage reports its outcome via context.businessLogicOutcome
+        // (it cannot use statusInfo without aborting the whole pipeline). Map it to the
+        // per-stage log status here so the UI shows the correct badge.
+        if (
+            stageName === 'BusinessLogicValidationStage' &&
+            context.businessLogicOutcome
+        ) {
+            const outcome = context.businessLogicOutcome;
+            if (outcome.kind === 'skipped') {
+                status = AutomationStatus.SKIPPED;
+            } else if (outcome.kind === 'error') {
+                status = AutomationStatus.ERROR;
+            } else {
+                status = AutomationStatus.SUCCESS;
+            }
+            additionalMetadata = additionalMetadata || {};
+            additionalMetadata.businessLogicOutcome = outcome;
+        }
+
         if (stageName === 'FileAnalysisStage') {
             const totalFiles = context.changedFiles?.length || 0;
             const errorCount = errors.length;
@@ -285,6 +304,16 @@ export class CodeReviewPipelineObserver implements IPipelineObserver {
             const remaining = uniqueMessages.length - displayMessages.length;
 
             message = `${displayMessages.join('\n')}${remaining > 0 ? `\n(+${remaining} more)` : ''}`;
+        }
+
+        // Surface the BusinessLogicValidationStage outcome message so the
+        // PR logs UI shows WHY (skipped reason, gap detected, alignment ok).
+        if (
+            !message &&
+            stageName === 'BusinessLogicValidationStage' &&
+            context.businessLogicOutcome?.message
+        ) {
+            message = context.businessLogicOutcome.message;
         }
 
         await this.logStage(stageName, status, message, context, {

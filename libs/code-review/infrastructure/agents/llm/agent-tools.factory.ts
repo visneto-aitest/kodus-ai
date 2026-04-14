@@ -7,6 +7,35 @@ export const MAX_READ_LENGTH = 8_000;
 export const MAX_LIST_LENGTH = 4_000;
 export const MAX_SHELL_OUTPUT = 10_000;
 
+/** Cap on docs returned per searchDocs call to keep tool output bounded. */
+const MAX_DOCS_OUTPUT_LENGTH = 6_000;
+
+/**
+ * Minimal interface for the documentation search capability.
+ * Avoids importing DocumentationSearchExaService directly so the factory
+ * does not pull exa-js into call sites that don't need it.
+ */
+export interface DocumentationSearchAdapter {
+    searchByFilePlan(
+        planByFile: Record<
+            string,
+            { queryTasks: Array<{ packageName: string; query: string }> }
+        >,
+        options?: Record<string, unknown>,
+    ): Promise<
+        Record<
+            string,
+            Array<{
+                query: string;
+                title: string;
+                url: string;
+                snippet: string;
+                source: string;
+            }>
+        >
+    >;
+}
+
 /**
  * Create a tool definition compatible with all AI SDK providers (including Anthropic).
  *
@@ -98,6 +127,8 @@ export function buildAgentTools(
     remoteCommands: RemoteCommands | undefined,
     gitHubToken?: string,
     repositoryFullName?: string,
+    documentationSearchService?: DocumentationSearchAdapter,
+    documentationSearchOptions?: Record<string, unknown>,
 ): Record<string, any> {
     if (!remoteCommands) {
         return {};
@@ -923,6 +954,77 @@ fi
     //         );
     //     }
     // }
+
+    // ── External documentation lookup (Exa) ─────────────────────────
+    if (documentationSearchService) {
+        tools.searchDocs = mkTool(
+            'VERIFY tool: search EXTERNAL package/library documentation when a finding hinges on framework behavior you cannot verify with grep/readFile (e.g. TypeORM subQuery semantics, React Suspense boundaries, Express middleware ordering). ' +
+                'Returns official documentation snippets. ' +
+                'Use ONLY when:\n' +
+                '  - the suspected bug is about how a third-party API behaves\n' +
+                '  - you already grepped/read the local code and the answer requires the library spec\n' +
+                'Do NOT use for: project-internal code (use grep), generic concepts (use your training), or cosmetic checks. ' +
+                'Each call counts against an external rate limit — be deliberate.',
+            {
+                type: 'object',
+                properties: {
+                    packageName: {
+                        type: 'string',
+                        description:
+                            'Package/library name as published (e.g. "express", "react", "@nestjs/common", "typeorm")',
+                    },
+                    query: {
+                        type: 'string',
+                        description:
+                            'Specific question about the library API (e.g. "subQuery returns only first row in left join", "useEffect cleanup on unmount", "middleware error handling order")',
+                    },
+                },
+                required: ['packageName', 'query'],
+            },
+            async (args: any) => {
+                const packageName = (args?.packageName || '').toString().trim();
+                const query = (args?.query || '').toString().trim();
+                if (!packageName || !query) {
+                    return 'Error: both packageName and query are required.';
+                }
+
+                try {
+                    const planByFile = {
+                        agent: { queryTasks: [{ packageName, query }] },
+                    };
+                    const results =
+                        await documentationSearchService.searchByFilePlan(
+                            planByFile,
+                            documentationSearchOptions,
+                        );
+
+                    const docs = results['agent'] || [];
+                    if (docs.length === 0) {
+                        return `No documentation found for "${packageName}" with query "${query}".`;
+                    }
+
+                    const formatted = docs
+                        .map(
+                            (doc) =>
+                                `### ${doc.title}\n**URL:** ${doc.url}\n**Query:** ${doc.query}\n\n${doc.snippet}`,
+                        )
+                        .join('\n\n---\n\n');
+
+                    if (formatted.length > MAX_DOCS_OUTPUT_LENGTH) {
+                        return (
+                            formatted.substring(0, MAX_DOCS_OUTPUT_LENGTH) +
+                            `\n... (truncated — ${formatted.length} chars total across ${docs.length} doc(s))`
+                        );
+                    }
+                    return formatted;
+                } catch (err) {
+                    return `Documentation search error: ${
+                        err instanceof Error ? err.message : String(err)
+                    }`;
+                }
+            },
+        );
+    }
 
     return tools;
 }

@@ -1240,11 +1240,23 @@ ${summaries}`,
             ? `in ${Math.round(event.durationMs / 1000)}s`
             : '';
 
+        // Batch suffix appears whenever the parent agent split the PR into
+        // multiple token-budget batches, so the timeline shows e.g.
+        // "Generalist Agent — batch 2/3 · step 5, 3 tool calls".
+        const batchSuffix =
+            event.batchTotal && event.batchTotal > 1 && event.batchIndex
+                ? ` — batch ${event.batchIndex}/${event.batchTotal}`
+                : '';
+
         switch (event.status) {
             case 'started':
                 return `${icon} Agent${replicaSuffix} — investigating...`;
+            case 'batch_started':
+                return `${icon} Agent${replicaSuffix}${batchSuffix} — starting (${event.batchFiles ?? 0} files)`;
+            case 'batch_completed':
+                return `${icon} Agent${replicaSuffix}${batchSuffix} — ${event.findings ?? 0} findings ${duration}`;
             case 'investigating':
-                return `${icon} Agent${replicaSuffix} — step ${event.step}, ${event.toolCalls?.length ?? 0} tool calls`;
+                return `${icon} Agent${replicaSuffix}${batchSuffix} — step ${event.step}, ${event.toolCalls?.length ?? 0} tool calls`;
             case 'completed': {
                 const suffix =
                     event.source === 'second-chance'
@@ -1256,12 +1268,12 @@ ${summaries}`,
             }
             case 'error': {
                 if (event.finishReason === 'timeout') {
-                    return `${icon} Agent${replicaSuffix} — timed out after ${duration} (${event.step ?? 0} steps)`;
+                    return `${icon} Agent${replicaSuffix}${batchSuffix} — timed out after ${duration} (${event.step ?? 0} steps)`;
                 }
                 if (event.finishReason === 'max-steps') {
-                    return `${icon} Agent${replicaSuffix} — hit step limit (${event.step ?? 0} steps, no findings)`;
+                    return `${icon} Agent${replicaSuffix}${batchSuffix} — hit step limit (${event.step ?? 0} steps, no findings)`;
                 }
-                return `${icon} Agent${replicaSuffix} — failed ${duration}`;
+                return `${icon} Agent${replicaSuffix}${batchSuffix} — failed ${duration}`;
             }
             default:
                 return `${icon} Agent${replicaSuffix}`;

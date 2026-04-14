@@ -17,6 +17,7 @@ import { BYOKPromptRunnerService } from '@libs/core/infrastructure/services/toke
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Exa from 'exa-js';
+import pLimit from 'p-limit';
 import {
     prompt_code_review_documentation_formatter_system,
     prompt_code_review_documentation_formatter_user,
@@ -35,6 +36,22 @@ type ResultLike = {
     url?: string;
     text?: string;
 };
+
+/**
+ * Concurrency cap for outbound Exa API calls.
+ *
+ * Exa free tier: 10 requests/second. Cap at 5 concurrent in-flight calls
+ * leaves headroom for:
+ *   - typical Exa latency (1-3s) → effective ~2-5 RPS, well below the limit
+ *   - SDK-level retries on transient failures
+ *   - parallel pipelines in the same worker process
+ *
+ * Module-level singleton so it is shared across all PRs running in the
+ * same Node process. Multi-worker setups still need a distributed limiter
+ * (e.g. Redis token bucket) to coordinate across processes.
+ */
+const EXA_CONCURRENCY = 5;
+const exaCallLimiter = pLimit(EXA_CONCURRENCY);
 
 @Injectable()
 export class DocumentationSearchExaService {
@@ -198,10 +215,12 @@ export class DocumentationSearchExaService {
                 task.query,
             );
 
-            const response = await this.exaClient.search(packageScopedQuery, {
-                category: 'company',
-                type: 'auto',
-            });
+            const response = await exaCallLimiter(() =>
+                this.exaClient!.search(packageScopedQuery, {
+                    category: 'company',
+                    type: 'auto',
+                }),
+            );
 
             const formattedSnippet = await this.formatDocumentationForPrompt({
                 packageName: task.packageName,

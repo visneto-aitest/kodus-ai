@@ -134,6 +134,18 @@ export interface CodeReviewPipelineContext extends PipelineContext {
     businessLogicResults?: ISuggestionByPR[];
 
     /**
+     * Per-stage outcome reported by BusinessLogicValidationStage (agent engine)
+     * for UI/observer display. Distinct from the pipeline-wide statusInfo —
+     * setting statusInfo.status = SKIPPED would abort the whole pipeline,
+     * which is NOT what we want when only this validation is skipped.
+     */
+    businessLogicOutcome?: {
+        kind: 'success' | 'gap_found' | 'skipped' | 'error';
+        message: string;
+        reason?: string;
+    };
+
+    /**
      * SHA-256 hash of the PR body at the time of the last successful business logic
      * validation. Written by ProcessFilesPrLevelReviewStage and persisted to
      * dataExecution.businessLogicHash to enable dedup on subsequent runs.

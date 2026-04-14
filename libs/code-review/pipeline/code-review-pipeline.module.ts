@@ -14,6 +14,7 @@ import { GatherDocumentationContextStage } from './stages/gather-documentation-c
 import { InitialCommentStage } from './stages/initial-comment.stage';
 import { LoadExternalContextStage } from './stages/load-external-context.stage';
 import { ProcessFilesPrLevelReviewStage } from './stages/process-files-pr-level-review.stage';
+import { BusinessLogicValidationStage } from './stages/business-logic-validation.stage';
 import { ProcessFilesReview } from './stages/process-files-review.stage';
 import { ResolveConfigStage } from './stages/resolve-config.stage';
 import { ValidateConfigStage } from './stages/validate-config.stage';
@@ -123,6 +124,7 @@ import { ReviewOrchestratorService } from '../infrastructure/agents/review-orche
         InitialCommentStage,
         CollectCrossFileContextStage,
         ProcessFilesPrLevelReviewStage,
+        BusinessLogicValidationStage,
         ProcessFilesReview,
         SandboxSyntaxValidator,
         GraphContentFormatter,
@@ -175,6 +177,7 @@ import { ReviewOrchestratorService } from '../infrastructure/agents/review-orche
         CreatePrLevelCommentsStage,
         UpdateCommentsAndGenerateSummaryStage,
         ProcessFilesPrLevelReviewStage,
+        BusinessLogicValidationStage,
         ProcessFilesReview,
         ResolveConfigStage,
         ValidateConfigStage,
