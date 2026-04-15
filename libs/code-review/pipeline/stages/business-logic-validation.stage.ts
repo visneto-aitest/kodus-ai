@@ -31,6 +31,7 @@ export class BusinessLogicValidationStage extends BasePipelineStage<CodeReviewPi
     readonly stageName = 'BusinessLogicValidationStage';
     readonly label = 'Validating Business Logic';
     readonly visibility = StageVisibility.PRIMARY;
+    readonly errorSeverity = 'partial' as const;
 
     private static readonly REQUIREMENT_KEYWORDS = [
         'requirement',

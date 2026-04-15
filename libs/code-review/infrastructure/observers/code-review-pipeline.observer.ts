@@ -71,10 +71,23 @@ export class CodeReviewPipelineObserver implements IPipelineObserver {
                 CheckStageNames._pipelineEndSkipped,
                 reason,
             );
-        } else if (
+            return;
+        }
+
+        // Classify collected errors by severity. Errors with severity === 'partial'
+        // come from stages that declared `errorSeverity = 'partial'` (business
+        // logic, PR-level comments, summary, verify, kody-rules agent) and
+        // should degrade the review to PARTIAL_ERROR / neutral rather than
+        // red-flagging the whole run.
+        const errors = context.errors || [];
+        const hasCriticalError =
             context.statusInfo.status === AutomationStatus.ERROR ||
-            (context.errors && context.errors.length > 0)
-        ) {
+            errors.some((e) => (e.severity ?? 'critical') === 'critical');
+        const hasPartialError =
+            context.statusInfo.status === AutomationStatus.PARTIAL_ERROR ||
+            errors.some((e) => e.severity === 'partial');
+
+        if (hasCriticalError) {
             const failureReason = this.buildPipelineFailureReason(context);
             await this.pipelineChecksService.finalizeCheck(
                 observerContext,
@@ -83,14 +96,27 @@ export class CodeReviewPipelineObserver implements IPipelineObserver {
                 CheckStageNames._pipelineEndFailure,
                 failureReason,
             );
-        } else {
+            return;
+        }
+
+        if (hasPartialError) {
+            const partialReason = this.buildPipelineFailureReason(context);
             await this.pipelineChecksService.finalizeCheck(
                 observerContext,
                 context,
-                CheckConclusion.SUCCESS,
-                CheckStageNames._pipelineEndSuccess,
+                CheckConclusion.NEUTRAL,
+                CheckStageNames._pipelineEndPartial,
+                partialReason,
             );
+            return;
         }
+
+        await this.pipelineChecksService.finalizeCheck(
+            observerContext,
+            context,
+            CheckConclusion.SUCCESS,
+            CheckStageNames._pipelineEndSuccess,
+        );
     }
 
     private buildPipelineFailureReason(

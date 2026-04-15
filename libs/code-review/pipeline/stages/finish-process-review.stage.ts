@@ -14,6 +14,7 @@ export class RequestChangesOrApproveStage extends BasePipelineStage<CodeReviewPi
     readonly stageName = 'RequestChangesOrApproveStage';
     readonly label = 'Finalizing Review';
     readonly visibility = StageVisibility.PRIMARY;
+    readonly errorSeverity = 'partial' as const;
 
     private readonly logger = createLogger(RequestChangesOrApproveStage.name);
 

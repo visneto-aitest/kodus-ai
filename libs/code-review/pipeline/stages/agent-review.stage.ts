@@ -432,6 +432,39 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                 },
             });
 
+            // Classify agent failures so the pipeline's final conclusion
+            // reflects them. Core agents (bug / security / performance /
+            // generalist) are the primary output — losing one of them is a
+            // critical error and should red-flag the check. Kody-rules is
+            // auxiliary: the review still has value from the core agents,
+            // so its failure is partial (maps to NEUTRAL on GitHub).
+            const CRITICAL_AGENTS = new Set([
+                'generalist',
+                'bug',
+                'security',
+                'performance',
+            ]);
+            for (const failure of result.failures || []) {
+                const severity = CRITICAL_AGENTS.has(failure.agentName)
+                    ? 'critical'
+                    : 'partial';
+                context = this.updateContext(context, (draft) => {
+                    draft.errors.push({
+                        pipelineId:
+                            context.pipelineMetadata?.pipelineId,
+                        stage: this.stageName,
+                        substage: `agent:${failure.agentName}`,
+                        error: failure.error,
+                        severity,
+                        metadata: {
+                            agentName: failure.agentName,
+                            category: failure.category,
+                            prNumber,
+                        },
+                    });
+                });
+            }
+
             // Collect suggestions discarded by severity filter and verify
             const allDiscarded: Partial<CodeSuggestion>[] = [];
             for (const agentResult of result.agentResults) {
