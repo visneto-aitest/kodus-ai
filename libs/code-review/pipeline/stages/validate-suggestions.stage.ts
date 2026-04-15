@@ -25,6 +25,7 @@ import { SuggestionLLMValidator } from '@libs/code-review/infrastructure/adapter
 @Injectable()
 export class ValidateSuggestionsStage extends BasePipelineStage<CodeReviewPipelineContext> {
     readonly stageName: string = 'ValidateSuggestionsStage';
+    readonly errorSeverity = 'partial' as const;
     private readonly logger = createLogger(ValidateSuggestionsStage.name);
 
     private readonly CONCURRENCY_LIMIT = 10;

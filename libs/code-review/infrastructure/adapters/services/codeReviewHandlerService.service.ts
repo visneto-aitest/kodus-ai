@@ -125,11 +125,62 @@ export class CodeReviewHandlerService {
                 this.pipelineFactory.getPipeline('CodeReviewPipeline');
             const result = await pipeline.execute(initialContext);
 
-            // Handle reactions based on result status
-            await this.handleReactionsByStatus(initialContext, result);
+            // Classify the final status BEFORE reactions/logs so the right
+            // emoji (hooray vs confused) and the persisted automation status
+            // reflect reality. Errors with `severity === 'partial'` come from
+            // auxiliary stages (business-logic validation, PR-level comments,
+            // summary) or the kody-rules agent — they degrade the run but do
+            // not kill it. Critical errors (default) flip the whole execution
+            // to ERROR. Previously, a pipeline that finished in IN_PROGRESS
+            // with agent failures was silently relabeled as SUCCESS here.
+            const collectedErrors = result.errors || [];
+            const hasCriticalError = collectedErrors.some(
+                (e) => (e.severity ?? 'critical') === 'critical',
+            );
+            const hasPartialError = collectedErrors.some(
+                (e) => e.severity === 'partial',
+            );
+
+            // `result.statusInfo` is frozen by immer — build a new object and
+            // produce a shallow-cloned result that the rest of the function
+            // (handleReactionsByStatus, logs, return value) can read.
+            let classifiedStatus = result.statusInfo;
+            if (classifiedStatus.status === AutomationStatus.IN_PROGRESS) {
+                if (hasCriticalError) {
+                    classifiedStatus = {
+                        ...classifiedStatus,
+                        status: AutomationStatus.ERROR,
+                        message:
+                            classifiedStatus.message ||
+                            'Code review failed: one or more critical stages did not complete.',
+                    };
+                } else if (hasPartialError) {
+                    classifiedStatus = {
+                        ...classifiedStatus,
+                        status: AutomationStatus.PARTIAL_ERROR,
+                        message:
+                            classifiedStatus.message ||
+                            'Code review completed with warnings: one or more auxiliary stages failed.',
+                    };
+                } else {
+                    classifiedStatus = {
+                        ...classifiedStatus,
+                        status: AutomationStatus.SUCCESS,
+                        message: 'Code review completed successfully',
+                    };
+                }
+            }
+
+            const classifiedResult: CodeReviewPipelineContext = {
+                ...result,
+                statusInfo: classifiedStatus,
+            };
+
+            // Handle reactions based on classified result status
+            await this.handleReactionsByStatus(initialContext, classifiedResult);
 
             this.logger.log({
-                message: `Code review pipeline completed successfully for PR#${pullRequest.number}`,
+                message: `Code review pipeline completed for PR#${pullRequest.number} with status=${classifiedStatus.status}`,
                 context: CodeReviewHandlerService.name,
                 serviceName: CodeReviewHandlerService.name,
                 metadata: {
@@ -137,16 +188,13 @@ export class CodeReviewHandlerService {
                     organizationAndTeamData,
                     pullRequestNumber: pullRequest.number,
                     executionId,
+                    finalStatus: classifiedStatus.status,
+                    criticalErrors: hasCriticalError,
+                    partialErrors: hasPartialError,
                 },
             });
 
-            const finalStatus =
-                result.statusInfo.status === AutomationStatus.IN_PROGRESS
-                    ? {
-                          status: AutomationStatus.SUCCESS,
-                          message: 'Code review completed successfully',
-                      }
-                    : result.statusInfo;
+            const finalStatus = classifiedStatus;
 
             return {
                 lastAnalyzedCommit: result?.lastAnalyzedCommit,
@@ -237,8 +285,14 @@ export class CodeReviewHandlerService {
             return;
         }
 
+        // PARTIAL_ERROR reviews still produced PR comments and summaries —
+        // signal it as a completed review (hooray) so the UI does not treat
+        // the reaction as a hard failure. The check run downgrades to NEUTRAL
+        // separately via the pipeline observer, which keeps the warning
+        // visible where it matters (check status, not PR reactions).
         if (
             status === AutomationStatus.SUCCESS ||
+            status === AutomationStatus.PARTIAL_ERROR ||
             status === AutomationStatus.IN_PROGRESS
         ) {
             await this.removeCurrentReaction(context);

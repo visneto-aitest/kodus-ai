@@ -21,9 +21,17 @@ export interface OrchestratorInput extends ReviewAgentInput {
     kodyRules?: Partial<IKodyRule>[];
 }
 
+export interface OrchestratorAgentFailure {
+    agentName: string;
+    category: string;
+    error: Error;
+    durationMs: number;
+}
+
 export interface OrchestratorOutput {
     suggestions: Partial<CodeSuggestion>[];
     agentResults: ReviewAgentOutput[];
+    failures: OrchestratorAgentFailure[];
     totalDurationMs: number;
 }
 
@@ -132,6 +140,7 @@ export class ReviewOrchestratorService {
             return {
                 suggestions: [],
                 agentResults: [],
+                failures: [],
                 totalDurationMs: Date.now() - startTime,
             };
         }
@@ -156,6 +165,7 @@ export class ReviewOrchestratorService {
         };
 
         const runAgent = async (task: (typeof agentTasks)[0]) => {
+            const agentStart = Date.now();
             try {
                 return await task.provider.execute({
                     ...agentInputWithoutContent,
@@ -172,6 +182,7 @@ export class ReviewOrchestratorService {
                     metadata: {
                         agent: task.name,
                         prNumber: agentInput.prNumber,
+                        durationMs: Date.now() - agentStart,
                     },
                 });
                 throw error;
@@ -182,9 +193,13 @@ export class ReviewOrchestratorService {
             agentTasks.map((task) => runAgent(task)),
         );
 
-        // Collect successful results
+        // Collect successful results AND failures. Before this change, rejected
+        // agents were only logged — callers had no way to tell whether the
+        // review ran end-to-end or silently lost an agent. Returning failures
+        // lets AgentReviewStage decide critical vs partial downstream.
         const agentResults: ReviewAgentOutput[] = [];
         const allSuggestions: Partial<CodeSuggestion>[] = [];
+        const failures: OrchestratorAgentFailure[] = [];
 
         for (let i = 0; i < results.length; i++) {
             const result = results[i];
@@ -198,10 +213,20 @@ export class ReviewOrchestratorService {
                     context: ReviewOrchestratorService.name,
                 });
             } else {
+                const err =
+                    result.reason instanceof Error
+                        ? result.reason
+                        : new Error(String(result.reason));
+                failures.push({
+                    agentName,
+                    category: agentName,
+                    error: err,
+                    durationMs: 0,
+                });
                 this.logger.error({
-                    message: `[AGENT] ${agentName} failed: ${result.reason?.message || 'Unknown error'}`,
+                    message: `[AGENT] ${agentName} failed: ${err.message || 'Unknown error'}`,
                     context: ReviewOrchestratorService.name,
-                    error: result.reason,
+                    error: err,
                 });
             }
         }
@@ -213,18 +238,21 @@ export class ReviewOrchestratorService {
         const totalDurationMs = Date.now() - startTime;
 
         this.logger.log({
-            message: `[AGENT] Orchestrator completed for PR#${agentInput.prNumber}: ${allSuggestions.length} suggestions in ${totalDurationMs}ms`,
+            message: `[AGENT] Orchestrator completed for PR#${agentInput.prNumber}: ${allSuggestions.length} suggestions, ${failures.length} failures in ${totalDurationMs}ms`,
             context: ReviewOrchestratorService.name,
             metadata: {
                 prNumber: agentInput.prNumber,
                 totalSuggestions: allSuggestions.length,
                 totalDurationMs,
+                failureCount: failures.length,
+                failedAgents: failures.map((f) => f.agentName),
             },
         });
 
         return {
             suggestions: allSuggestions,
             agentResults,
+            failures,
             totalDurationMs,
         };
     }
