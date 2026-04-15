@@ -34,8 +34,6 @@ import {
 } from "@components/ui/popover";
 import {
     RichTextEditorWithMentions,
-    type MentionGroup,
-    type MentionGroupItem,
     type RichTextEditorWithMentionsRef,
 } from "@components/ui/rich-text-editor-with-mentions";
 import { Separator } from "@components/ui/separator";
@@ -64,7 +62,6 @@ import {
 } from "@services/kodyRules/types";
 import { isCentralizedPrResponse } from "@services/parameters/types";
 import {
-    AtSign,
     CheckIcon,
     ChevronDown,
     Code2,
@@ -81,7 +78,6 @@ import {
     XIcon,
 } from "lucide-react";
 import { Controller, useForm } from "react-hook-form";
-import { useMCPMentions } from "src/core/hooks/use-mcp-mentions";
 import { useSelectedTeamId } from "src/core/providers/selected-team-context";
 import { cn } from "src/core/utils/components";
 
@@ -335,129 +331,6 @@ function RuleSuggestions({
     );
 }
 
-function MCPToolsPopover({
-    mcpGroups,
-    disabled,
-    onInsertMention,
-}: {
-    mcpGroups: MentionGroup[];
-    disabled?: boolean;
-    onInsertMention: (app: string, tool: string) => void;
-}) {
-    const [selectedApp, setSelectedApp] =
-        React.useState<MentionGroupItem | null>(null);
-    const [tools, setTools] = React.useState<MentionGroup[] | null>(null);
-    const [isOpen, setIsOpen] = React.useState(false);
-
-    const apps = mcpGroups[0]?.items ?? [];
-
-    const handleSelectApp = async (app: MentionGroupItem) => {
-        if (app.children) {
-            const childGroups = await app.children();
-            setTools(childGroups);
-            setSelectedApp(app);
-        }
-    };
-
-    const handleBack = () => {
-        setSelectedApp(null);
-        setTools(null);
-    };
-
-    const handleInsertTool = (tool: MentionGroupItem) => {
-        const rawApp = String(tool.meta?.appName ?? "");
-        const app = rawApp
-            .toLowerCase()
-            .replace(/\bmcp\b/g, "")
-            .replace(/[^a-z0-9]+/g, "_")
-            .replace(/^_+|_+$/g, "");
-        const toolName = String(tool.label).toLowerCase();
-
-        onInsertMention(app, toolName);
-        setIsOpen(false);
-        setSelectedApp(null);
-        setTools(null);
-    };
-
-    return (
-        <Popover
-            open={isOpen}
-            onOpenChange={(open) => {
-                setIsOpen(open);
-                if (!open) {
-                    setSelectedApp(null);
-                    setTools(null);
-                }
-            }}>
-            <PopoverTrigger asChild>
-                <Button
-                    size="xs"
-                    variant="cancel"
-                    type="button"
-                    disabled={disabled}
-                    className="h-7 gap-1"
-                    rightIcon={<ChevronDown className="size-3" />}
-                    leftIcon={<AtSign className="size-3" />}>
-                    MCP
-                </Button>
-            </PopoverTrigger>
-            <PopoverContent
-                align="end"
-                className="flex max-h-80 w-80 flex-col p-0">
-                <div className="border-card-lv3 flex shrink-0 items-center gap-2 border-b p-3">
-                    {selectedApp && (
-                        <button
-                            type="button"
-                            onClick={handleBack}
-                            className="text-text-secondary hover:text-text-primary text-xs transition-colors">
-                            ← Back
-                        </button>
-                    )}
-                    <span className="text-text-primary truncate text-xs font-medium">
-                        {selectedApp ? selectedApp.label : "Select MCP"}
-                    </span>
-                </div>
-                <div
-                    className="min-h-0 flex-1 overflow-y-auto p-2"
-                    onWheel={(e) => e.stopPropagation()}>
-                    {!selectedApp ? (
-                        <div className="flex flex-col gap-1">
-                            {apps.map((app) => (
-                                <button
-                                    key={app.value}
-                                    type="button"
-                                    className="hover:bg-card-lv3 flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition-colors"
-                                    onClick={() => handleSelectApp(app)}>
-                                    <span>{app.label}</span>
-                                    <ChevronDown className="text-text-secondary size-4 -rotate-90" />
-                                </button>
-                            ))}
-                            {apps.length === 0 && (
-                                <p className="text-text-secondary py-4 text-center text-xs">
-                                    No MCP connections available
-                                </p>
-                            )}
-                        </div>
-                    ) : (
-                        <div className="flex flex-wrap gap-1.5">
-                            {tools?.flatMap((group) =>
-                                group.items.map((tool) => (
-                                    <button
-                                        key={tool.value}
-                                        type="button"
-                                        className="bg-tertiary-dark text-tertiary-light rounded px-2 py-1 font-mono text-xs transition-all hover:brightness-125"
-                                        onClick={() => handleInsertTool(tool)}>
-                                        {tool.label}
-                                    </button>
-                                )),
-                            )}
-                        </div>
-                    )}
-                </div>
-            </PopoverContent>
-        </Popover>
-    );
-}
 
 export const KodyRuleAddOrUpdateItemModal = ({
     repositoryId,
@@ -490,8 +363,6 @@ export const KodyRuleAddOrUpdateItemModal = ({
 
     const [isInheritanceDisabled, setIsInheritanceDisabled] =
         useState(isExcluded);
-
-    const { mcpGroups, formatInsertByType } = useMCPMentions();
 
     const editorRef = React.useRef<RichTextEditorWithMentionsRef>(null);
 
@@ -1284,99 +1155,72 @@ export const KodyRuleAddOrUpdateItemModal = ({
                                                 INSTRUCTIONS_PLACEHOLDER
                                             }
                                             saveFormat="text"
-                                            groups={mcpGroups}
-                                            formatInsertByType={
-                                                formatInsertByType
-                                            }
+                                            groups={[]}
                                             className="min-h-32"
                                             toolbarExtraActions={
-                                                <>
-                                                    {!isMemory && (
-                                                        <Popover>
-                                                            <PopoverTrigger
-                                                                asChild>
-                                                                <Button
-                                                                    size="xs"
-                                                                    variant="cancel"
-                                                                    type="button"
-                                                                    disabled={
-                                                                        field.disabled
-                                                                    }
-                                                                    className="h-7 gap-1"
-                                                                    rightIcon={
-                                                                        <ChevronDown className="size-3" />
-                                                                    }
-                                                                    leftIcon={
-                                                                        <Code2 className="size-3" />
-                                                                    }>
-                                                                    Variables
-                                                                </Button>
-                                                            </PopoverTrigger>
-                                                            <PopoverContent
-                                                                align="end"
-                                                                className="w-72 p-3">
-                                                                <div className="flex flex-col gap-3">
-                                                                    <span className="text-text-primary text-xs font-medium">
-                                                                        {watchScope ===
-                                                                        "file"
-                                                                            ? "File context"
-                                                                            : "PR context"}
-                                                                    </span>
-                                                                    <div className="flex flex-wrap gap-1.5">
-                                                                        {(watchScope ===
-                                                                        "file"
-                                                                            ? FILE_CONTEXT_VARIABLES
-                                                                            : PR_CONTEXT_VARIABLES
-                                                                        ).map(
-                                                                            (
-                                                                                v,
-                                                                            ) => (
-                                                                                <button
-                                                                                    key={
-                                                                                        v.key
-                                                                                    }
-                                                                                    type="button"
-                                                                                    className="bg-primary-dark text-primary-light rounded px-2 py-1 font-mono text-xs transition-all hover:brightness-125"
-                                                                                    onClick={() => {
-                                                                                        editorRef.current?.insertText(
-                                                                                            v.label,
-                                                                                        );
-                                                                                        editorRef.current?.focus();
-                                                                                    }}>
-                                                                                    {
-                                                                                        v.label
-                                                                                    }
-                                                                                </button>
-                                                                            ),
-                                                                        )}
-                                                                    </div>
-                                                                </div>
-                                                            </PopoverContent>
-                                                        </Popover>
-                                                    )}
-
-                                                    {!isMemory &&
-                                                        mcpGroups.length >
-                                                            0 && (
-                                                            <MCPToolsPopover
-                                                                mcpGroups={
-                                                                    mcpGroups
-                                                                }
+                                                !isMemory ? (
+                                                    <Popover>
+                                                        <PopoverTrigger
+                                                            asChild>
+                                                            <Button
+                                                                size="xs"
+                                                                variant="cancel"
+                                                                type="button"
                                                                 disabled={
                                                                     field.disabled
                                                                 }
-                                                                onInsertMention={(
-                                                                    app,
-                                                                    tool,
-                                                                ) => {
-                                                                    editorRef.current?.insertMCPMention(
-                                                                        app,
-                                                                        tool,
-                                                                    );
-                                                                }}
-                                                            />
-                                                        )}
-                                                </>
+                                                                className="h-7 gap-1"
+                                                                rightIcon={
+                                                                    <ChevronDown className="size-3" />
+                                                                }
+                                                                leftIcon={
+                                                                    <Code2 className="size-3" />
+                                                                }>
+                                                                Variables
+                                                            </Button>
+                                                        </PopoverTrigger>
+                                                        <PopoverContent
+                                                            align="end"
+                                                            className="w-72 p-3">
+                                                            <div className="flex flex-col gap-3">
+                                                                <span className="text-text-primary text-xs font-medium">
+                                                                    {watchScope ===
+                                                                    "file"
+                                                                        ? "File context"
+                                                                        : "PR context"}
+                                                                </span>
+                                                                <div className="flex flex-wrap gap-1.5">
+                                                                    {(watchScope ===
+                                                                    "file"
+                                                                        ? FILE_CONTEXT_VARIABLES
+                                                                        : PR_CONTEXT_VARIABLES
+                                                                    ).map(
+                                                                        (
+                                                                            v,
+                                                                        ) => (
+                                                                            <button
+                                                                                key={
+                                                                                    v.key
+                                                                                }
+                                                                                type="button"
+                                                                                className="bg-primary-dark text-primary-light rounded px-2 py-1 font-mono text-xs transition-all hover:brightness-125"
+                                                                                onClick={() => {
+                                                                                    editorRef.current?.insertText(
+                                                                                        v.label,
+                                                                                    );
+                                                                                    editorRef.current?.focus();
+                                                                                }}>
+                                                                                {
+                                                                                    v.label
+                                                                                }
+                                                                            </button>
+                                                                        ),
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        </PopoverContent>
+                                                    </Popover>
+                                                ) : undefined
                                             }
                                         />
 

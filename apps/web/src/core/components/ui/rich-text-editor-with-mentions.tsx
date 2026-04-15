@@ -124,12 +124,20 @@ export const RichTextEditorWithMentions = React.forwardRef<
         editorInstanceRef.current = editor;
     }, []);
 
-    const handleTrigger = React.useCallback((pos: number) => {
-        setTriggerPos(pos);
-        setQuery("");
-        setViewStack([]);
-        setOpen(true);
-    }, []);
+    const handleTrigger = React.useCallback(
+        (pos: number) => {
+            // No suggestions to show → let Tiptap insert the literal `@` so
+            // users can type things like `@file:owner/repo/path` inside a
+            // kody rule description without the editor swallowing the key.
+            if (!groupsRef.current.length) return false;
+            setTriggerPos(pos);
+            setQuery("");
+            setViewStack([]);
+            setOpen(true);
+            return true;
+        },
+        [],
+    );
 
     const listRef = React.useRef<HTMLDivElement | null>(null);
 

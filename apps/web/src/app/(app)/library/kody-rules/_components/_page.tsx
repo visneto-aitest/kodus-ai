@@ -64,17 +64,6 @@ const SEVERITY_LEVEL_LABELS: Record<string, string> = {
     critical: "Critical",
 };
 
-const MCP_OPTIONS = [
-    { value: "jira", title: "Jira" },
-    { value: "datadog", title: "Datadog" },
-    { value: "linear", title: "Linear" },
-    { value: "asana", title: "Asana" },
-    { value: "grafana", title: "Grafana" },
-    { value: "perplexity", title: "Perplexity" },
-    { value: "exa", title: "Exa" },
-    { value: "sentry", title: "Sentry" },
-] as const;
-
 const mapTeamLanguageToFilterLanguage = (
     teamLanguage?: string,
 ): FindLibraryKodyRulesFilters["language"] | undefined => {
@@ -687,23 +676,6 @@ export const KodyRulesLibrary = ({
                                         →
                                     </span>
                                 </button>
-
-                                <button
-                                    type="button"
-                                    onClick={() => setBrowseType("mcp")}
-                                    className={cn(
-                                        "flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition",
-                                        selectedTypeValue === "mcp"
-                                            ? "bg-card-lv3 text-text-primary"
-                                            : "text-text-secondary hover:bg-card-lv3/60 hover:text-text-primary",
-                                    )}>
-                                    <span className="font-semibold">
-                                        MCP rules
-                                    </span>
-                                    <span className="text-text-tertiary text-xs">
-                                        →
-                                    </span>
-                                </button>
                             </div>
                         </div>
 
@@ -876,50 +848,6 @@ export const KodyRulesLibrary = ({
                                         </p>
                                     )}
                                 </div>
-
-                                {selectedTypeValue === "mcp" && (
-                                    <div className="flex flex-wrap items-center gap-2">
-                                        <span className="text-text-secondary text-sm">
-                                            Filter by plugin:
-                                        </span>
-                                        <button
-                                            type="button"
-                                            onClick={() =>
-                                                setFilters((prev) => ({
-                                                    ...prev,
-                                                    requiredMcp: undefined,
-                                                }))
-                                            }
-                                            className={cn(
-                                                "rounded-full px-3 py-1 text-sm transition",
-                                                !filters.requiredMcp
-                                                    ? "bg-primary-dark"
-                                                    : "bg-card-lv3 text-text-secondary hover:text-text-primary",
-                                            )}>
-                                            All
-                                        </button>
-                                        {MCP_OPTIONS.map((mcp) => (
-                                            <button
-                                                key={mcp.value}
-                                                type="button"
-                                                onClick={() =>
-                                                    setFilters((prev) => ({
-                                                        ...prev,
-                                                        requiredMcp: mcp.value,
-                                                    }))
-                                                }
-                                                className={cn(
-                                                    "rounded-full px-3 py-1 text-sm transition",
-                                                    filters.requiredMcp ===
-                                                        mcp.value
-                                                        ? "bg-primary-dark text-white"
-                                                        : "bg-card-lv3 text-text-secondary hover:text-text-primary",
-                                                )}>
-                                                {mcp.title}
-                                            </button>
-                                        ))}
-                                    </div>
-                                )}
 
                                 <Separator className="opacity-60" />
 
