@@ -289,7 +289,13 @@ export class TeamMemberService implements ITeamMemberService {
                     usersToSendInvite,
                     organizationAndTeamData,
                     inviterEmail,
-                );
+                ).catch((error) => {
+                    this.logger.error({
+                        message: 'Error sending invitations',
+                        error,
+                        context: TeamMemberService.name,
+                    });
+                });
             }
 
             return {
