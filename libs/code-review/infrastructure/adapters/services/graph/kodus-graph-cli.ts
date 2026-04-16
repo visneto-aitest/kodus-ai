@@ -164,7 +164,7 @@ export class KodusGraphCli {
         const filesArg = quoteFiles(files);
         const graphArg = graphPath ? ` --graph ${shSingleQuote(graphPath)}` : '';
         const diffArg = diffPath ? ` --diff ${shSingleQuote(diffPath)}` : '';
-        const cmd = `kodus-graph context --files ${filesArg}${graphArg}${diffArg} --repo-dir . --format prompt --out ${shSingleQuote(outPath)}`;
+        const cmd = `kodus-graph context --files ${filesArg}${graphArg}${diffArg} --repo-dir . --format xml --out ${shSingleQuote(outPath)}`;
 
         const result = await sandbox.run(
             [

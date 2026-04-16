@@ -12,7 +12,7 @@ import { shSingleQuote } from '../shell-quote';
 
 const GRAPH_DIR = '.kodus-graph';
 const GRAPH_PATH = `${GRAPH_DIR}/graph.json`;
-const PROMPT_PATH = `${GRAPH_DIR}/prompt.txt`;
+const CONTEXT_OUTPUT_PATH = `${GRAPH_DIR}/context.xml`;
 const BASE_GRAPH_PATH = `${GRAPH_DIR}/base-graph.json`;
 
 /**
@@ -458,14 +458,14 @@ export class GraphContextService {
         options: { graphPath?: string; diffPath?: string },
     ): Promise<string> {
         await this.cli.context(sandbox, filePaths, {
-            outPath: PROMPT_PATH,
+            outPath: CONTEXT_OUTPUT_PATH,
             graphPath: options.graphPath,
             diffPath: options.diffPath,
         });
 
         try {
             return await sandbox.readFile(
-                `${sandbox.repoDir}/${PROMPT_PATH}`,
+                `${sandbox.repoDir}/${CONTEXT_OUTPUT_PATH}`,
                 { timeoutMs: 10_000 },
             );
         } catch {
