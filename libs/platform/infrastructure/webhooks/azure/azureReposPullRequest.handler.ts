@@ -1,9 +1,10 @@
 import { createHash } from 'crypto';
 
 import { createLogger } from '@kodus/flow';
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
+import { EnqueueAstGraphUpdateOnMergedUseCase } from '@libs/code-review/application/use-cases/enqueue-ast-graph-update-on-merged.use-case';
 import { EnqueueImplementationCheckUseCase } from '@libs/code-review/application/use-cases/enqueue-implementation-check.use-case';
 import {
     hasReviewMarker,
@@ -45,6 +46,8 @@ export class AzureReposPullRequestHandler implements IWebhookEventHandler {
         private readonly enqueueImplementationCheckUseCase: EnqueueImplementationCheckUseCase,
         @Inject(PULL_REQUESTS_SERVICE_TOKEN)
         private readonly pullRequestsService: IPullRequestsService,
+        @Optional()
+        private readonly enqueueAstGraphUpdateOnMergedUseCase?: EnqueueAstGraphUpdateOnMergedUseCase,
     ) {}
 
     /**
@@ -297,6 +300,28 @@ export class AzureReposPullRequestHandler implements IWebhookEventHandler {
                                                         ?.pullRequestId,
                                             },
                                         );
+
+                                    this.enqueueAstGraphUpdateOnMergedUseCase
+                                        ?.execute({
+                                            prNumber:
+                                                params?.payload?.resource
+                                                    ?.pullRequestId,
+                                            repoExternalId: repository.id,
+                                            repoName: repository.name,
+                                            platform:
+                                                PlatformType.AZURE_REPOS,
+                                            baseBranch: baseRefFull,
+                                            organizationAndTeamData:
+                                                context.organizationAndTeamData,
+                                        })
+                                        .catch((e) => {
+                                            this.logger.warn({
+                                                message: `[AST-GRAPH] Failed to enqueue graph update after PR#${prId} merge`,
+                                                context:
+                                                    AzureReposPullRequestHandler.name,
+                                                error: e,
+                                            });
+                                        });
                                 }
                             }
                         }

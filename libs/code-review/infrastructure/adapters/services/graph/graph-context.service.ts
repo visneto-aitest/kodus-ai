@@ -1,9 +1,12 @@
 import { createLogger } from '@kodus/flow';
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import type { FileChange } from '@libs/core/infrastructure/config/types/general/codeReview.type';
 import { SandboxInstance } from '@libs/code-review/domain/contracts/sandbox.provider';
+import {
+    IRepositoryService,
+    REPOSITORY_SERVICE_TOKEN,
+} from '@libs/code-review/domain/contracts/RepositoryService.contract';
 import { AstGraphRepository } from '../../repositories/astGraph.repository';
-import { RepositoryRepository } from '../../repositories/repository.repository';
 import { KodusGraphCli, KODUS_GRAPH_TIMEOUTS } from './kodus-graph-cli';
 
 const GRAPH_DIR = '.kodus-graph';
@@ -25,7 +28,8 @@ export class GraphContextService {
 
     constructor(
         private readonly astGraphRepo: AstGraphRepository,
-        private readonly repositoryRepo: RepositoryRepository,
+        @Inject(REPOSITORY_SERVICE_TOKEN)
+        private readonly repositoryService: IRepositoryService,
         private readonly cli: KodusGraphCli,
     ) {}
 
@@ -77,7 +81,7 @@ export class GraphContextService {
                 message: `[KODUS-GRAPH] Step 3/4: Exporting subgraph from DB for repo ${repoId}...`,
                 context: GraphContextService.name,
             });
-            const repo = await this.repositoryRepo.findById(repoId);
+            const repo = await this.repositoryService.findById(repoId);
             if (!repo) {
                 this.logger.warn({
                     message: `[KODUS-GRAPH] Step 3/4: repo not found by UUID ${repoId}, falling back to legacy`,

@@ -34,6 +34,7 @@ import { EnqueueCodeReviewJobUseCase } from '@libs/core/workflow/application/use
 import { ProcessWorkflowJobUseCase } from '@libs/core/workflow/application/use-cases/process-workflow-job.use-case';
 import { GetJobStatusUseCase } from '@libs/core/workflow/application/use-cases/get-job-status.use-case';
 import { EnqueueImplementationCheckUseCase } from '@libs/code-review/application/use-cases/enqueue-implementation-check.use-case';
+import { EnqueueAstGraphUpdateOnMergedUseCase } from '@libs/code-review/application/use-cases/enqueue-ast-graph-update-on-merged.use-case';
 import { AutomationModule } from '@libs/automation/modules/automation.module';
 import { ASTEventHandler } from '@libs/core/workflow/infrastructure/ast-event-handler.service';
 import { AstGraphBuildJobProcessor } from '@libs/code-review/workflow/ast-graph-build-job.processor';
@@ -59,6 +60,7 @@ const sharedProviders = [
     EnqueueCodeReviewJobUseCase,
     GetJobStatusUseCase,
     EnqueueImplementationCheckUseCase,
+    EnqueueAstGraphUpdateOnMergedUseCase,
 ];
 
 const sharedExports = [
@@ -66,6 +68,7 @@ const sharedExports = [
     EnqueueCodeReviewJobUseCase,
     GetJobStatusUseCase,
     EnqueueImplementationCheckUseCase,
+    EnqueueAstGraphUpdateOnMergedUseCase,
 ];
 
 const workerProviders = [

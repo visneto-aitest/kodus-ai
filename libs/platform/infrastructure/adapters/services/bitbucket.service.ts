@@ -2159,11 +2159,24 @@ export class BitbucketService implements Omit<
         return `\`\`\`${language}\n${code}\n\`\`\``;
     }
 
+    private dedentCode(code: string): string {
+        const lines = code.split('\n');
+        const indents = lines
+            .filter((line) => line.trim().length > 0)
+            .map((line) => line.match(/^[ \t]*/)?.[0].length ?? 0);
+        if (indents.length === 0) return code;
+        const minIndent = Math.min(...indents);
+        if (minIndent === 0) return code;
+        return lines
+            .map((line) => (line.length >= minIndent ? line.slice(minIndent) : line))
+            .join('\n');
+    }
+
     private formatBodyForBitbucket(lineComment: any, repository: any) {
         const codeBlock = lineComment?.body?.improvedCode
             ? this.formatCodeBlock(
                   repository?.language?.toLowerCase(),
-                  lineComment?.body?.improvedCode,
+                  this.dedentCode(lineComment?.body?.improvedCode),
               )
             : '';
         const suggestionContent = lineComment?.body?.suggestionContent || '';

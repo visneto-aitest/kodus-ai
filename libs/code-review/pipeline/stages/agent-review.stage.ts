@@ -23,7 +23,10 @@ import { AutomationStatus } from '@libs/automation/domain/automation/enum/automa
 import { AgentProgressEvent } from '@libs/code-review/infrastructure/agents/base-code-review-agent.provider';
 
 import { GraphContextService } from '@libs/code-review/infrastructure/adapters/services/graph/graph-context.service';
-import { RepositoryRepository } from '@libs/code-review/infrastructure/adapters/repositories/repository.repository';
+import {
+    IRepositoryService,
+    REPOSITORY_SERVICE_TOKEN,
+} from '@libs/code-review/domain/contracts/RepositoryService.contract';
 import { AstGraphStatus } from '@libs/code-review/infrastructure/adapters/repositories/schemas/repository.model';
 import {
     resolveKodyRuleSeverityLevel,
@@ -216,7 +219,8 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
         @Inject(AUTOMATION_EXECUTION_SERVICE_TOKEN)
         private readonly automationExecutionService: IAutomationExecutionService,
         private readonly graphContext: GraphContextService,
-        private readonly repositoryRepository: RepositoryRepository,
+        @Inject(REPOSITORY_SERVICE_TOKEN)
+        private readonly repositoryService: IRepositoryService,
     ) {
         super();
     }
@@ -312,7 +316,7 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
 
                 if (context.sandboxHandle?.run) {
                     const repo =
-                        await this.repositoryRepository.findByExternalId(
+                        await this.repositoryService.findByExternalId(
                             context.platformType,
                             String(context.repository?.id || ''),
                         );

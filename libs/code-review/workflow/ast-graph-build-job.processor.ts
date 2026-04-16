@@ -16,7 +16,10 @@ import {
 } from '@libs/code-review/domain/contracts/sandbox.provider';
 import { CodeManagementService } from '@libs/platform/infrastructure/adapters/services/codeManagement.service';
 import { GraphIndexerService } from '@libs/code-review/infrastructure/adapters/services/graph/graph-indexer.service';
-import { RepositoryRepository } from '@libs/code-review/infrastructure/adapters/repositories/repository.repository';
+import {
+    IRepositoryService,
+    REPOSITORY_SERVICE_TOKEN,
+} from '@libs/code-review/domain/contracts/RepositoryService.contract';
 import { AstGraphStatus } from '@libs/code-review/infrastructure/adapters/repositories/schemas/repository.model';
 import { OrganizationAndTeamData } from '@libs/core/infrastructure/config/types/general/organizationAndTeamData';
 
@@ -40,7 +43,8 @@ export class AstGraphBuildJobProcessor implements IJobProcessorService {
         private readonly sandboxProvider: ISandboxProvider,
         private readonly codeManagementService: CodeManagementService,
         private readonly graphIndexer: GraphIndexerService,
-        private readonly repositoryRepo: RepositoryRepository,
+        @Inject(REPOSITORY_SERVICE_TOKEN)
+        private readonly repositoryService: IRepositoryService,
     ) {}
 
     async process(jobId: string): Promise<void> {
@@ -295,7 +299,7 @@ export class AstGraphBuildJobProcessor implements IJobProcessorService {
         // Ensure repository status is updated to FAILED so it doesn't stay stuck in PENDING/BUILDING
         if (repositoryId) {
             try {
-                await this.repositoryRepo.updateGraphStatus(
+                await this.repositoryService.updateGraphStatus(
                     repositoryId,
                     AstGraphStatus.FAILED,
                 );

@@ -1,8 +1,11 @@
 import { createLogger } from '@kodus/flow';
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { SandboxInstance } from '@libs/code-review/domain/contracts/sandbox.provider';
+import {
+    IRepositoryService,
+    REPOSITORY_SERVICE_TOKEN,
+} from '@libs/code-review/domain/contracts/RepositoryService.contract';
 import { AstGraphRepository } from '../../repositories/astGraph.repository';
-import { RepositoryRepository } from '../../repositories/repository.repository';
 import { AstGraphStatus } from '../../repositories/schemas/repository.model';
 import { KodusGraphCli } from './kodus-graph-cli';
 
@@ -46,7 +49,8 @@ export class GraphIndexerService {
 
     constructor(
         private readonly astGraphRepo: AstGraphRepository,
-        private readonly repositoryRepo: RepositoryRepository,
+        @Inject(REPOSITORY_SERVICE_TOKEN)
+        private readonly repositoryService: IRepositoryService,
         private readonly cli: KodusGraphCli,
     ) {}
 
@@ -67,7 +71,7 @@ export class GraphIndexerService {
             metadata: { repositoryId, headSha },
         });
 
-        await this.repositoryRepo.updateGraphStatus(
+        await this.repositoryService.updateGraphStatus(
             repositoryId,
             AstGraphStatus.BUILDING,
         );
@@ -107,7 +111,7 @@ export class GraphIndexerService {
                     context: GraphIndexerService.name,
                     metadata: { repositoryId, headSha },
                 });
-                await this.repositoryRepo.updateGraphStatus(
+                await this.repositoryService.updateGraphStatus(
                     repositoryId,
                     AstGraphStatus.FAILED,
                 );
@@ -131,7 +135,7 @@ export class GraphIndexerService {
                 },
             });
 
-            await this.repositoryRepo.updateGraphStatus(
+            await this.repositoryService.updateGraphStatus(
                 repositoryId,
                 AstGraphStatus.READY,
                 {
@@ -155,7 +159,7 @@ export class GraphIndexerService {
             });
         } catch (error) {
             const totalMs = Date.now() - buildStart;
-            await this.repositoryRepo.updateGraphStatus(
+            await this.repositoryService.updateGraphStatus(
                 repositoryId,
                 AstGraphStatus.FAILED,
             );
@@ -239,7 +243,7 @@ export class GraphIndexerService {
                 },
             });
 
-            await this.repositoryRepo.updateGraphStatus(
+            await this.repositoryService.updateGraphStatus(
                 repositoryId,
                 AstGraphStatus.READY,
                 {

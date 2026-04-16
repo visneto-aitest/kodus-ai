@@ -1,7 +1,8 @@
 import { createLogger } from '@kodus/flow';
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
+import { EnqueueAstGraphUpdateOnMergedUseCase } from '@libs/code-review/application/use-cases/enqueue-ast-graph-update-on-merged.use-case';
 import { EnqueueImplementationCheckUseCase } from '@libs/code-review/application/use-cases/enqueue-implementation-check.use-case';
 import {
     hasReviewMarker,
@@ -38,6 +39,8 @@ export class GitLabMergeRequestHandler implements IWebhookEventHandler {
         private readonly codeManagement: CodeManagementService,
         private readonly enqueueCodeReviewJobUseCase: EnqueueCodeReviewJobUseCase,
         private readonly enqueueImplementationCheckUseCase: EnqueueImplementationCheckUseCase,
+        @Optional()
+        private readonly enqueueAstGraphUpdateOnMergedUseCase?: EnqueueAstGraphUpdateOnMergedUseCase,
     ) {}
 
     /**
@@ -270,6 +273,24 @@ export class GitLabMergeRequestHandler implements IWebhookEventHandler {
                                                 payload?.object_attributes?.iid,
                                         },
                                     );
+
+                                this.enqueueAstGraphUpdateOnMergedUseCase
+                                    ?.execute({
+                                        prNumber: payload?.object_attributes?.iid,
+                                        repoExternalId: repository.id,
+                                        repoName: repository.name,
+                                        platform: PlatformType.GITLAB,
+                                        baseBranch: baseRef,
+                                        organizationAndTeamData:
+                                            context.organizationAndTeamData,
+                                    })
+                                    .catch((e) => {
+                                        this.logger.warn({
+                                            message: `[AST-GRAPH] Failed to enqueue graph update after MR#${mrNumber} merge`,
+                                            context: GitLabMergeRequestHandler.name,
+                                            error: e,
+                                        });
+                                    });
                             }
                         }
                     } catch (e) {

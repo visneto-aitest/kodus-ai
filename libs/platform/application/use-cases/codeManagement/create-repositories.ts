@@ -5,7 +5,10 @@ import { Request } from 'express';
 
 import { ActiveCodeManagementTeamAutomationsUseCase } from '@libs/automation/application/use-cases/teamAutomation/active-code-manegement-automations.use-case';
 import { ActiveCodeReviewAutomationUseCase } from '@libs/automation/application/use-cases/teamAutomation/active-code-review-automation.use-case';
-import { RepositoryRepository } from '@libs/code-review/infrastructure/adapters/repositories/repository.repository';
+import {
+    IRepositoryService,
+    REPOSITORY_SERVICE_TOKEN,
+} from '@libs/code-review/domain/contracts/RepositoryService.contract';
 import { AstGraphStatus } from '@libs/code-review/infrastructure/adapters/repositories/schemas/repository.model';
 import { IntegrationConfigKey } from '@libs/core/domain/enums/Integration-config-key.enum';
 import { ParametersKey } from '@libs/core/domain/enums/parameters-key.enum';
@@ -46,7 +49,8 @@ export class CreateRepositoriesUseCase implements IUseCase {
         private readonly codeManagementService: CodeManagementService,
         private readonly createOrUpdateParametersUseCase: CreateOrUpdateParametersUseCase,
         private readonly backfillHistoricalPRsUseCase: BackfillHistoricalPRsUseCase,
-        private readonly repositoryRepository: RepositoryRepository,
+        @Inject(REPOSITORY_SERVICE_TOKEN)
+        private readonly repositoryService: IRepositoryService,
         @Inject(REQUEST)
         private readonly request: Request & {
             user: { organization: { uuid: string } };
@@ -213,7 +217,7 @@ export class CreateRepositoriesUseCase implements IUseCase {
                     repo.full_name ||
                     `${repo.organizationName || ''}/${repo.name}`;
 
-                const repoRecord = await this.repositoryRepository.findOrCreate(
+                const repoRecord = await this.repositoryService.findOrCreate(
                     {
                         integrationConfigId: orgTeam.teamId,
                         externalId: String(repo.id),

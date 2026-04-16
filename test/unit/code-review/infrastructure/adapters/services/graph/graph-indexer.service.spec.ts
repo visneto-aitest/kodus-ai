@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { GraphIndexerService } from '@libs/code-review/infrastructure/adapters/services/graph/graph-indexer.service';
 import { KodusGraphCli } from '@libs/code-review/infrastructure/adapters/services/graph/kodus-graph-cli';
 import { AstGraphRepository } from '@libs/code-review/infrastructure/adapters/repositories/astGraph.repository';
-import { RepositoryRepository } from '@libs/code-review/infrastructure/adapters/repositories/repository.repository';
+import { IRepositoryService, REPOSITORY_SERVICE_TOKEN } from '@libs/code-review/domain/contracts/RepositoryService.contract';
 import { AstGraphStatus } from '@libs/code-review/infrastructure/adapters/repositories/schemas/repository.model';
 import { SandboxInstance } from '@libs/code-review/domain/contracts/sandbox.provider';
 
@@ -19,7 +19,7 @@ jest.mock('@kodus/flow', () => ({
 describe('GraphIndexerService', () => {
     let service: GraphIndexerService;
     let mockAstGraphRepo: jest.Mocked<AstGraphRepository>;
-    let mockRepositoryRepo: jest.Mocked<RepositoryRepository>;
+    let mockRepositoryRepo: jest.Mocked<IRepositoryService>;
     let mockSandbox: jest.Mocked<SandboxInstance>;
 
     const REPO_ID = 'repo-123';
@@ -104,7 +104,7 @@ describe('GraphIndexerService', () => {
                 GraphIndexerService,
                 KodusGraphCli,
                 { provide: AstGraphRepository, useValue: mockAstGraphRepo },
-                { provide: RepositoryRepository, useValue: mockRepositoryRepo },
+                { provide: REPOSITORY_SERVICE_TOKEN, useValue: mockRepositoryRepo },
             ],
         }).compile();
 

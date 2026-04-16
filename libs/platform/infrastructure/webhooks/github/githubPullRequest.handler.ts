@@ -1,7 +1,6 @@
 import { createLogger } from '@kodus/flow';
+import { EnqueueAstGraphUpdateOnMergedUseCase } from '@libs/code-review/application/use-cases/enqueue-ast-graph-update-on-merged.use-case';
 import { EnqueueImplementationCheckUseCase } from '@libs/code-review/application/use-cases/enqueue-implementation-check.use-case';
-import { RepositoryRepository } from '@libs/code-review/infrastructure/adapters/repositories/repository.repository';
-import { AstGraphStatus } from '@libs/code-review/infrastructure/adapters/repositories/schemas/repository.model';
 import {
     hasReviewMarker,
     isKodyMentionNonReview,
@@ -10,14 +9,7 @@ import {
 import { getMappedPlatform } from '@libs/common/utils/webhooks';
 import { PlatformType } from '@libs/core/domain/enums/platform-type.enum';
 import { PullRequestClosedEvent } from '@libs/core/domain/events/pull-request-closed.event';
-import {
-    IJobQueueService,
-    JOB_QUEUE_SERVICE_TOKEN,
-} from '@libs/core/workflow/domain/contracts/job-queue.service.contract';
 import { EnqueueCodeReviewJobUseCase } from '@libs/core/workflow/application/use-cases/enqueue-code-review-job.use-case';
-import { HandlerType } from '@libs/core/workflow/domain/enums/handler-type.enum';
-import { JobStatus } from '@libs/core/workflow/domain/enums/job-status.enum';
-import { WorkflowType } from '@libs/core/workflow/domain/enums/workflow-type.enum';
 import { GenerateIssuesFromPrClosedUseCase } from '@libs/issues/application/use-cases/generate-issues-from-pr-closed.use-case';
 import { WebhookContextService } from '@libs/platform/application/services/webhook-context.service';
 import { ChatWithKodyFromGitUseCase } from '@libs/platform/application/use-cases/codeManagement/chatWithKodyFromGit.use-case';
@@ -26,7 +18,7 @@ import {
     IWebhookEventParams,
 } from '@libs/platform/domain/platformIntegrations/interfaces/webhook-event-handler.interface';
 import { SavePullRequestUseCase } from '@libs/platformData/application/use-cases/pullRequests/save.use-case';
-import { Inject, Injectable, Optional } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CodeManagementService } from '../../adapters/services/codeManagement.service';
 
@@ -47,10 +39,7 @@ export class GitHubPullRequestHandler implements IWebhookEventHandler {
         private readonly enqueueCodeReviewJobUseCase: EnqueueCodeReviewJobUseCase,
         private readonly enqueueImplementationCheckUseCase: EnqueueImplementationCheckUseCase,
         @Optional()
-        private readonly repositoryRepository?: RepositoryRepository,
-        @Optional()
-        @Inject(JOB_QUEUE_SERVICE_TOKEN)
-        private readonly jobQueueService?: IJobQueueService,
+        private readonly enqueueAstGraphUpdateOnMergedUseCase?: EnqueueAstGraphUpdateOnMergedUseCase,
     ) {}
 
     public canHandle(params: IWebhookEventParams): boolean {
@@ -64,7 +53,6 @@ export class GitHubPullRequestHandler implements IWebhookEventHandler {
             'pull_request',
             'issue_comment',
             'pull_request_review_comment',
-            'push',
         ];
         if (!supportedEvents.includes(params.event)) {
             return false;
@@ -95,9 +83,6 @@ export class GitHubPullRequestHandler implements IWebhookEventHandler {
         switch (event) {
             case 'pull_request':
                 await this.handlePullRequest(params);
-                break;
-            case 'push':
-                await this.handlePush(params);
                 break;
             case 'issue_comment':
             case 'pull_request_review_comment':
@@ -257,7 +242,6 @@ export class GitHubPullRequestHandler implements IWebhookEventHandler {
                         if (baseRef !== defaultBranch) {
                             changedFiles = undefined;
                         } else {
-                            // fetch changed files
                             changedFiles =
                                 await this.codeManagement.getFilesByPullRequestId(
                                     {
@@ -270,6 +254,24 @@ export class GitHubPullRequestHandler implements IWebhookEventHandler {
                                         prNumber: payload?.pull_request?.number,
                                     },
                                 );
+
+                            this.enqueueAstGraphUpdateOnMergedUseCase
+                                ?.execute({
+                                    prNumber: payload?.pull_request?.number,
+                                    repoExternalId: repository.id,
+                                    repoName: repository.name,
+                                    platform: PlatformType.GITHUB,
+                                    baseBranch: baseRef,
+                                    organizationAndTeamData:
+                                        context.organizationAndTeamData,
+                                })
+                                .catch((e) => {
+                                    this.logger.warn({
+                                        message: `[AST-GRAPH] Failed to enqueue graph update after PR#${prNumber} merge`,
+                                        context: GitHubPullRequestHandler.name,
+                                        error: e,
+                                    });
+                                });
                         }
                     } catch (e) {
                         this.logger.error({
@@ -319,159 +321,11 @@ export class GitHubPullRequestHandler implements IWebhookEventHandler {
     }
 
     /**
-     * Process push events — enqueue incremental AST graph update when
-     * pushed to the default branch.
-     */
-    private async handlePush(params: IWebhookEventParams): Promise<void> {
-        const { payload } = params;
-
-        if (!this.repositoryRepository || !this.jobQueueService) {
-            return;
-        }
-
-        const ref = payload?.ref || '';
-        const defaultBranch = payload?.repository?.default_branch || 'main';
-
-        if (ref !== `refs/heads/${defaultBranch}`) {
-            return;
-        }
-
-        const changedFiles = new Set<string>();
-        for (const commit of payload?.commits || []) {
-            for (const f of commit.added || []) changedFiles.add(f);
-            for (const f of commit.modified || []) changedFiles.add(f);
-            for (const f of commit.removed || []) changedFiles.add(f);
-        }
-
-        if (changedFiles.size === 0) {
-            return;
-        }
-
-        const repoExternalId = String(payload?.repository?.id || '');
-
-        const context = await this.webhookContextService.getContext(
-            PlatformType.GITHUB,
-            repoExternalId,
-        );
-
-        if (!context?.organizationAndTeamData) {
-            this.logger.log({
-                message: `No active automation found for push event, skipping incremental update`,
-                context: GitHubPullRequestHandler.name,
-                metadata: { repoExternalId },
-            });
-            return;
-        }
-
-        let repo: any;
-        try {
-            repo = await this.repositoryRepository.findByExternalId(
-                PlatformType.GITHUB,
-                repoExternalId,
-            );
-        } catch (error) {
-            this.logger.warn({
-                message: `[AST-GRAPH] Failed to lookup repository for push event, skipping`,
-                context: GitHubPullRequestHandler.name,
-                error,
-                metadata: { repoExternalId },
-            });
-            return;
-        }
-
-        if (!repo) {
-            return;
-        }
-
-        if (repo.astGraphStatus !== AstGraphStatus.READY) {
-            this.logger.log({
-                message: `[AST-GRAPH] Graph not ready (status=${repo.astGraphStatus}), skipping incremental update`,
-                context: GitHubPullRequestHandler.name,
-                metadata: {
-                    repoExternalId,
-                    fullName: repo.fullName,
-                    astGraphStatus: repo.astGraphStatus,
-                },
-            });
-            return;
-        }
-
-        // Too many changed files → enqueue full rebuild instead of incremental
-        const MAX_INCREMENTAL_FILES = 500;
-        const useFullRebuild = changedFiles.size > MAX_INCREMENTAL_FILES;
-
-        try {
-            if (useFullRebuild) {
-                this.logger.log({
-                    message: `[AST-GRAPH] Push has ${changedFiles.size} files (>${MAX_INCREMENTAL_FILES}), enqueuing full rebuild instead of incremental`,
-                    context: GitHubPullRequestHandler.name,
-                    metadata: {
-                        fullName: repo.fullName,
-                        changedFilesCount: changedFiles.size,
-                    },
-                });
-
-                await this.jobQueueService.enqueue({
-                    correlationId: repo.uuid,
-                    workflowType: WorkflowType.AST_GRAPH_BUILD,
-                    handlerType: HandlerType.SIMPLE_FUNCTION,
-                    payload: {
-                        repositoryId: repo.uuid,
-                        cloneUrl: '',
-                        defaultBranch: repo.defaultBranch,
-                        fullName: repo.fullName,
-                        platform: repo.platform,
-                        organizationAndTeamData:
-                            context.organizationAndTeamData,
-                    },
-                    status: JobStatus.PENDING,
-                    priority: 0,
-                    retryCount: 0,
-                    maxRetries: 3,
-                });
-            } else {
-                await this.jobQueueService.enqueue({
-                    correlationId: repo.uuid,
-                    workflowType: WorkflowType.AST_GRAPH_INCREMENTAL,
-                    handlerType: HandlerType.SIMPLE_FUNCTION,
-                    payload: {
-                        repositoryId: repo.uuid,
-                        changedFiles: Array.from(changedFiles),
-                        newSha: payload?.after || '',
-                        cloneUrl: '',
-                        defaultBranch: repo.defaultBranch,
-                        fullName: repo.fullName,
-                        platform: repo.platform,
-                        organizationAndTeamData:
-                            context.organizationAndTeamData,
-                    },
-                    status: JobStatus.PENDING,
-                    priority: 0,
-                    retryCount: 0,
-                    maxRetries: 3,
-                });
-            }
-
-            this.logger.log({
-                message: `[AST-GRAPH] Enqueued ${useFullRebuild ? 'full rebuild' : 'incremental update'} for ${repo.fullName}: ${changedFiles.size} files`,
-                context: GitHubPullRequestHandler.name,
-            });
-        } catch (error) {
-            this.logger.warn({
-                message: `[AST-GRAPH] Failed to enqueue ${useFullRebuild ? 'full rebuild' : 'incremental update'}: ${error.message}`,
-                context: GitHubPullRequestHandler.name,
-                error,
-            });
-        }
-    }
-
-    /**
      * Process comment events from GitHub
      */
     private async handleComment(params: IWebhookEventParams): Promise<void> {
         const { payload, event } = params;
         const prNumber = payload?.object_attributes?.iid;
-        const repositoryName = payload?.repository?.name;
 
         try {
             // Extract comment data

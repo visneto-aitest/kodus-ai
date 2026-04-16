@@ -1,7 +1,8 @@
 import { createLogger } from '@kodus/flow';
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
+import { EnqueueAstGraphUpdateOnMergedUseCase } from '@libs/code-review/application/use-cases/enqueue-ast-graph-update-on-merged.use-case';
 import { EnqueueImplementationCheckUseCase } from '@libs/code-review/application/use-cases/enqueue-implementation-check.use-case';
 import {
     isKodyMentionNonReview,
@@ -44,6 +45,8 @@ export class BitbucketPullRequestHandler implements IWebhookEventHandler {
         private readonly eventEmitter: EventEmitter2,
         private readonly enqueueCodeReviewJobUseCase: EnqueueCodeReviewJobUseCase,
         private readonly enqueueImplementationCheckUseCase: EnqueueImplementationCheckUseCase,
+        @Optional()
+        private readonly enqueueAstGraphUpdateOnMergedUseCase?: EnqueueAstGraphUpdateOnMergedUseCase,
     ) {}
 
     /**
@@ -292,6 +295,27 @@ export class BitbucketPullRequestHandler implements IWebhookEventHandler {
                                                     payload?.pullrequest?.id,
                                             },
                                         );
+
+                                    this.enqueueAstGraphUpdateOnMergedUseCase
+                                        ?.execute({
+                                            prNumber:
+                                                payload?.pullrequest?.id,
+                                            repoExternalId: repository.id,
+                                            repoName: repository.name,
+                                            platform:
+                                                PlatformType.BITBUCKET,
+                                            baseBranch: baseRef,
+                                            organizationAndTeamData:
+                                                context.organizationAndTeamData,
+                                        })
+                                        .catch((e) => {
+                                            this.logger.warn({
+                                                message: `[AST-GRAPH] Failed to enqueue graph update after PR merge`,
+                                                context:
+                                                    BitbucketPullRequestHandler.name,
+                                                error: e,
+                                            });
+                                        });
                                 }
                             }
                         } catch (e) {

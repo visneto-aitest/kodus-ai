@@ -2,10 +2,12 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
+import { IRepositoryRepository } from '@libs/code-review/domain/contracts/RepositoryRepository.contract';
+
 import { RepositoryModel, AstGraphStatus } from './schemas/repository.model';
 
 @Injectable()
-export class RepositoryRepository {
+export class RepositoryRepository implements IRepositoryRepository {
     constructor(
         @InjectRepository(RepositoryModel)
         private readonly repo: Repository<RepositoryModel>,

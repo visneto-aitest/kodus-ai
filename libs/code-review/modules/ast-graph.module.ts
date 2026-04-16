@@ -5,8 +5,11 @@ import { RepositoryModel } from '../infrastructure/adapters/repositories/schemas
 import { AstNodeModel } from '../infrastructure/adapters/repositories/schemas/astNode.model';
 import { AstEdgeModel } from '../infrastructure/adapters/repositories/schemas/astEdge.model';
 
+import { REPOSITORY_REPOSITORY_TOKEN } from '../domain/contracts/RepositoryRepository.contract';
+import { REPOSITORY_SERVICE_TOKEN } from '../domain/contracts/RepositoryService.contract';
 import { RepositoryRepository } from '../infrastructure/adapters/repositories/repository.repository';
 import { AstGraphRepository } from '../infrastructure/adapters/repositories/astGraph.repository';
+import { RepositoryService } from '../infrastructure/adapters/services/repository.service';
 import { KodusGraphCli } from '../infrastructure/adapters/services/graph/kodus-graph-cli';
 import { GraphIndexerService } from '../infrastructure/adapters/services/graph/graph-indexer.service';
 import { GraphContextService } from '../infrastructure/adapters/services/graph/graph-context.service';
@@ -16,15 +19,22 @@ import { GraphContextService } from '../infrastructure/adapters/services/graph/g
         TypeOrmModule.forFeature([RepositoryModel, AstNodeModel, AstEdgeModel]),
     ],
     providers: [
-        RepositoryRepository,
+        {
+            provide: REPOSITORY_REPOSITORY_TOKEN,
+            useClass: RepositoryRepository,
+        },
         AstGraphRepository,
+        {
+            provide: REPOSITORY_SERVICE_TOKEN,
+            useClass: RepositoryService,
+        },
         KodusGraphCli,
         GraphIndexerService,
         GraphContextService,
     ],
     exports: [
-        RepositoryRepository,
         AstGraphRepository,
+        REPOSITORY_SERVICE_TOKEN,
         KodusGraphCli,
         GraphIndexerService,
         GraphContextService,

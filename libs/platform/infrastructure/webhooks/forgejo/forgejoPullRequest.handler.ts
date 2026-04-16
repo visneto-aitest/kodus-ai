@@ -1,4 +1,5 @@
 import { createLogger } from '@kodus/flow';
+import { EnqueueAstGraphUpdateOnMergedUseCase } from '@libs/code-review/application/use-cases/enqueue-ast-graph-update-on-merged.use-case';
 import { EnqueueImplementationCheckUseCase } from '@libs/code-review/application/use-cases/enqueue-implementation-check.use-case';
 import {
     hasReviewMarker,
@@ -22,7 +23,7 @@ import {
     WebhookForgejoHookIssueAction,
 } from '@libs/platform/domain/platformIntegrations/types/webhooks/webhooks-forgejo.type';
 import { SavePullRequestUseCase } from '@libs/platformData/application/use-cases/pullRequests/save.use-case';
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CodeManagementService } from '../../adapters/services/codeManagement.service';
 
@@ -43,6 +44,8 @@ export class ForgejoPullRequestHandler implements IWebhookEventHandler {
         private readonly eventEmitter: EventEmitter2,
         private readonly enqueueCodeReviewJobUseCase: EnqueueCodeReviewJobUseCase,
         private readonly enqueueImplementationCheckUseCase: EnqueueImplementationCheckUseCase,
+        @Optional()
+        private readonly enqueueAstGraphUpdateOnMergedUseCase?: EnqueueAstGraphUpdateOnMergedUseCase,
     ) {}
 
     public canHandle(params: IWebhookEventParams): boolean {
@@ -239,7 +242,6 @@ export class ForgejoPullRequestHandler implements IWebhookEventHandler {
                         if (baseRef !== defaultBranch) {
                             changedFiles = undefined;
                         } else {
-                            // fetch changed files
                             changedFiles =
                                 await this.codeManagement.getFilesByPullRequestId(
                                     {
@@ -252,6 +254,24 @@ export class ForgejoPullRequestHandler implements IWebhookEventHandler {
                                         prNumber: payload?.pull_request?.number,
                                     },
                                 );
+
+                            this.enqueueAstGraphUpdateOnMergedUseCase
+                                ?.execute({
+                                    prNumber: payload?.pull_request?.number,
+                                    repoExternalId: repository.id,
+                                    repoName: repository.name,
+                                    platform: PlatformType.FORGEJO,
+                                    baseBranch: baseRef,
+                                    organizationAndTeamData:
+                                        context.organizationAndTeamData,
+                                })
+                                .catch((e) => {
+                                    this.logger.warn({
+                                        message: `[AST-GRAPH] Failed to enqueue graph update after PR merge`,
+                                        context: ForgejoPullRequestHandler.name,
+                                        error: e,
+                                    });
+                                });
                         }
                     } catch (e) {
                         this.logger.error({
@@ -310,7 +330,6 @@ export class ForgejoPullRequestHandler implements IWebhookEventHandler {
         const { payload, event } = params;
 
         const prNumber = payload?.pull_request?.id;
-        const repositoryName = payload?.repository?.name;
 
         try {
             // Extract comment data

@@ -4,7 +4,7 @@ import { ReviewOrchestratorService } from '@/code-review/infrastructure/agents/r
 import { ObservabilityService } from '@/core/log/observability.service';
 import { AUTOMATION_EXECUTION_SERVICE_TOKEN } from '@/automation/domain/automationExecution/contracts/automation-execution.service';
 import { GraphContextService } from '@/code-review/infrastructure/adapters/services/graph/graph-context.service';
-import { RepositoryRepository } from '@/code-review/infrastructure/adapters/repositories/repository.repository';
+import { REPOSITORY_SERVICE_TOKEN } from '@/code-review/domain/contracts/RepositoryService.contract';
 import { CodeReviewPipelineContext } from '@/code-review/pipeline/context/code-review-pipeline.context';
 import { PlatformType } from '@/core/domain/enums';
 import { CodeReviewVersion } from '@/core/domain/enums/code-review.enum';
@@ -144,7 +144,7 @@ describe('AgentReviewStage', () => {
                     },
                 },
                 {
-                    provide: RepositoryRepository,
+                    provide: REPOSITORY_SERVICE_TOKEN,
                     useValue: {
                         findOrCreate: jest.fn(),
                         findByExternalId: jest.fn(),
