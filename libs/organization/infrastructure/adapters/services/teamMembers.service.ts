@@ -191,6 +191,7 @@ export class TeamMemberService implements ITeamMemberService {
     async updateOrCreateMembers(
         members: IMembers[],
         organizationAndTeamData: OrganizationAndTeamData,
+        inviterEmail?: string,
     ): Promise<IUpdateOrCreateMembersResponse> {
         try {
             const emails = members.map((member) => member.email);
@@ -287,7 +288,14 @@ export class TeamMemberService implements ITeamMemberService {
                 this.sendInvitations(
                     usersToSendInvite,
                     organizationAndTeamData,
-                );
+                    inviterEmail,
+                ).catch((error) => {
+                    this.logger.error({
+                        message: 'Error sending invitations',
+                        error,
+                        context: TeamMemberService.name,
+                    });
+                });
             }
 
             return {
@@ -450,11 +458,19 @@ export class TeamMemberService implements ITeamMemberService {
     public async sendInvitations(
         usersToSendInvitation: Partial<IUser[]>,
         organizationAndTeamData: OrganizationAndTeamData,
+        inviterEmail?: string,
     ) {
-        const admin = await this.usersService.findOne({
-            organization: { uuid: organizationAndTeamData.organizationId },
-            role: Role.OWNER,
-        });
+        // Use the actual inviter's email if provided, otherwise fall back to the org owner
+        let senderEmail = inviterEmail;
+        if (!senderEmail) {
+            const admin = await this.usersService.findOne({
+                organization: {
+                    uuid: organizationAndTeamData.organizationId,
+                },
+                role: Role.OWNER,
+            });
+            senderEmail = admin?.email;
+        }
 
         for (const userToSendInvitation of usersToSendInvitation) {
             const user = await this.usersService.findOne({
@@ -473,7 +489,7 @@ export class TeamMemberService implements ITeamMemberService {
                 return;
             }
 
-            await sendInvite(user, admin?.email, inviteLink, this.logger);
+            await sendInvite(user, senderEmail, inviteLink, this.logger);
         }
     }
 
