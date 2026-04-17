@@ -17,6 +17,11 @@ import {
     resolveKodyRuleSeverityLevel,
 } from '@libs/kodyRules/domain/interfaces/kodyRules.interface';
 import { convertTiptapJSONToText } from '@libs/common/utils/tiptap-json';
+import { isFileMatchingGlob } from '@libs/common/utils/glob-utils';
+import {
+    assignFileTiers,
+    computeFileScores,
+} from './llm/file-priority-scorer';
 import { byokToVercelModel, getModelName } from './llm/byok-to-vercel';
 import { resolveContextWindow } from './llm/model-context-window';
 import {
@@ -27,19 +32,127 @@ import {
 } from './llm/agent-loop';
 import {
     CoverageSummary,
+    CoverageTier,
     formatCoverageTargetsForPrompt,
 } from './llm/coverage-ledger';
 
 /** Rough token estimate: 1 token ≈ 4 characters */
 const CHARS_PER_TOKEN = 4;
-/** Use at most 60% of the context window for diffs */
-const DIFF_BUDGET_RATIO = 0.6;
+/**
+ * Ceiling on the ESTIMATED full prompt (not just diffs) as a fraction of
+ * the model context window. At 0.55 we reserve ~45% of the window for
+ * accumulated tool results, LLM reasoning, and response — which in
+ * practice is the minimum headroom needed to keep the main loop from
+ * starting at >70% utilization in PRs with hundreds of files.
+ */
+const PROMPT_BUDGET_RATIO = 0.55;
+/**
+ * Everything in the prompt that isn't the diff content itself:
+ * system prompt (~22K chars), tool schemas (~40K chars), PR context,
+ * and coverage target list. Kept as a char constant because it's used
+ * to reduce the per-chunk diff budget when we split.
+ */
+const PROMPT_STATIC_OVERHEAD_CHARS = 62_000;
+
+/**
+ * Low-signal glob patterns dropped from changedFiles only when a large PR
+ * is reviewed in non-deep mode. Tests, docs, and pure styles rarely carry
+ * the kinds of findings the agent targets, and keeping them in the diff
+ * budget crowds out real production code.
+ */
+const LARGE_PR_AGGRESSIVE_FILTER_PATTERNS = [
+    '**/*.spec.*',
+    '**/*.test.*',
+    '**/test/**',
+    '**/tests/**',
+    '**/__tests__/**',
+    '**/*.md',
+    '**/*.css',
+    '**/*.scss',
+];
 
 function estimateDiffTokens(files: FileChange[]): number {
     return files.reduce((sum, f) => {
         const diff = f.patchWithLinesStr ?? f.patch ?? '';
         return sum + Math.ceil(diff.length / CHARS_PER_TOKEN);
     }, 0);
+}
+
+/**
+ * Estimate of the full input token count for the first LLM call:
+ * diff content + callGraph + PR context + per-file coverage lines +
+ * static overhead (system prompt + tool schemas).
+ *
+ * Matches what the model actually receives, unlike estimateDiffTokens
+ * which only counted patches and consistently underestimated by ~100K
+ * tokens on large PRs.
+ */
+function estimatePromptTokens(input: {
+    changedFiles?: FileChange[];
+    callGraph?: string;
+    prTitle?: string;
+    prBody?: string;
+    fileTiers?: Map<string, CoverageTier>;
+}): number {
+    const tiers = input.fileTiers;
+    const diffChars = (input.changedFiles || []).reduce((sum, f) => {
+        const diff = f.patchWithLinesStr ?? f.patch ?? '';
+        if (tiers) {
+            const tier = tiers.get(normalizeFilenameForTier(f.filename));
+            if (tier === 'optional') {
+                // Optional files are rendered as hunk headers only,
+                // so their prompt footprint collapses to the hunk count
+                // plus the filename header (~60 chars per hunk + ~120
+                // for the file header).
+                return sum + estimateHunkHeaderChars(diff);
+            }
+        }
+        return sum + diff.length;
+    }, 0);
+    const callGraphChars = (input.callGraph || '').length;
+    const prContextChars =
+        300 + (input.prTitle || '').length + (input.prBody || '').length;
+    const coverageListChars = (input.changedFiles?.length || 0) * 80;
+    const totalChars =
+        diffChars +
+        callGraphChars +
+        prContextChars +
+        coverageListChars +
+        PROMPT_STATIC_OVERHEAD_CHARS;
+    return Math.ceil(totalChars / CHARS_PER_TOKEN);
+}
+
+function normalizeFilenameForTier(filename?: string): string {
+    if (!filename) return '';
+    return filename.replace(/^\/+/, '').replace(/\\/g, '/').trim();
+}
+
+function estimateHunkHeaderChars(diff: string): number {
+    if (!diff) return 0;
+    let hunkCount = 0;
+    for (const line of diff.split('\n')) {
+        if (line.startsWith('@@ ')) hunkCount++;
+    }
+    return 120 + hunkCount * 60; // file header + per-hunk line
+}
+
+function extractHunkHeaders(diff: string): string[] {
+    if (!diff) return [];
+    const headers: string[] = [];
+    for (const line of diff.split('\n')) {
+        if (line.startsWith('@@ ')) headers.push(line);
+    }
+    return headers;
+}
+
+function applyLargePrAggressiveFilter(files: FileChange[]): FileChange[] {
+    return files.filter(
+        (f) =>
+            !isFileMatchingGlob(
+                f.filename,
+                LARGE_PR_AGGRESSIVE_FILTER_PATTERNS,
+            ),
+    );
 }
 
 function chunkFilesByTokenBudget(
@@ -199,6 +312,16 @@ export interface ReviewAgentInput {
     baseBranch?: string;
     /** Pre-computed call graph for changed functions. Generated once, shared across agents. */
     callGraph?: string;
+    /** Structured AST graph JSON (nodes + edges) produced by kodus-graph.
+     *  Used by the priority scorer to measure in-PR file centrality when
+     *  tiered coverage is active. Safe to omit — the scorer falls back to
+     *  a neutral structural weight of 1.0 when missing. */
+    callGraphJson?: { nodes: unknown[]; edges: unknown[] };
+    /** Internal: populated by the large-PR non-deep branch of execute().
+     *  Downstream consumers (buildUserPrompt, runAgentLoop) switch the
+     *  coverage ledger into tiered mode when this is set. Maps each
+     *  changed file to its tier ('critical' | 'warm' | 'optional'). */
+    fileTiers?: Map<string, CoverageTier>;
     /** Optional runtime alias used to distinguish replicated agent runs in traces. */
     agentRuntimeName?: string;
     /** Optional replica metadata for replicated agent runs. */
@@ -343,21 +466,108 @@ export abstract class BaseCodeReviewAgentProvider {
             context: identity.name,
         });
 
-        // Check if diffs exceed the context window budget and need chunking
+        // Check if the estimated prompt exceeds the context window budget
+        // and needs chunking. The measurement accounts for diff + callGraph
+        // + PR context + coverage list + static overhead (system prompt +
+        // tool schemas) — not just the diff.
         const contextWindow = resolveContextWindow({
             byokMaxInputTokens: byokConfig?.main?.maxInputTokens,
             modelName,
         });
-        const diffBudget = Math.floor(contextWindow * DIFF_BUDGET_RATIO);
-        const totalDiffTokens = estimateDiffTokens(input.changedFiles);
+        const promptBudget = Math.floor(contextWindow * PROMPT_BUDGET_RATIO);
+        let estimatedPromptTokens = estimatePromptTokens(input);
 
-        if (totalDiffTokens > diffBudget && input.changedFiles.length > 1) {
-            this.agentLogger.warn({
-                message: `[AGENT] ${identity.name} diffs exceed context budget (${totalDiffTokens} tokens > ${diffBudget} budget), splitting into batches`,
+        // Large-PR aggressive filter + priority tiering: when the estimated
+        // prompt already exceeds the single-batch budget AND we're not in
+        // deep mode, drop low-signal files (tests, docs, styles), then
+        // score the remaining set and mark the critical tier. Tiering lets
+        // coverage relax from "inspect every file" to "inspect criticals
+        // + 70% total", which is what actually keeps the main loop from
+        // burning steps on UI leaves in a huge PR.
+        let fileTiers: Map<string, CoverageTier> | undefined;
+        if (
+            estimatedPromptTokens > promptBudget &&
+            input.changedFiles.length > 1 &&
+            input.reviewMode !== 'deep'
+        ) {
+            const filesBefore = input.changedFiles.length;
+            const filteredFiles = applyLargePrAggressiveFilter(
+                input.changedFiles,
+            );
+            if (filteredFiles.length < filesBefore) {
+                input = { ...input, changedFiles: filteredFiles };
+                const filteredTokens = estimatePromptTokens(input);
+                this.agentLogger.log({
+                    message: `[AGENT] ${identity.name} large-PR aggressive filter dropped ${filesBefore - filteredFiles.length} low-signal files (tests/md/css): ${estimatedPromptTokens} → ${filteredTokens} prompt tokens`,
+                    context: identity.name,
+                    metadata: {
+                        filesBefore,
+                        filesAfter: filteredFiles.length,
+                        tokensBefore: estimatedPromptTokens,
+                        tokensAfter: filteredTokens,
+                        reviewMode: input.reviewMode,
+                    },
+                });
+                estimatedPromptTokens = filteredTokens;
+            }
+
+            const scores = computeFileScores(
+                input.changedFiles,
+                input.callGraphJson,
+            );
+            fileTiers = assignFileTiers(scores);
+            let criticalCount = 0;
+            let warmCount = 0;
+            let optionalCount = 0;
+            for (const tier of fileTiers.values()) {
+                if (tier === 'critical') criticalCount++;
+                else if (tier === 'warm') warmCount++;
+                else optionalCount++;
+            }
+            const hasCallGraph = !!input.callGraphJson?.edges?.length;
+            this.agentLogger.log({
+                message: `[AGENT] ${identity.name} large-PR priority tiering: critical=${criticalCount} warm=${warmCount} optional=${optionalCount} / ${input.changedFiles.length} (callGraph=${hasCallGraph ? 'yes' : 'fallback'})`,
                 context: identity.name,
                 metadata: {
-                    totalDiffTokens,
-                    diffBudget,
+                    totalFiles: input.changedFiles.length,
+                    criticalCount,
+                    warmCount,
+                    optionalCount,
+                    usedCallGraph: hasCallGraph,
+                    reviewMode: input.reviewMode,
+                },
+            });
+            // Stash so buildUserPrompt and formatDiffs can render tiered
+            // output without recomputing scores.
+            input = { ...input, fileTiers };
+            // Re-estimate prompt tokens now that optional files will be
+            // rendered as hunk headers only — this often brings a large
+            // PR back under the single-batch budget.
+            estimatedPromptTokens = estimatePromptTokens(input);
+        }
+
+        if (
+            estimatedPromptTokens > promptBudget &&
+            input.changedFiles.length > 1
+        ) {
+            // Per-chunk diff budget: prompt budget minus the static
+            // overhead every chunk pays again (system + tool schemas +
+            // callGraph). Prevents chunks from individually blowing
+            // through the window once their own overhead is added back.
+            const overheadTokens = Math.ceil(
+                PROMPT_STATIC_OVERHEAD_CHARS / CHARS_PER_TOKEN,
+            );
+            const chunkDiffBudget = Math.max(
+                promptBudget - overheadTokens,
+                Math.floor(contextWindow * 0.3),
+            );
+            this.agentLogger.warn({
+                message: `[AGENT] ${identity.name} prompt exceeds context budget (${estimatedPromptTokens} tokens > ${promptBudget} budget), splitting into batches`,
+                context: identity.name,
+                metadata: {
+                    estimatedPromptTokens,
+                    promptBudget,
+                    chunkDiffBudget,
                     contextWindow,
                     filesCount: input.changedFiles.length,
                 },
@@ -370,7 +580,7 @@ export abstract class BaseCodeReviewAgentProvider {
                 model,
                 modelName,
                 startTime,
-                diffBudget,
+                diffBudget: chunkDiffBudget,
             });
         }
 
@@ -430,6 +640,7 @@ export abstract class BaseCodeReviewAgentProvider {
                 repositoryFullName: input.repositoryFullName,
                 baseBranch: input.baseBranch,
                 callGraph: input.callGraph,
+                fileTiers,
                 reviewMode: input.reviewMode,
                 maxSteps: input.maxSteps,
                 contextWindowTokens: contextWindow,
@@ -524,6 +735,14 @@ export abstract class BaseCodeReviewAgentProvider {
                 const mainOutputTokens =
                     agentResult.usage.outputTokens -
                     (vUsage?.outputTokens ?? 0);
+                const vCacheRead = (vUsage as any)?.cacheReadTokens ?? 0;
+                const vCacheWrite = (vUsage as any)?.cacheWriteTokens ?? 0;
+                const mainCacheRead =
+                    ((agentResult.usage as any).cacheReadTokens ?? 0) -
+                    vCacheRead;
+                const mainCacheWrite =
+                    ((agentResult.usage as any).cacheWriteTokens ?? 0) -
+                    vCacheWrite;
 
                 await this.observabilityService.runInSpan(
                     `${identity.name}::review`,
@@ -533,6 +752,14 @@ export abstract class BaseCodeReviewAgentProvider {
                         'gen_ai.usage.output_tokens': mainOutputTokens,
                         'gen_ai.usage.total_tokens':
                             mainInputTokens + mainOutputTokens,
+                        ...(mainCacheRead > 0 && {
+                            'gen_ai.usage.cache_read_input_tokens':
+                                mainCacheRead,
+                        }),
+                        ...(mainCacheWrite > 0 && {
+                            'gen_ai.usage.cache_creation_input_tokens':
+                                mainCacheWrite,
+                        }),
                         ...(agentResult.usage.reasoningTokens > 0 && {
                             'gen_ai.usage.reasoning_tokens':
                                 agentResult.usage.reasoningTokens -
@@ -566,6 +793,16 @@ export abstract class BaseCodeReviewAgentProvider {
                             'gen_ai.usage.output_tokens': vUsage.outputTokens,
                             'gen_ai.usage.total_tokens':
                                 vUsage.inputTokens + vUsage.outputTokens,
+                            ...((vUsage as any).cacheReadTokens > 0 && {
+                                'gen_ai.usage.cache_read_input_tokens': (
+                                    vUsage as any
+                                ).cacheReadTokens,
+                            }),
+                            ...((vUsage as any).cacheWriteTokens > 0 && {
+                                'gen_ai.usage.cache_creation_input_tokens': (
+                                    vUsage as any
+                                ).cacheWriteTokens,
+                            }),
                             ...(vUsage.reasoningTokens > 0 && {
                                 'gen_ai.usage.reasoning_tokens':
                                     vUsage.reasoningTokens,
@@ -705,8 +942,19 @@ export abstract class BaseCodeReviewAgentProvider {
                 })),
             });
 
+            const cacheReadTokens =
+                (agentResult.usage as any).cacheReadTokens ?? 0;
+            const cacheWriteTokens =
+                (agentResult.usage as any).cacheWriteTokens ?? 0;
+            const cacheHitRate =
+                agentResult.usage.inputTokens > 0
+                    ? Math.round(
+                          (cacheReadTokens / agentResult.usage.inputTokens) *
+                              100,
+                      )
+                    : 0;
             this.agentLogger.log({
-                message: `[AGENT] ${identity.name} completed for PR#${input.prNumber}: ${suggestions.length} suggestions in ${durationMs}ms (source=${agentResult.source}, steps=${agentResult.steps}, tools=${agentResult.toolCalls.length}, input=${agentResult.usage.inputTokens}, output=${agentResult.usage.outputTokens}, total=${agentResult.usage.totalTokens})`,
+                message: `[AGENT] ${identity.name} completed for PR#${input.prNumber}: ${suggestions.length} suggestions in ${durationMs}ms (source=${agentResult.source}, steps=${agentResult.steps}, tools=${agentResult.toolCalls.length}, input=${agentResult.usage.inputTokens} [cacheRead=${cacheReadTokens}, hit=${cacheHitRate}%], output=${agentResult.usage.outputTokens}, total=${agentResult.usage.totalTokens})`,
                 context: identity.name,
                 metadata: {
                     organizationId:
@@ -718,6 +966,9 @@ export abstract class BaseCodeReviewAgentProvider {
                     steps: agentResult.steps,
                     toolCalls: agentResult.toolCalls.length,
                     inputTokens: agentResult.usage.inputTokens,
+                    cacheReadTokens,
+                    cacheWriteTokens,
+                    cacheHitRate,
                     outputTokens: agentResult.usage.outputTokens,
                     totalTokens: agentResult.usage.totalTokens,
                     finishReason: agentResult.finishReason,
@@ -1081,12 +1332,17 @@ ${memoryRulesSection}
             input.prTitle,
             input.prBody,
         );
-        const diffsSection = this.formatDiffs(input.changedFiles);
+        const diffsSection = this.formatDiffs(
+            input.changedFiles,
+            input.fileTiers,
+        );
         const callGraphSection = input.callGraph
             ? `\n  <CallGraph>\n${input.callGraph}\n  </CallGraph>`
             : '';
         const coverageTargets = formatCoverageTargetsForPrompt(
             input.changedFiles,
+            20,
+            input.fileTiers ? { fileTiers: input.fileTiers } : undefined,
         );
 
         const categoryLabel = this.getCategoryLabel();
@@ -1147,7 +1403,11 @@ ${mixedLabelTaskGuidance}
   </Task>
 
   <CoverageContract>
-    You must inspect every changed file below with readFile or checkTypes before finalizing.
+    ${
+        input.fileTiers
+            ? 'You must inspect every CRITICAL file below with readFile before finalizing. Warm files contribute to the 70% total coverage requirement — inspect them if budget allows. Optional files appear with hunk headers only; do not spend steps on them unless a concrete hypothesis points to one.'
+            : 'You must inspect every changed file below with readFile before finalizing.'
+    }
     grep, findFile, and listDir help navigation, but they do not count as coverage.
 ${coverageTargets ? `${coverageTargets}\n` : ''}
   </CoverageContract>
@@ -1156,7 +1416,7 @@ ${coverageTargets ? `${coverageTargets}\n` : ''}
     - Root cause must be in lines added or modified by this PR.
     - Pre-existing issues: report only if this PR makes them worse or newly reachable.
     - "Looks correct" is not a valid reason to dismiss — explain the specific reason it is safe.
-    - Before finalizing, make sure you have inspected every changed file listed above.
+    - Before finalizing, make sure you have inspected every ${input.fileTiers ? 'CRITICAL' : 'changed'} file listed above.
     - Before reporting, be able to answer at least one of these: which changed line creates the risk, what concrete failing path follows, which caller/callee assumption is broken, or what observable bad behavior would happen.
     - Do not promote a finding from a mere possibility. Plausible is not enough. The changed code plus the code you inspected must show a concrete failure path and a concrete wrong outcome.
     - Do not report generic resource exhaustion, shell injection, bypass, or performance theories unless the modified code directly creates or worsens that path.
@@ -1418,13 +1678,37 @@ ${fileContentsSection}
         return `\n  <PRContext>${parts.join('\n')}</PRContext>`;
     }
 
-    private formatDiffs(files: FileChange[]): string {
+    private formatDiffs(
+        files: FileChange[],
+        fileTiers?: Map<string, CoverageTier>,
+    ): string {
         if (!files?.length) return 'No changed files provided.';
 
         return files
             .map((file) => {
                 const diff = file.patchWithLinesStr ?? file.patch ?? '';
-                return `### ${file.filename}\n\`\`\`diff\n${diff}\n\`\`\``;
+                const tier = fileTiers?.get(
+                    normalizeFilenameForTier(file.filename),
+                );
+                if (tier === 'optional') {
+                    // Optional files: render filename + per-hunk headers
+                    // only. Actual content is hidden to keep the prompt
+                    // small; the agent can still readFile on demand.
+                    const additions = file.additions ?? 0;
+                    const deletions = file.deletions ?? 0;
+                    const hunkHeaders = extractHunkHeaders(diff);
+                    const headerLine = hunkHeaders.length
+                        ? hunkHeaders.join('\n')
+                        : '(no hunk headers)';
+                    return `### ${file.filename} [optional, +${additions} -${deletions}]\n\`\`\`diff\n${headerLine}\n\`\`\``;
+                }
+                const tierSuffix =
+                    tier === 'critical'
+                        ? ' [CRITICAL]'
+                        : tier === 'warm'
+                          ? ' [warm]'
+                          : '';
+                return `### ${file.filename}${tierSuffix}\n\`\`\`diff\n${diff}\n\`\`\``;
             })
             .join('\n\n');
     }

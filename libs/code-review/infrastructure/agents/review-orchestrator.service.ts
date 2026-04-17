@@ -53,11 +53,11 @@ export class ReviewOrchestratorService {
         'kody-rules': 4,
     };
     private static readonly NORMAL_MODE_MAX_STEPS: Record<string, number> = {
-        'generalist': 18,
-        'bug': 18,
+        'generalist': 20,
+        'bug': 20,
         'security': 12,
         'performance': 12,
-        'kody-rules': 18,
+        'kody-rules': 20,
     };
     private static readonly DEEP_MODE_MAX_STEPS = 100;
 
