@@ -35,6 +35,8 @@ describe('CostEstimateUseCase', () => {
                 outputTokens: number;
                 reasoningTokens: number;
                 totalTokens: number;
+                cacheReadTokens: number;
+                cacheWriteTokens: number;
             };
         }> = [
             {
@@ -45,6 +47,8 @@ describe('CostEstimateUseCase', () => {
                     outputTokens: 0,
                     reasoningTokens: 0,
                     totalTokens: 0,
+                    cacheReadTokens: 0,
+                    cacheWriteTokens: 0,
                 },
             },
             {
@@ -56,6 +60,8 @@ describe('CostEstimateUseCase', () => {
                     reasoningTokens: 30,
                     // totalTokens MUST NOT include reasoning — output already does (Vercel SDK convention)
                     totalTokens: 150,
+                    cacheReadTokens: 0,
+                    cacheWriteTokens: 0,
                 },
             },
             {
@@ -66,6 +72,8 @@ describe('CostEstimateUseCase', () => {
                     outputTokens: 500,
                     reasoningTokens: 0,
                     totalTokens: 1_500,
+                    cacheReadTokens: 0,
+                    cacheWriteTokens: 0,
                 },
             },
             {
@@ -80,6 +88,8 @@ describe('CostEstimateUseCase', () => {
                     outputTokens: 150,
                     reasoningTokens: 80,
                     totalTokens: 500,
+                    cacheReadTokens: 0,
+                    cacheWriteTokens: 0,
                 },
             },
             {
@@ -96,6 +106,8 @@ describe('CostEstimateUseCase', () => {
                     outputTokens: 2_000_000,
                     reasoningTokens: 1_500_000,
                     totalTokens: 7_000_000,
+                    cacheReadTokens: 0,
+                    cacheWriteTokens: 0,
                 },
             },
         ];
@@ -140,6 +152,8 @@ describe('CostEstimateUseCase', () => {
                 outputTokens: 0,
                 reasoningTokens: 0,
                 totalTokens: 0,
+                cacheReadTokens: 0,
+                cacheWriteTokens: 0,
             });
             expect(result.estimatedMonthlyCost).toBe(0);
             expect(result.costPerDeveloper).toBe(0);
@@ -168,6 +182,8 @@ describe('CostEstimateUseCase', () => {
                 outputTokens: 500_000,
                 reasoningTokens: 200_000,
                 totalTokens: 1_500_000, // input + output ONLY
+                cacheReadTokens: 0,
+                cacheWriteTokens: 0,
             });
 
             // Cost over 14 days

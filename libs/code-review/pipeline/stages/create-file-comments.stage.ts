@@ -299,6 +299,7 @@ export class CreateFileCommentsStage extends BasePipelineStage<CodeReviewPipelin
                 context.pullRequestMessagesConfig?.globalSettings
                     ?.suggestionCopyPrompt,
                 fallbackSuggestionsBySeverity,
+                allDiscardedSuggestions,
             );
 
         // Save pull request suggestions — comments already posted at this point
@@ -372,8 +373,36 @@ export class CreateFileCommentsStage extends BasePipelineStage<CodeReviewPipelin
         lastAnalyzedCommitFromContext: any,
         suggestionCopyPrompt?: boolean,
         fallbackSuggestionsBySeverity?: FallbackSuggestionsBySeverity,
+        allDiscardedSuggestions?: Partial<CodeSuggestion>[],
     ) {
         try {
+            // Children in a cluster are merged into their parent's
+            // actionStatement upstream, so we skip posting them as
+            // separate comments. Mark them with DISCARDED_BY_CLUSTERING
+            // so they still reach Mongo instead of vanishing silently
+            // — helps reconcile when a cluster link gets orphaned.
+            const relatedOrphans = sortedPrioritizedSuggestions.filter(
+                (s) =>
+                    s.clusteringInformation?.type === ClusteringType.RELATED,
+            );
+            if (relatedOrphans.length > 0 && allDiscardedSuggestions) {
+                for (const orphan of relatedOrphans) {
+                    allDiscardedSuggestions.push({
+                        ...orphan,
+                        priorityStatus:
+                            PriorityStatus.DISCARDED_BY_CLUSTERING,
+                    });
+                }
+                this.logger.log({
+                    message: `[CREATE-COMMENTS] ${relatedOrphans.length} related cluster children marked DISCARDED_BY_CLUSTERING`,
+                    context: this.stageName,
+                    metadata: {
+                        prNumber: pullRequest.number,
+                        count: relatedOrphans.length,
+                    },
+                });
+            }
+
             const lineComments = sortedPrioritizedSuggestions
                 .filter(
                     (suggestion) =>

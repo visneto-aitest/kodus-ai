@@ -412,6 +412,7 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                     context.pullRequest?.base?.ref ||
                     context.repository?.defaultBranch,
                 callGraph,
+                callGraphJson: context.callGraphJson,
                 reviewMode: context.codeReviewConfig?.reviewMode || 'normal',
             });
 
@@ -885,6 +886,33 @@ export class AgentReviewStage extends BasePipelineStage<CodeReviewPipelineContex
                             discardedSuggestionsBySafeGuard: discardedForFile,
                             file,
                         });
+                    } else {
+                        // Silent drop guard: the agent produced a finding
+                        // for a file that isn't in changedFiles (path
+                        // mismatch, filtered-out test/doc, rename, etc.).
+                        // Previously these disappeared with no trace —
+                        // now we track them as DISCARDED_BY_CODE_DIFF so
+                        // the suggestion still reaches Mongo and can be
+                        // reconciled later.
+                        this.logger.warn({
+                            message: `[AGENT] ${suggestions.length} suggestion(s) dropped — relevantFile "${filename}" not found in changedFiles`,
+                            context: this.stageName,
+                            metadata: {
+                                prNumber,
+                                filename,
+                                suggestionsCount: suggestions.length,
+                                availableFilesSample: changedFiles
+                                    .slice(0, 10)
+                                    .map((f) => f.filename),
+                            },
+                        });
+                        for (const s of suggestions) {
+                            allDiscarded.push({
+                                ...s,
+                                priorityStatus:
+                                    PriorityStatus.DISCARDED_BY_CODE_DIFF,
+                            });
+                        }
                     }
                 }
 

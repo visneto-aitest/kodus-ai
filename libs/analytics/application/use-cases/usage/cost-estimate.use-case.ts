@@ -100,19 +100,29 @@ export class CostEstimateUseCase {
     }
 
     private aggregateTokenUsage(
-        usages: { input: number; output: number; outputReasoning: number }[],
+        usages: {
+            input: number;
+            output: number;
+            outputReasoning: number;
+            cacheRead?: number;
+            cacheWrite?: number;
+        }[],
     ) {
         const totals = {
             inputTokens: 0,
             outputTokens: 0,
             reasoningTokens: 0,
             totalTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
         };
 
         for (const usage of usages) {
             totals.inputTokens += usage.input;
             totals.outputTokens += usage.output;
             totals.reasoningTokens += usage.outputReasoning;
+            totals.cacheReadTokens += usage.cacheRead ?? 0;
+            totals.cacheWriteTokens += usage.cacheWrite ?? 0;
         }
 
         // outputTokens already includes reasoningTokens (Vercel AI SDK convention).

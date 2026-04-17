@@ -3,6 +3,11 @@ const mockGenerateText = jest.fn();
 
 jest.mock('ai', () => ({
     generateText: (...args: any[]) => mockGenerateText(...args),
+    stepCountIs: () => () => false,
+    hasToolCall: () => () => false,
+    tool: (opts: any) => opts,
+    Output: { object: (opts: any) => opts },
+    jsonSchema: (s: any) => s,
 }));
 
 jest.mock('@ai-sdk/google', () => ({

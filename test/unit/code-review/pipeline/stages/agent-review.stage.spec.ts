@@ -17,6 +17,9 @@ jest.mock('ai', () => ({
     }),
     Output: { object: jest.fn().mockReturnValue({}) },
     jsonSchema: jest.fn().mockReturnValue({}),
+    stepCountIs: () => () => false,
+    hasToolCall: () => () => false,
+    tool: (opts: any) => opts,
 }));
 
 jest.mock('@kodus/flow', () => ({

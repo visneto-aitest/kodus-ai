@@ -10,7 +10,14 @@ import {
  * 3. If JSON parse fails — `generateText` with `Output.object` (cheap model) to structure the text
  */
 import * as aiSdk from 'ai';
-import { stepCountIs, Output, jsonSchema, type LanguageModel } from 'ai';
+import {
+    stepCountIs,
+    hasToolCall,
+    Output,
+    jsonSchema,
+    tool as defineTool,
+    type LanguageModel,
+} from 'ai';
 
 // Wrap AI SDK with LangSmith tracing when LANGCHAIN_TRACING_V2=true
 let generateText = aiSdk.generateText;
@@ -289,9 +296,12 @@ import { RemoteCommands } from '../../adapters/services/collectCrossFileContexts
 import {
     buildCoverageLedger,
     CoverageSummary,
+    CoverageTier,
     formatCoverageDebt,
     getCoverageSummary,
+    isCoverageSatisfied,
     markCoverageFromToolCall,
+    TIERED_TOTAL_COVERAGE_THRESHOLD,
 } from './coverage-ledger';
 import {
     compressMessages,
@@ -301,8 +311,85 @@ import {
 
 const logger = createLogger('AgentLoop');
 
-const MAX_STEPS_NORMAL = 15;
+/**
+ * Normalize a Vercel AI SDK usage object into the cache-aware shape we
+ * use internally. Handles both the current `inputTokenDetails` schema
+ * (SDK v5+) and the deprecated `cachedInputTokens` scalar (older v4).
+ * Missing fields default to 0 — we never return undefined, so accumulators
+ * can sum safely.
+ */
+function extractUsage(usage: any): {
+    inputTokens: number;
+    cacheReadTokens: number;
+    cacheWriteTokens: number;
+    outputTokens: number;
+    reasoningTokens: number;
+} {
+    if (!usage) {
+        return {
+            inputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            outputTokens: 0,
+            reasoningTokens: 0,
+        };
+    }
+    const details = usage.inputTokenDetails || {};
+    const cacheRead =
+        details.cacheReadTokens ?? usage.cachedInputTokens ?? 0;
+    const cacheWrite = details.cacheWriteTokens ?? 0;
+    return {
+        inputTokens: usage.inputTokens ?? 0,
+        cacheReadTokens: cacheRead,
+        cacheWriteTokens: cacheWrite,
+        outputTokens: usage.outputTokens ?? 0,
+        reasoningTokens:
+            usage.outputTokenDetails?.reasoningTokens ??
+            usage.reasoningTokens ??
+            0,
+    };
+}
+
+const MAX_STEPS_NORMAL = 20;
 const MAX_STEPS_DEEP = 100;
+
+/**
+ * Step-budget pressure appended to the system prompt at specific bands,
+ * to keep the agent from burning the whole maxSteps without synthesizing.
+ *
+ * Bands (relative to forceTextAfter = maxSteps - 2):
+ *   - `urgent`    : last 3 steps before force-text — "synthesize now"
+ *   - `encourage` : 4 steps before urgent — "form hypotheses, avoid new reads"
+ *   - `free`      : anything earlier — no injected pressure
+ *
+ * Tiny budgets (maxSteps < 6) collapse the bands onto force-text, so we
+ * skip injection entirely and let the existing force-text logic handle it.
+ * That keeps the verifier (5 steps) and other narrow phases unharmed.
+ */
+function computeStepBudgetNote(
+    stepNumber: number,
+    maxSteps: number,
+): { note: string; phase: 'free' | 'encourage' | 'urgent' } {
+    const forceTextAfter = maxSteps - 2;
+    if (maxSteps < 6 || stepNumber >= forceTextAfter) {
+        return { note: '', phase: 'free' };
+    }
+    const urgentFrom = Math.max(forceTextAfter - 3, 3);
+    const encourageFrom = Math.max(urgentFrom - 4, 2);
+    if (stepNumber >= urgentFrom) {
+        return {
+            note: `\n\nSTEP BUDGET: you are on step ${stepNumber}/${maxSteps}. Final steps before the submit is forced. Synthesize findings from the evidence already collected. Do NOT start new exploration threads unless verifying a specific named hypothesis.`,
+            phase: 'urgent',
+        };
+    }
+    if (stepNumber >= encourageFrom) {
+        return {
+            note: `\n\nSTEP BUDGET: you are on step ${stepNumber}/${maxSteps}. Start forming concrete hypotheses from the evidence collected so far. Avoid new reads unless they answer a specific question you can state upfront.`,
+            phase: 'encourage',
+        };
+    }
+    return { note: '', phase: 'free' };
+}
 export const AGENT_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes max per agent
 export const LLM_CALL_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes max per individual LLM call
 
@@ -366,6 +453,100 @@ const _findingsSchema = z.object({
 
 export type FindingsOutput = z.infer<typeof _findingsSchema>;
 
+const _verificationSchema = z.object({
+    index: z.number(),
+    keep: z.boolean(),
+    rationale: z.string(),
+    confidence: z.enum(['high', 'medium', 'low']).optional(),
+});
+
+// ─── Done-tool infrastructure ───────────────────────────────────────────────
+// A "done tool" is a tool WITHOUT an `execute` function.  When the model
+// calls it the AI SDK stops the loop immediately and the structured args
+// are available in `result.toolCalls`.  This replaces fragile free-text
+// JSON parsing with schema-validated output.
+
+const DONE_TOOL_NAME = 'submitResult' as const;
+
+/**
+ * Create a done-tool with a given Zod schema.
+ * The tool has no `execute`, so calling it stops the agent loop.
+ */
+function createDoneTool<T extends z.ZodType>(
+    description: string,
+    schema: T,
+) {
+    return defineTool({
+        description,
+        // AI SDK v6 uses `inputSchema`, not `parameters` (which is silently
+        // ignored — that's why Gemini was calling the tool with empty args).
+        inputSchema: schema as any,
+        // strict: true forces Gemini to use VALIDATED mode instead of ANY,
+        // which guarantees the model fills in the schema fields.
+        strict: true,
+        // no execute → stops the loop
+    });
+}
+
+/** Pre-built done tools for each agent context. */
+const DONE_TOOLS = {
+    findings: createDoneTool(
+        'Submit your final code review findings. Call this tool when your investigation is complete.',
+        _findingsSchema,
+    ),
+    verification: createDoneTool(
+        'Submit your verification verdict for the candidate finding. Call this tool when you have enough evidence.',
+        _verificationSchema,
+    ),
+} as const;
+
+/**
+ * Extract the done-tool result from a generateText result.
+ * Returns the parsed args if the model called the done tool, or null.
+ */
+function extractDoneToolResult<T>(result: any): T | null {
+    const extract = (tc: any): T | null => {
+        const args = tc?.args ?? tc?.input ?? null;
+        // Safety net: Gemini sometimes calls the tool with empty args {}
+        // even in VALIDATED mode when the schema is very complex.
+        if (
+            !args ||
+            (typeof args === 'object' && Object.keys(args).length === 0)
+        ) {
+            logger.warn({
+                message:
+                    '[DONE-TOOL] Model called submitResult with empty args — falling back to text parsing',
+                context: 'AgentLoop',
+            });
+            return null;
+        }
+        return args as T;
+    };
+
+    // Check result.toolCalls (last step) first
+    const calls: any[] = result?.toolCalls || [];
+    const doneCall = calls.find(
+        (tc: any) => tc.toolName === DONE_TOOL_NAME,
+    );
+    if (doneCall) {
+        return extract(doneCall);
+    }
+
+    // Check all steps in case it was called in an earlier step
+    const steps: any[] = result?.steps || [];
+    for (let i = steps.length - 1; i >= 0; i--) {
+        const stepCalls: any[] = steps[i]?.toolCalls || [];
+        const call = stepCalls.find(
+            (tc: any) => tc.toolName === DONE_TOOL_NAME,
+        );
+        if (call) {
+            return extract(call);
+        }
+    }
+
+    return null;
+}
+
 export interface AgentLoopInput {
     model: LanguageModel;
     systemPrompt: string;
@@ -381,6 +562,11 @@ export interface AgentLoopInput {
     baseBranch?: string;
     /** Pre-computed call graph shared by reviewers and verifier. */
     callGraph?: string;
+    /** Map of normalized filename to tier ('critical' | 'warm' | 'optional').
+     *  When present, the coverage ledger runs in tiered mode: critical
+     *  files must be covered; warm/optional count toward the 70% total
+     *  floor. When absent, coverage stays flat (legacy 100%-all-files). */
+    fileTiers?: Map<string, CoverageTier>;
     /** Review mode: 'fast' skips heavy passes and caps steps; 'normal' skips verify only for very-high-confidence findings; 'deep' verifies everything. */
     reviewMode?: 'fast' | 'normal' | 'deep';
     /** Model context window in tokens. Used to trigger context compression when the message history grows too large. */
@@ -437,7 +623,14 @@ export interface AgentLoopOutput {
     /** Whether findings came from direct JSON parse or fallback generateObject */
     source: 'json-parse' | 'generate-object' | 'empty';
     usage: {
+        /** Total input tokens sent to the model (includes cached). */
         inputTokens: number;
+        /** Portion of input tokens served from provider cache (Gemini/OpenAI/
+         *  Moonshot/DeepSeek implicit cache, Anthropic ephemeral reads). */
+        cacheReadTokens: number;
+        /** Portion of input tokens written to cache on this request (pays
+         *  Anthropic's write premium; 0 for implicit-cache providers). */
+        cacheWriteTokens: number;
         outputTokens: number;
         reasoningTokens: number;
         totalTokens: number;
@@ -449,6 +642,8 @@ export interface AgentLoopOutput {
     /** Token usage for the verification sub-step only (included in total usage). */
     verificationUsage?: {
         inputTokens: number;
+        cacheReadTokens: number;
+        cacheWriteTokens: number;
         outputTokens: number;
         reasoningTokens: number;
     };
@@ -527,13 +722,25 @@ export async function runAgentLoop(
     // Self-contained mode: no sandbox, no tools. The agent analyzes diffs
     // and any inlined fileContent in a single LLM call. Used by CLI trial.
     const isSelfContained = Object.keys(tools).length === 0;
-    const coverageTargets = buildCoverageLedger(input.changedFiles);
+    const coverageTargets = buildCoverageLedger(input.changedFiles, {
+        fileTiers: input.fileTiers,
+    });
+
+    // Cache-friendly step budget injection: Gemini implicit prompt caching
+    // is prefix-based — any change to the `system` field invalidates the
+    // whole prefix for the next call. We track whether the encourage/urgent
+    // transition notes have been appended as trailing user messages so we
+    // only break the cache once per band transition, not every step.
+    let encourageNoteAppended = false;
+    let urgentNoteAppended = false;
 
     const allToolCalls: AgentLoopOutput['toolCalls'] = [];
     let stepCount = 0;
     let lastStepText = ''; // Capture text from intermediate steps for timeout recovery
     const allStepTexts: string[] = []; // Accumulate ALL text steps for better timeout recovery
     let totalInputTokens = 0;
+    let totalCacheReadTokens = 0;
+    let totalCacheWriteTokens = 0;
     let totalOutputTokens = 0;
     let totalReasoningTokens = 0;
     let verificationTrace: VerificationTraceSummary | null = null;
@@ -578,20 +785,23 @@ export async function runAgentLoop(
                             modelName: (input.model as any)?.modelId,
                         },
                     ),
-                    tools,
+                    tools: isSelfContained
+                        ? tools
+                        : { ...tools, [DONE_TOOL_NAME]: DONE_TOOLS.findings },
                     // Self-contained mode has no tools — a single LLM call
                     // is enough to produce the final JSON response.
-                    stopWhen: stepCountIs(
-                        isSelfContained
-                            ? 1
-                            : input.maxSteps ||
-                              (input.reviewMode === 'deep'
-                                  ? MAX_STEPS_DEEP
-                                  : MAX_STEPS_NORMAL),
-                    ),
-                    // Last 2 steps: remove tools entirely to force text response.
-                    // toolChoice: 'none' doesn't work with all providers (e.g., Gemini ignores it).
-                    // Removing tools entirely guarantees the model can only respond with text.
+                    stopWhen: isSelfContained
+                        ? stepCountIs(1)
+                        : [
+                              hasToolCall(DONE_TOOL_NAME),
+                              stepCountIs(
+                                  input.maxSteps ||
+                                      (input.reviewMode === 'deep'
+                                          ? MAX_STEPS_DEEP
+                                          : MAX_STEPS_NORMAL),
+                              ),
+                          ],
+                    // Last 2 steps: force the model to call submitResult.
                     prepareStep: ({ stepNumber, messages }: any) => {
                         // Self-contained mode has no tools and a single
                         // step, so coverage debt / force-text logic does
@@ -606,6 +816,14 @@ export async function runAgentLoop(
                                 ? MAX_STEPS_DEEP
                                 : MAX_STEPS_NORMAL);
                         const forceTextAfter = maxSteps - 2;
+                        const { note: stepBudgetNote, phase: stepBudgetPhase } =
+                            computeStepBudgetNote(stepNumber, maxSteps);
+                        if (stepBudgetPhase === 'urgent') {
+                            logger.log({
+                                message: `[AGENT-STEP-BUDGET] urgent step=${stepNumber}/${maxSteps}`,
+                                context: 'AgentLoop',
+                            });
+                        }
                         const coverageDebt =
                             formatCoverageDebt(coverageTargets);
 
@@ -661,27 +879,18 @@ export async function runAgentLoop(
                             }
                         }
 
-                        if (coverageDebt) {
-                            if (stepNumber >= forceTextAfter) {
+                        // Force-text: last 2 steps override system to
+                        // demand JSON-only. Accept the single cache miss
+                        // here — by this point we're on the final call or
+                        // two and the saving isn't worth the carrying
+                        // complexity.
+                        if (stepNumber >= forceTextAfter) {
+                            if (coverageDebt) {
                                 logger.log({
                                     message: `[AGENT-COVERAGE-DEBT] step=${stepNumber}/${maxSteps} pending=${getCoverageSummary(coverageTargets).pendingTargets} — prioritizing uncovered changed files`,
                                     context: 'AgentLoop',
                                 });
                             }
-
-                            return {
-                                ...(compressedMessages
-                                    ? { messages: compressedMessages }
-                                    : {}),
-                                system:
-                                    input.systemPrompt +
-                                    '\n\nIMPORTANT: Coverage debt is still open.\n' +
-                                    coverageDebt +
-                                    '\nPrioritize the uncovered changed files before exploring anything else.',
-                            };
-                        }
-
-                        if (stepNumber >= forceTextAfter) {
                             logger.log({
                                 message: `[AGENT-FORCE-TEXT] step=${stepNumber}/${maxSteps} — removing tools, forcing JSON response`,
                                 context: 'AgentLoop',
@@ -696,21 +905,52 @@ export async function runAgentLoop(
                                     input.systemPrompt +
                                     '\n\nIMPORTANT: You have reached the final response step. ' +
                                     'Do NOT call any more tools. ' +
-                                    'Respond ONLY with a JSON object inside a markdown code block:\n' +
-                                    '```json\n' +
-                                    '{\n' +
-                                    '  "reasoning": "what you investigated and found",\n' +
-                                    '  "suggestions": []\n' +
-                                    '}\n' +
-                                    '```\n' +
-                                    'If you found no issues, return an empty suggestions array. No prose, no explanation outside the JSON.',
+                                    'Respond ONLY with a JSON object containing your findings. ' +
+                                    'If you found no issues, return an empty suggestions array.',
                             };
                         }
 
-                        // Note: toolChoice: 'required' was removed because some providers
-                        // (e.g. Moonshot) reject it with "incompatible with thinking enabled".
-                        // The prompt already instructs "Your first action must be a tool call".
+                        // Cache-friendly injection: instead of appending
+                        // the step-budget note / coverage-debt snapshot to
+                        // `system` (which invalidates the whole prefix),
+                        // we append them as a trailing user message exactly
+                        // at band transitions. Everything before the new
+                        // message stays cacheable.
+                        let appendedNote: string | null = null;
+                        if (stepBudgetPhase === 'urgent' && !urgentNoteAppended) {
+                            appendedNote =
+                                stepBudgetNote.trim() +
+                                (coverageDebt
+                                    ? `\n\n${coverageDebt}\nPrioritize the uncovered critical files before anything else.`
+                                    : '');
+                            urgentNoteAppended = true;
+                        } else if (
+                            stepBudgetPhase === 'encourage' &&
+                            !encourageNoteAppended
+                        ) {
+                            appendedNote =
+                                stepBudgetNote.trim() +
+                                (coverageDebt
+                                    ? `\n\n${coverageDebt}\nPrioritize the uncovered critical files before anything else.`
+                                    : '');
+                            encourageNoteAppended = true;
+                        }
 
+                        if (appendedNote) {
+                            const baseMessages = compressedMessages || messages;
+                            return {
+                                messages: [
+                                    ...baseMessages,
+                                    {
+                                        role: 'user' as const,
+                                        content: appendedNote,
+                                    },
+                                ],
+                            };
+                        }
+
+                        // Steady state: never touch `system`. Only return a
+                        // compressed messages array if compression fired.
                         return compressedMessages
                             ? { messages: compressedMessages }
                             : {};
@@ -819,12 +1059,18 @@ export async function runAgentLoop(
                             });
                         }
 
-                        // Track cumulative token usage for timeout recovery
+                        // Track cumulative token usage for timeout recovery.
+                        // Capture cache read/write breakdown so downstream
+                        // reporting reflects what the customer is actually
+                        // billed (cached tokens get 50-90% off depending on
+                        // provider).
                         if (event.usage) {
-                            totalInputTokens += event.usage.inputTokens ?? 0;
-                            totalOutputTokens += event.usage.outputTokens ?? 0;
-                            totalReasoningTokens +=
-                                event.usage.reasoningTokens ?? 0;
+                            const u = extractUsage(event.usage);
+                            totalInputTokens += u.inputTokens;
+                            totalCacheReadTokens += u.cacheReadTokens;
+                            totalCacheWriteTokens += u.cacheWriteTokens;
+                            totalOutputTokens += u.outputTokens;
+                            totalReasoningTokens += u.reasoningTokens;
                         }
 
                         input.onStepFinish?.(event);
@@ -914,6 +1160,8 @@ export async function runAgentLoop(
                 source,
                 usage: {
                     inputTokens: totalInputTokens,
+                    cacheReadTokens: totalCacheReadTokens,
+                    cacheWriteTokens: totalCacheWriteTokens,
                     outputTokens: totalOutputTokens,
                     reasoningTokens: totalReasoningTokens,
                     totalTokens: totalInputTokens + totalOutputTokens,
@@ -931,10 +1179,24 @@ export async function runAgentLoop(
     }
     clearTimeout(timeoutHandle);
 
+    // ─── Done-tool extraction ───────────────────────────────────────────
+    // If the model called submitResult, extract findings directly from
+    // the validated tool args — no text parsing needed.
+    const doneToolFindings = isSelfContained
+        ? null
+        : extractDoneToolResult<FindingsOutput>(result);
+
+    if (doneToolFindings) {
+        logger.log({
+            message: `[AGENT-DONE-TOOL] Model called submitResult with ${doneToolFindings.suggestions.length} suggestions`,
+            context: 'AgentLoop',
+        });
+    }
+
     // result.text may be empty if the model's last step was a tool call.
     // Fall back to accumulated step texts (e.g., from forced text steps 33/34).
     let finalText = result.text || '';
-    if (!finalText && allStepTexts.length > 0) {
+    if (!doneToolFindings && !finalText && allStepTexts.length > 0) {
         finalText = allStepTexts[allStepTexts.length - 1]; // Use last text step
         logger.log({
             message: `[AGENT-FALLBACK-TEXT] result.text empty, using last step text (${finalText.length} chars)`,
@@ -942,37 +1204,27 @@ export async function runAgentLoop(
         });
     }
 
-    // Second chance: when the model hit MAX_STEPS without producing text,
-    // make a follow-up call WITHOUT tools using the full conversation history.
-    // The model already investigated — it just needs a chance to respond.
+    // Second chance: when the model hit MAX_STEPS without calling submitResult
+    // and without producing text. Uses full response.messages for complete context.
     if (
+        !doneToolFindings &&
         !finalText &&
-        result.finishReason === 'tool-calls' &&
         allToolCalls.length > 0
     ) {
         logger.log({
-            message: `[AGENT-SECOND-CHANCE] Agent hit MAX_STEPS with ${allToolCalls.length} tool calls but no text. Making follow-up call to extract findings.`,
+            message: `[AGENT-SECOND-CHANCE] Agent finished ${allToolCalls.length} tool calls without submitResult or text. Retrying with full context.`,
             context: 'AgentLoop',
         });
 
         try {
-            // Build a summary of what the agent investigated — include enough result context
-            const investigationSummary = allToolCalls
-                .map((tc) => {
-                    const args =
-                        typeof tc.args === 'string'
-                            ? tc.args
-                            : JSON.stringify(tc.args);
-                    const resultStr =
-                        typeof tc.result === 'string'
-                            ? tc.result?.substring(0, 400)
-                            : '';
-                    return `${tc.toolName}(${args.substring(0, 150)}) → ${resultStr || '(empty)'}`;
-                })
-                .join('\n');
             const secondChanceSignal = timeoutSignal(LLM_CALL_TIMEOUT_MS);
 
-            const secondChanceResult = await throttledGenerateText({
+            // Use full conversation history from result.response.messages
+            // so the model has complete file contents, grep results, etc.
+            const responseMessages: any[] =
+                result?.response?.messages || [];
+
+            const secondChanceResult: any = await throttledGenerateText({
                 byokConfig: secrets.byokConfig,
                 organizationId: input.telemetryMetadata?.organizationId,
                 role: 'main',
@@ -998,59 +1250,41 @@ export async function runAgentLoop(
                                 modelName: (input.model as any)?.modelId,
                             },
                         ),
-                        prompt: `You have already investigated this code review task using ${allToolCalls.length} tool calls. Here is a summary of your investigation:
-
-<InvestigationLog>
-${investigationSummary.substring(0, 8000)}
-</InvestigationLog>
-
-Based on your investigation above, respond NOW with your findings as a JSON block. Do NOT call any tools.
-
-IMPORTANT: Your investigation log shows what you looked at. Re-read it carefully.
-- If you found ANY suspicious patterns, null risks, type mismatches, race conditions, or missing validations — report them.
-- If a tool call returned evidence of a problem (error output, missing checks, wrong types) — report it even if you're not 100% certain.
-- "I didn't find issues" is only valid if you can explain WHY each changed function is safe.
-
-Respond with ONLY the JSON:
-
-\`\`\`json
-{
-  "reasoning": "For each changed function: what you challenged, what evidence you found, why you reported or dismissed",
-  "suggestions": [
-    {
-      "relevantFile": "path/to/file",
-      "language": "java",
-      "label": "bug|security|performance",
-      "suggestionContent": "Description of the issue with evidence from your investigation",
-      "existingCode": "problematic code (only the lines that need to change, plus 1-2 surrounding lines for context)",
-      "improvedCode": "fixed code (same scope as existingCode — only the changed lines plus 1-2 lines of context, NOT the entire function or block)",
-      "oneSentenceSummary": "Brief summary",
-      "relevantLinesStart": 10,
-      "relevantLinesEnd": 15,
-      "severity": "critical|high|medium|low"
-    }
-  ]
-}
-\`\`\``,
-                        stopWhen: stepCountIs(1), // No tools, just respond
+                        messages: [
+                            // Original user prompt with diffs and PR context
+                            { role: 'user' as const, content: input.userPrompt },
+                            // Full conversation history: all tool calls + complete results
+                            ...responseMessages,
+                            // Instruction to finalize
+                            {
+                                role: 'user' as const,
+                                content:
+                                    'You have finished investigating. Respond NOW with your findings as JSON. ' +
+                                    'Do NOT call any tools. If you found issues, include them. ' +
+                                    'If no issues were found, return an empty suggestions array.',
+                            },
+                        ],
+                        stopWhen: stepCountIs(1),
                     }),
             });
 
             finalText = secondChanceResult.text || '';
 
-            // Track additional token usage
-            totalInputTokens +=
-                (secondChanceResult as any).totalUsage?.inputTokens ??
-                secondChanceResult.usage?.inputTokens ??
-                0;
-            totalOutputTokens +=
-                (secondChanceResult as any).totalUsage?.outputTokens ??
-                secondChanceResult.usage?.outputTokens ??
-                0;
+            // Track additional token usage (with cache breakdown).
+            const scUsage = extractUsage(
+                (secondChanceResult as any).totalUsage ??
+                    secondChanceResult.usage ??
+                    null,
+            );
+            totalInputTokens += scUsage.inputTokens;
+            totalCacheReadTokens += scUsage.cacheReadTokens;
+            totalCacheWriteTokens += scUsage.cacheWriteTokens;
+            totalOutputTokens += scUsage.outputTokens;
+            totalReasoningTokens += scUsage.reasoningTokens;
 
             if (finalText) {
                 logger.log({
-                    message: `[AGENT-SECOND-CHANCE] Got ${finalText.length} chars response, hasJSON=${finalText.includes('"suggestions"')}`,
+                    message: `[AGENT-SECOND-CHANCE] Got ${finalText.length} chars response`,
                     context: 'AgentLoop',
                 });
             }
@@ -1081,9 +1315,17 @@ Respond with ONLY the JSON:
         },
     });
 
-    // Step 1: Try to parse JSON directly from the response
-    let findings = tryParseFindings(finalText);
-    let source: AgentLoopOutput['source'] = 'json-parse';
+    // Step 0: Use done-tool result if available (already schema-validated)
+    let findings: FindingsOutput | null = doneToolFindings;
+    let source: AgentLoopOutput['source'] = doneToolFindings
+        ? 'json-parse'
+        : 'empty';
+
+    // Step 1: Try to parse JSON directly from the response text
+    if (!findings) {
+        findings = tryParseFindings(finalText);
+        if (findings) source = 'json-parse';
+    }
 
     // Step 2: If no JSON, use internal model to structure the text
     if (!findings && finalText.length > 50) {
@@ -1128,7 +1370,7 @@ Respond with ONLY the JSON:
     const coverageSummaryBeforeRecovery = getCoverageSummary(coverageTargets);
     if (
         !skipHeavyPasses &&
-        coverageSummaryBeforeRecovery.pendingTargets > 0 &&
+        !isCoverageSatisfied(coverageSummaryBeforeRecovery) &&
         allToolCalls.length > 0
     ) {
         logger.warn({
@@ -1146,20 +1388,42 @@ Respond with ONLY the JSON:
             coverageTargets,
             allToolCalls,
             totalInputTokens,
+            totalCacheReadTokens,
+            totalCacheWriteTokens,
             totalOutputTokens,
             totalReasoningTokens,
         });
 
         totalInputTokens = coverageRecovery.totalInputTokens;
+        totalCacheReadTokens = coverageRecovery.totalCacheReadTokens;
+        totalCacheWriteTokens = coverageRecovery.totalCacheWriteTokens;
         totalOutputTokens = coverageRecovery.totalOutputTokens;
         totalReasoningTokens = coverageRecovery.totalReasoningTokens;
 
         if (coverageRecovery.text) {
-            const extraFindings = tryParseFindings(coverageRecovery.text);
+            let extraFindings = tryParseFindings(coverageRecovery.text);
+
+            if (!extraFindings && coverageRecovery.text.length > 50) {
+                logger.log({
+                    message: `[COVERAGE-RECOVERY] JSON parse failed (${coverageRecovery.text.length} chars), trying fallback model`,
+                    context: 'AgentLoop',
+                });
+                const fallbackResult = await structureWithFallbackModel(
+                    coverageRecovery.text,
+                    secrets.byokConfig,
+                    input.telemetryMetadata?.organizationId,
+                );
+                if (fallbackResult) {
+                    extraFindings = fallbackResult.findings;
+                    totalInputTokens += fallbackResult.usage.inputTokens;
+                    totalOutputTokens += fallbackResult.usage.outputTokens;
+                }
+            }
+
             if (extraFindings) {
                 findings = mergeFindings(findings, extraFindings);
                 if (source === 'empty') {
-                    source = 'json-parse';
+                    source = extraFindings ? 'json-parse' : source;
                 }
             }
         }
@@ -1182,11 +1446,15 @@ Respond with ONLY the JSON:
             coverageTargets,
             allToolCalls,
             totalInputTokens,
+            totalCacheReadTokens,
+            totalCacheWriteTokens,
             totalOutputTokens,
             totalReasoningTokens,
         });
 
         totalInputTokens = coverageSecondChance.totalInputTokens;
+        totalCacheReadTokens = coverageSecondChance.totalCacheReadTokens;
+        totalCacheWriteTokens = coverageSecondChance.totalCacheWriteTokens;
         totalOutputTokens = coverageSecondChance.totalOutputTokens;
         totalReasoningTokens = coverageSecondChance.totalReasoningTokens;
 
@@ -1236,11 +1504,15 @@ Respond with ONLY the JSON:
             coverageTargets,
             allToolCalls,
             totalInputTokens,
+            totalCacheReadTokens,
+            totalCacheWriteTokens,
             totalOutputTokens,
             totalReasoningTokens,
         });
 
         totalInputTokens = coverageThirdChance.totalInputTokens;
+        totalCacheReadTokens = coverageThirdChance.totalCacheReadTokens;
+        totalCacheWriteTokens = coverageThirdChance.totalCacheWriteTokens;
         totalOutputTokens = coverageThirdChance.totalOutputTokens;
         totalReasoningTokens = coverageThirdChance.totalReasoningTokens;
 
@@ -1315,6 +1587,8 @@ Respond with ONLY the JSON:
 
     let verificationUsage = {
         inputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
         outputTokens: 0,
         reasoningTokens: 0,
     };
@@ -1357,14 +1631,19 @@ Respond with ONLY the JSON:
                 ],
             };
             droppedByVerify = verificationResult.droppedByVerify || [];
-            totalInputTokens += verificationResult.usage.inputTokens;
-            totalOutputTokens += verificationResult.usage.outputTokens;
-            totalReasoningTokens += verificationResult.usage.reasoningTokens;
+            const vu = verificationResult.usage as any;
+            totalInputTokens += vu.inputTokens ?? 0;
+            totalCacheReadTokens += vu.cacheReadTokens ?? 0;
+            totalCacheWriteTokens += vu.cacheWriteTokens ?? 0;
+            totalOutputTokens += vu.outputTokens ?? 0;
+            totalReasoningTokens += vu.reasoningTokens ?? 0;
             verificationTrace = verificationResult.trace;
             verificationUsage = {
-                inputTokens: verificationResult.usage.inputTokens,
-                outputTokens: verificationResult.usage.outputTokens,
-                reasoningTokens: verificationResult.usage.reasoningTokens,
+                inputTokens: vu.inputTokens ?? 0,
+                cacheReadTokens: vu.cacheReadTokens ?? 0,
+                cacheWriteTokens: vu.cacheWriteTokens ?? 0,
+                outputTokens: vu.outputTokens ?? 0,
+                reasoningTokens: vu.reasoningTokens ?? 0,
             };
 
             if (kodyRuleSuggestions.length > 0) {
@@ -1381,30 +1660,32 @@ Respond with ONLY the JSON:
         }
     }
 
-    // Base usage from the main agent loop
-    const baseInputTokens =
-        (result as any).totalUsage?.inputTokens ??
-        result.usage?.inputTokens ??
-        0;
-    const baseOutputTokens =
-        (result as any).totalUsage?.outputTokens ??
-        result.usage?.outputTokens ??
-        0;
-    const baseReasoningTokens =
-        (result as any).totalUsage?.reasoningTokens ??
-        result.usage?.reasoningTokens ??
-        0;
+    // Base usage from the main agent loop. SDK totalUsage aggregates all
+    // steps; individual step usage is accumulated into totalInputTokens.
+    // We take whichever total is larger to avoid undercounting.
+    const baseUsage = extractUsage(
+        (result as any).totalUsage ?? result.usage ?? null,
+    );
 
-    // totalInputTokens/totalOutputTokens include second-chance + fallback overhead
-    // Subtract the per-step accumulation (already in base) to avoid double-counting,
-    // then add only the extra tokens from second-chance and fallback calls.
+    // totalInputTokens/totalOutputTokens include second-chance + fallback overhead.
     // Since totalInputTokens starts at 0 and accumulates per-step + extras,
-    // and baseInputTokens is the SDK's own total, use whichever is larger.
-    const finalInputTokens = Math.max(baseInputTokens, totalInputTokens);
-    const finalOutputTokens = Math.max(baseOutputTokens, totalOutputTokens);
+    // and baseUsage is the SDK's own total, use whichever is larger.
+    const finalInputTokens = Math.max(baseUsage.inputTokens, totalInputTokens);
+    const finalOutputTokens = Math.max(
+        baseUsage.outputTokens,
+        totalOutputTokens,
+    );
     const finalReasoningTokens = Math.max(
-        baseReasoningTokens,
+        baseUsage.reasoningTokens,
         totalReasoningTokens,
+    );
+    const finalCacheReadTokens = Math.max(
+        baseUsage.cacheReadTokens,
+        totalCacheReadTokens,
+    );
+    const finalCacheWriteTokens = Math.max(
+        baseUsage.cacheWriteTokens,
+        totalCacheWriteTokens,
     );
 
     return {
@@ -1416,6 +1697,8 @@ Respond with ONLY the JSON:
         source,
         usage: {
             inputTokens: finalInputTokens,
+            cacheReadTokens: finalCacheReadTokens,
+            cacheWriteTokens: finalCacheWriteTokens,
             outputTokens: finalOutputTokens,
             reasoningTokens: finalReasoningTokens,
             totalTokens: finalInputTokens + finalOutputTokens,
@@ -1440,11 +1723,15 @@ async function runCoverageRecoveryPass(params: {
     coverageTargets: ReturnType<typeof buildCoverageLedger>;
     allToolCalls: AgentLoopOutput['toolCalls'];
     totalInputTokens: number;
+    totalCacheReadTokens: number;
+    totalCacheWriteTokens: number;
     totalOutputTokens: number;
     totalReasoningTokens: number;
 }): Promise<{
     text: string;
     totalInputTokens: number;
+    totalCacheReadTokens: number;
+    totalCacheWriteTokens: number;
     totalOutputTokens: number;
     totalReasoningTokens: number;
 }> {
@@ -1455,6 +1742,8 @@ async function runCoverageRecoveryPass(params: {
         coverageTargets,
         allToolCalls,
         totalInputTokens,
+        totalCacheReadTokens,
+        totalCacheWriteTokens,
         totalOutputTokens,
         totalReasoningTokens,
     } = params;
@@ -1463,10 +1752,16 @@ async function runCoverageRecoveryPass(params: {
         return {
             text: '',
             totalInputTokens,
+            totalCacheReadTokens,
+            totalCacheWriteTokens,
             totalOutputTokens,
             totalReasoningTokens,
         };
     }
+
+    // Cache-friendly band-transition tracking (same strategy as main loop).
+    let recoveryEncourageAppended = false;
+    let recoveryUrgentAppended = false;
 
     const investigationSummary = allToolCalls
         .slice(-20)
@@ -1523,14 +1818,20 @@ ${remainingCoverageDebt}
 </RemainingCoverage>
 
 Investigate the remaining changed files now.
-- Use tools.
+- Use tools to inspect each remaining file.
 - Prefer readFile on each remaining file.
-- After inspecting them, return ONLY JSON with ADDITIONAL findings discovered from this recovery pass.
-- If no new findings appear, return an empty suggestions array.
+- When done, call submitResult with ADDITIONAL findings discovered from this recovery pass.
+- If no new findings appear, call submitResult with an empty suggestions array.
 `,
-                    tools,
-                    stopWhen: stepCountIs(MAX_STEPS_NORMAL),
-                    prepareStep: ({ stepNumber }: any) => {
+                    tools: {
+                        ...tools,
+                        [DONE_TOOL_NAME]: DONE_TOOLS.findings,
+                    },
+                    stopWhen: [
+                        hasToolCall(DONE_TOOL_NAME),
+                        stepCountIs(MAX_STEPS_NORMAL),
+                    ],
+                    prepareStep: ({ stepNumber, messages }: any) => {
                         recoveryStep = stepNumber;
                         if (stepNumber >= MAX_STEPS_NORMAL - 1) {
                             return {
@@ -1542,12 +1843,50 @@ Investigate the remaining changed files now.
                             };
                         }
 
-                        return {
-                            system:
-                                input.systemPrompt +
-                                '\n\nIMPORTANT: Coverage recovery is in progress.\n' +
-                                formatCoverageDebt(coverageTargets, 12),
-                        };
+                        const { note: stepBudgetNote, phase } =
+                            computeStepBudgetNote(stepNumber, MAX_STEPS_NORMAL);
+                        if (phase === 'urgent') {
+                            logger.log({
+                                message: `[AGENT-STEP-BUDGET] recovery urgent step=${stepNumber}/${MAX_STEPS_NORMAL}`,
+                                context: 'AgentLoop',
+                            });
+                        }
+
+                        // Cache-friendly: keep `system` immutable across
+                        // steps and append the budget/debt note as a
+                        // trailing user message only when the band first
+                        // transitions. Prior steps' prefix stays cached.
+                        let appendedNote: string | null = null;
+                        const debtSnapshot = formatCoverageDebt(
+                            coverageTargets,
+                            12,
+                        );
+                        if (phase === 'urgent' && !recoveryUrgentAppended) {
+                            appendedNote =
+                                stepBudgetNote.trim() +
+                                (debtSnapshot ? `\n\n${debtSnapshot}` : '');
+                            recoveryUrgentAppended = true;
+                        } else if (
+                            phase === 'encourage' &&
+                            !recoveryEncourageAppended
+                        ) {
+                            appendedNote =
+                                stepBudgetNote.trim() +
+                                (debtSnapshot ? `\n\n${debtSnapshot}` : '');
+                            recoveryEncourageAppended = true;
+                        }
+                        if (appendedNote) {
+                            return {
+                                messages: [
+                                    ...messages,
+                                    {
+                                        role: 'user' as const,
+                                        content: appendedNote,
+                                    },
+                                ],
+                            };
+                        }
+                        return {};
                     },
                     onStepFinish: (event: any) => {
                         if (event.toolCalls) {
@@ -1580,25 +1919,30 @@ Investigate the remaining changed files now.
                 }),
         });
 
-        recoveryText = recoveryResult.text || recoveryText;
+        // Extract from done tool first, fall back to text
+        const doneResult =
+            extractDoneToolResult<FindingsOutput>(recoveryResult);
+        if (doneResult) {
+            recoveryText = JSON.stringify(doneResult);
+        } else {
+            recoveryText = recoveryResult.text || recoveryText;
+        }
 
+        const rUsage = extractUsage(
+            (recoveryResult as any).totalUsage ??
+                recoveryResult.usage ??
+                null,
+        );
         return {
             text: recoveryText,
-            totalInputTokens:
-                totalInputTokens +
-                ((recoveryResult as any).totalUsage?.inputTokens ??
-                    recoveryResult.usage?.inputTokens ??
-                    0),
-            totalOutputTokens:
-                totalOutputTokens +
-                ((recoveryResult as any).totalUsage?.outputTokens ??
-                    recoveryResult.usage?.outputTokens ??
-                    0),
+            totalInputTokens: totalInputTokens + rUsage.inputTokens,
+            totalCacheReadTokens:
+                totalCacheReadTokens + rUsage.cacheReadTokens,
+            totalCacheWriteTokens:
+                totalCacheWriteTokens + rUsage.cacheWriteTokens,
+            totalOutputTokens: totalOutputTokens + rUsage.outputTokens,
             totalReasoningTokens:
-                totalReasoningTokens +
-                ((recoveryResult as any).totalUsage?.reasoningTokens ??
-                    recoveryResult.usage?.reasoningTokens ??
-                    0),
+                totalReasoningTokens + rUsage.reasoningTokens,
         };
     } catch (error) {
         logger.warn({
@@ -1609,6 +1953,8 @@ Investigate the remaining changed files now.
         return {
             text: '',
             totalInputTokens,
+            totalCacheReadTokens,
+            totalCacheWriteTokens,
             totalOutputTokens,
             totalReasoningTokens,
         };
@@ -1619,12 +1965,18 @@ function shouldRunLowCoverageSecondChance(
     coverage: CoverageSummary | null | undefined,
 ): boolean {
     if (!coverage || coverage.totalTargets < 2) return false;
-    const coveragePct =
-        coverage.totalTargets > 0
-            ? coverage.touchedTargets / coverage.totalTargets
-            : 0;
+    if (isCoverageSatisfied(coverage)) return false;
 
-    return coverage.pendingTargets > 0 && coveragePct < 0.7;
+    // Tiered mode: isCoverageSatisfied already encodes the contract
+    // (criticals + 70% total), so any false here means we must try again.
+    const tieringActive =
+        coverage.criticalTotal > 0 || coverage.optionalTotal > 0;
+    if (tieringActive) return true;
+
+    // Legacy mode keeps the historical 70% stop-trying floor so we don't
+    // grind away on a handful of leftover files in flat coverage mode.
+    const coveragePct = coverage.touchedTargets / coverage.totalTargets;
+    return coveragePct < TIERED_TOTAL_COVERAGE_THRESHOLD;
 }
 
 async function runLowCoverageSecondChance(params: {
@@ -1634,11 +1986,15 @@ async function runLowCoverageSecondChance(params: {
     coverageTargets: ReturnType<typeof buildCoverageLedger>;
     allToolCalls: AgentLoopOutput['toolCalls'];
     totalInputTokens: number;
+    totalCacheReadTokens: number;
+    totalCacheWriteTokens: number;
     totalOutputTokens: number;
     totalReasoningTokens: number;
 }): Promise<{
     text: string;
     totalInputTokens: number;
+    totalCacheReadTokens: number;
+    totalCacheWriteTokens: number;
     totalOutputTokens: number;
     totalReasoningTokens: number;
 }> {
@@ -1649,6 +2005,8 @@ async function runLowCoverageSecondChance(params: {
         coverageTargets,
         allToolCalls,
         totalInputTokens,
+        totalCacheReadTokens,
+        totalCacheWriteTokens,
         totalOutputTokens,
         totalReasoningTokens,
     } = params;
@@ -1657,10 +2015,16 @@ async function runLowCoverageSecondChance(params: {
         return {
             text: '',
             totalInputTokens,
+            totalCacheReadTokens,
+            totalCacheWriteTokens,
             totalOutputTokens,
             totalReasoningTokens,
         };
     }
+
+    // Cache-friendly band-transition tracking (same strategy as main loop).
+    let secondChanceEncourageAppended = false;
+    let secondChanceUrgentAppended = false;
 
     const investigationSummary = allToolCalls
         .slice(-24)
@@ -1705,7 +2069,7 @@ async function runLowCoverageSecondChance(params: {
                     ),
                     system:
                         input.systemPrompt +
-                        '\n\nIMPORTANT: Coverage is still too low. This is a final targeted inspection pass. You must inspect the remaining changed files with readFile or checkTypes before responding.',
+                        '\n\nIMPORTANT: Coverage is still too low. This is a final targeted inspection pass. You must inspect the remaining changed files with readFile before responding.',
                     prompt: `Your previous review finished with low changed-file coverage.
 
 <RecentInvestigation>
@@ -1718,12 +2082,18 @@ ${remainingCoverageDebt}
 
 Instructions:
 - Focus only on the remaining uncovered changed files.
-- Use readFile or checkTypes on those files before responding.
-- Be surgical: inspect remaining files, then return ONLY JSON with ADDITIONAL findings.
-- If the remaining files are safe, return an empty suggestions array.`,
-                    tools,
-                    stopWhen: stepCountIs(MAX_STEPS_NORMAL),
-                    prepareStep: ({ stepNumber }: any) => {
+- Use readFile on those files before responding.
+- Be surgical: inspect remaining files, then call submitResult with ADDITIONAL findings.
+- If the remaining files are safe, call submitResult with an empty suggestions array.`,
+                    tools: {
+                        ...tools,
+                        [DONE_TOOL_NAME]: DONE_TOOLS.findings,
+                    },
+                    stopWhen: [
+                        hasToolCall(DONE_TOOL_NAME),
+                        stepCountIs(MAX_STEPS_NORMAL),
+                    ],
+                    prepareStep: ({ stepNumber, messages }: any) => {
                         secondChanceStep = stepNumber;
                         if (stepNumber >= MAX_STEPS_NORMAL - 1) {
                             return {
@@ -1735,12 +2105,51 @@ Instructions:
                             };
                         }
 
-                        return {
-                            system:
-                                input.systemPrompt +
-                                '\n\nIMPORTANT: Low-coverage second chance in progress.\n' +
-                                formatCoverageDebt(coverageTargets, 12),
-                        };
+                        const { note: stepBudgetNote, phase } =
+                            computeStepBudgetNote(stepNumber, MAX_STEPS_NORMAL);
+                        if (phase === 'urgent') {
+                            logger.log({
+                                message: `[AGENT-STEP-BUDGET] second-chance urgent step=${stepNumber}/${MAX_STEPS_NORMAL}`,
+                                context: 'AgentLoop',
+                            });
+                        }
+
+                        // Cache-friendly: keep system immutable, append
+                        // budget/debt note only on band transitions.
+                        let appendedNote: string | null = null;
+                        const debtSnapshot = formatCoverageDebt(
+                            coverageTargets,
+                            12,
+                        );
+                        if (
+                            phase === 'urgent' &&
+                            !secondChanceUrgentAppended
+                        ) {
+                            appendedNote =
+                                stepBudgetNote.trim() +
+                                (debtSnapshot ? `\n\n${debtSnapshot}` : '');
+                            secondChanceUrgentAppended = true;
+                        } else if (
+                            phase === 'encourage' &&
+                            !secondChanceEncourageAppended
+                        ) {
+                            appendedNote =
+                                stepBudgetNote.trim() +
+                                (debtSnapshot ? `\n\n${debtSnapshot}` : '');
+                            secondChanceEncourageAppended = true;
+                        }
+                        if (appendedNote) {
+                            return {
+                                messages: [
+                                    ...messages,
+                                    {
+                                        role: 'user' as const,
+                                        content: appendedNote,
+                                    },
+                                ],
+                            };
+                        }
+                        return {};
                     },
                     onStepFinish: (event: any) => {
                         if (event.toolCalls) {
@@ -1773,25 +2182,31 @@ Instructions:
                 }),
         });
 
-        secondChanceText = secondChanceResult.text || secondChanceText;
+        // Extract from done tool first, fall back to text
+        const doneResult =
+            extractDoneToolResult<FindingsOutput>(secondChanceResult);
+        if (doneResult) {
+            secondChanceText = JSON.stringify(doneResult);
+        } else {
+            secondChanceText =
+                secondChanceResult.text || secondChanceText;
+        }
 
+        const scuUsage = extractUsage(
+            (secondChanceResult as any).totalUsage ??
+                secondChanceResult.usage ??
+                null,
+        );
         return {
             text: secondChanceText,
-            totalInputTokens:
-                totalInputTokens +
-                ((secondChanceResult as any).totalUsage?.inputTokens ??
-                    secondChanceResult.usage?.inputTokens ??
-                    0),
-            totalOutputTokens:
-                totalOutputTokens +
-                ((secondChanceResult as any).totalUsage?.outputTokens ??
-                    secondChanceResult.usage?.outputTokens ??
-                    0),
+            totalInputTokens: totalInputTokens + scuUsage.inputTokens,
+            totalCacheReadTokens:
+                totalCacheReadTokens + scuUsage.cacheReadTokens,
+            totalCacheWriteTokens:
+                totalCacheWriteTokens + scuUsage.cacheWriteTokens,
+            totalOutputTokens: totalOutputTokens + scuUsage.outputTokens,
             totalReasoningTokens:
-                totalReasoningTokens +
-                ((secondChanceResult as any).totalUsage?.reasoningTokens ??
-                    secondChanceResult.usage?.reasoningTokens ??
-                    0),
+                totalReasoningTokens + scuUsage.reasoningTokens,
         };
     } catch (error) {
         logger.warn({
@@ -1802,6 +2217,8 @@ Instructions:
         return {
             text: '',
             totalInputTokens,
+            totalCacheReadTokens,
+            totalCacheWriteTokens,
             totalOutputTokens,
             totalReasoningTokens,
         };
@@ -1922,16 +2339,17 @@ Return ONLY JSON:
   "reasoning": "why there are or aren't concrete missed bugs",
   "suggestions": [
     {
-      "relevantFile": "path/to/file",
-      "language": "ts",
       "label": "bug|security|performance",
-      "suggestionContent": "describe the missed issue concretely",
+      "relevantFile": "path/to/file.ext",
+      "language": "the file language",
+      "suggestionContent": "WHAT: one sentence naming the exact problem. WHY: one sentence on the real impact. HOW: concrete fix if clear from the code — omit if speculative.",
       "existingCode": "problematic code (only the lines that need to change, plus 1-2 surrounding lines for context)",
       "improvedCode": "fix (same scope as existingCode — only the changed lines plus 1-2 lines of context, NOT the entire function or block)",
-      "oneSentenceSummary": "brief summary",
+      "oneSentenceSummary": "Brief summary",
       "relevantLinesStart": 10,
-      "relevantLinesEnd": 12,
-      "severity": "critical|high|medium|low"
+      "relevantLinesEnd": 15,
+      "severity": "critical|high|medium|low",
+      "confidence": 8
     }
   ]
 }
@@ -2045,6 +2463,8 @@ async function verifyFindingsWithTools(params: {
     trace: VerificationTraceSummary | null;
     usage: {
         inputTokens: number;
+        cacheReadTokens: number;
+        cacheWriteTokens: number;
         outputTokens: number;
         reasoningTokens: number;
         totalTokens: number;
@@ -2061,6 +2481,8 @@ async function verifyFindingsWithTools(params: {
             trace: null,
             usage: {
                 inputTokens: 0,
+                cacheReadTokens: 0,
+                cacheWriteTokens: 0,
                 outputTokens: 0,
                 reasoningTokens: 0,
                 totalTokens: 0,
@@ -2077,16 +2499,21 @@ async function verifyFindingsWithTools(params: {
         >();
         const verifierRawTextByIndex = new Map<number, string>();
         let totalInputTokens = 0;
+        let totalCacheReadTokens = 0;
+        let totalCacheWriteTokens = 0;
         let totalOutputTokens = 0;
         let totalReasoningTokens = 0;
         const decisionTraces: VerificationDecisionTrace[] = [];
 
         const reviewMode = params.input.reviewMode || 'normal';
 
-        // Route each finding based on confidence + reviewMode
+        // Route each finding based on confidence + reviewMode.
+        // Self-reported confidence doesn't correlate with correctness — the
+        // model confidently hallucinates behavior of internal components —
+        // so we always verify in normal mode. Confidence still decides
+        // depth (light vs full), never whether to run.
         const toVerifyFull: Array<{ index: number; suggestion: any }> = [];
         const toVerifyLight: Array<{ index: number; suggestion: any }> = [];
-        const toSkip: Array<{ index: number; suggestion: any }> = [];
 
         for (let i = 0; i < findings.suggestions.length; i++) {
             const suggestion = findings.suggestions[i];
@@ -2094,8 +2521,6 @@ async function verifyFindingsWithTools(params: {
 
             if (reviewMode === 'deep') {
                 toVerifyFull.push({ index: i, suggestion });
-            } else if (confidence >= 9) {
-                toSkip.push({ index: i, suggestion });
             } else if (confidence >= 5) {
                 toVerifyLight.push({ index: i, suggestion });
             } else {
@@ -2103,30 +2528,15 @@ async function verifyFindingsWithTools(params: {
             }
         }
 
-        if (toSkip.length > 0) {
-            logger.log({
-                message: `[AGENT-VERIFY] Skipping ${toSkip.length} very-high-confidence findings (confidence >= 9), verifying ${toVerifyLight.length} light + ${toVerifyFull.length} full`,
-                context: 'AgentLoop',
-            });
-        }
+        logger.log({
+            message: `[AGENT-VERIFY] Verifying ${toVerifyLight.length} light + ${toVerifyFull.length} full findings (mode=${reviewMode})`,
+            context: 'AgentLoop',
+        });
 
-        // Skip: auto-keep high-confidence findings
-        for (const { index } of toSkip) {
-            decisions.set(index, {
-                index,
-                keep: true,
-                rationale:
-                    'Very high confidence (>= 9) — skipped verification in normal mode.',
-            });
-            verifierParseModeByIndex.set(index, 'direct');
-            verifierRawTextByIndex.set(index, '');
-            verifierEvidenceByIndex.set(index, {
-                strongFiles: [],
-                weakFiles: [],
-            });
-        }
-
-        // Light verify: 2 steps max, tools available
+        // Light verify: 5 steps, tools available. Two steps was too tight —
+        // the force-text cutoff (maxSteps-1) kicked in before the model had
+        // room to synthesize, which forced every verification into the
+        // second-chance fallback.
         const lightResults = await Promise.allSettled(
             toVerifyLight.map(({ index, suggestion }) => {
                 return verifySingleFindingWithTools({
@@ -2136,7 +2546,7 @@ async function verifyFindingsWithTools(params: {
                     secrets,
                     allToolCalls,
                     tools,
-                    maxVerifySteps: 2,
+                    maxVerifySteps: 5,
                 });
             }),
         );
@@ -2153,11 +2563,15 @@ async function verifyFindingsWithTools(params: {
                 vr.rawTextPreview,
             );
             totalInputTokens += vr.usage.inputTokens;
+            totalCacheReadTokens += (vr.usage as any).cacheReadTokens ?? 0;
+            totalCacheWriteTokens += (vr.usage as any).cacheWriteTokens ?? 0;
             totalOutputTokens += vr.usage.outputTokens;
             totalReasoningTokens += vr.usage.reasoningTokens;
         }
 
-        // Full verify: 5 steps, all tools
+        // Full verify: 10 steps, all tools. Used for deep mode and for
+        // low-confidence findings (< 5) where we want the verifier to
+        // investigate thoroughly before deciding keep/drop.
         const fullResults = await Promise.allSettled(
             toVerifyFull.map(({ index, suggestion }) => {
                 return verifySingleFindingWithTools({
@@ -2167,6 +2581,7 @@ async function verifyFindingsWithTools(params: {
                     secrets,
                     allToolCalls,
                     tools,
+                    maxVerifySteps: 10,
                 });
             }),
         );
@@ -2183,6 +2598,8 @@ async function verifyFindingsWithTools(params: {
                 vr.rawTextPreview,
             );
             totalInputTokens += vr.usage.inputTokens;
+            totalCacheReadTokens += (vr.usage as any).cacheReadTokens ?? 0;
+            totalCacheWriteTokens += (vr.usage as any).cacheWriteTokens ?? 0;
             totalOutputTokens += vr.usage.outputTokens;
             totalReasoningTokens += vr.usage.reasoningTokens;
         }
@@ -2251,6 +2668,8 @@ async function verifyFindingsWithTools(params: {
                 verifierParseModeByIndex.set(idx, vr.parseMode);
                 verifierRawTextByIndex.set(idx, vr.rawTextPreview);
                 totalInputTokens += vr.usage.inputTokens;
+                totalCacheReadTokens += (vr.usage as any).cacheReadTokens ?? 0;
+                totalCacheWriteTokens += (vr.usage as any).cacheWriteTokens ?? 0;
                 totalOutputTokens += vr.usage.outputTokens;
                 totalReasoningTokens += vr.usage.reasoningTokens;
             }
@@ -2333,6 +2752,8 @@ async function verifyFindingsWithTools(params: {
             },
             usage: {
                 inputTokens: totalInputTokens,
+                cacheReadTokens: totalCacheReadTokens,
+                cacheWriteTokens: totalCacheWriteTokens,
                 outputTokens: totalOutputTokens,
                 reasoningTokens: totalReasoningTokens,
                 totalTokens: totalInputTokens + totalOutputTokens,
@@ -2350,6 +2771,8 @@ async function verifyFindingsWithTools(params: {
             trace: null,
             usage: {
                 inputTokens: 0,
+                cacheReadTokens: 0,
+                cacheWriteTokens: 0,
                 outputTokens: 0,
                 reasoningTokens: 0,
                 totalTokens: 0,
@@ -2373,6 +2796,8 @@ async function verifySingleFindingWithTools(params: {
     rawTextPreview: string;
     usage: {
         inputTokens: number;
+        cacheReadTokens: number;
+        cacheWriteTokens: number;
         outputTokens: number;
         reasoningTokens: number;
         totalTokens: number;
@@ -2425,6 +2850,8 @@ async function verifySingleFindingWithTools(params: {
             rawTextPreview: '',
             usage: {
                 inputTokens: 0,
+                cacheReadTokens: 0,
+                cacheWriteTokens: 0,
                 outputTokens: 0,
                 reasoningTokens: 0,
                 totalTokens: 0,
@@ -2434,6 +2861,8 @@ async function verifySingleFindingWithTools(params: {
 
     let finalText = '';
     let totalInputTokens = 0;
+    let totalCacheReadTokens = 0;
+    let totalCacheWriteTokens = 0;
     let totalOutputTokens = 0;
     let totalReasoningTokens = 0;
     let verifierSteps = 0;
@@ -2471,10 +2900,16 @@ async function verifySingleFindingWithTools(params: {
                 ),
                 system: verificationPrompt.system,
                 prompt: verificationPrompt.prompt,
-                tools,
-                stopWhen: stepCountIs(params.maxVerifySteps || 5),
+                tools: {
+                    ...tools,
+                    [DONE_TOOL_NAME]: DONE_TOOLS.verification,
+                },
+                stopWhen: [
+                    hasToolCall(DONE_TOOL_NAME),
+                    stepCountIs(params.maxVerifySteps || 10),
+                ],
                 prepareStep: ({ stepNumber }: any) => {
-                    const maxSteps = params.maxVerifySteps || 5;
+                    const maxSteps = params.maxVerifySteps || 10;
                     verifierSteps = stepNumber;
                     if (stepNumber >= maxSteps - 1) {
                         return {
@@ -2491,10 +2926,12 @@ async function verifySingleFindingWithTools(params: {
                         verifierStepTexts.push(event.text);
                     }
                     if (event.usage) {
-                        totalInputTokens += event.usage.inputTokens ?? 0;
-                        totalOutputTokens += event.usage.outputTokens ?? 0;
-                        totalReasoningTokens +=
-                            event.usage.reasoningTokens ?? 0;
+                        const u = extractUsage(event.usage);
+                        totalInputTokens += u.inputTokens;
+                        totalCacheReadTokens += u.cacheReadTokens;
+                        totalCacheWriteTokens += u.cacheWriteTokens;
+                        totalOutputTokens += u.outputTokens;
+                        totalReasoningTokens += u.reasoningTokens;
                     }
                     if (event.toolCalls) {
                         const resultLookup = new Map<string, string>();
@@ -2551,30 +2988,52 @@ async function verifySingleFindingWithTools(params: {
             }),
     });
 
+    // ─── Done-tool extraction for verifier ─────────────────────────────
+    const verifyDoneResult = extractDoneToolResult<z.infer<typeof _verificationSchema>>(verificationRun);
+
+    if (verifyDoneResult) {
+        logger.log({
+            message: `[AGENT-VERIFY-DONE-TOOL] finding=${index} verdict=${verifyDoneResult.keep ? 'keep' : 'drop'} via submitResult`,
+            context: 'AgentLoop',
+        });
+
+        return {
+            decision: {
+                index: verifyDoneResult.index ?? index,
+                keep: verifyDoneResult.keep,
+                rationale: verifyDoneResult.rationale || '',
+                confidence: verifyDoneResult.confidence,
+            },
+            evidence: buildToolEvidenceSummary(verifierToolCalls),
+            parseMode: 'direct' as const,
+            rawTextPreview: '',
+            usage: {
+                inputTokens: totalInputTokens,
+                cacheReadTokens: totalCacheReadTokens,
+                cacheWriteTokens: totalCacheWriteTokens,
+                outputTokens: totalOutputTokens,
+                reasoningTokens: totalReasoningTokens,
+                totalTokens: totalInputTokens + totalOutputTokens,
+            },
+        };
+    }
+
     let verificationText =
         verificationRun.text ||
         finalText ||
         verifierStepTexts[verifierStepTexts.length - 1] ||
         verifierStepTexts.join('\n\n');
 
+    // Second chance for verifier: use full response.messages context
     if (!verificationText && verifierToolCalls.length > 0) {
-        const investigationSummary = verifierToolCalls
-            .map((toolCall) => {
-                const args =
-                    typeof toolCall.args === 'string'
-                        ? toolCall.args
-                        : JSON.stringify(toolCall.args);
-                const resultStr =
-                    typeof toolCall.result === 'string'
-                        ? toolCall.result.substring(0, 320)
-                        : '';
-                return `${toolCall.toolName || toolCall.tool}(${args.substring(0, 180)}) => ${resultStr || '(empty)'}`;
-            })
-            .join('\n');
-
         try {
             const verifierSecondChanceSignal =
                 timeoutSignal(LLM_CALL_TIMEOUT_MS);
+
+            // Use full conversation history from the verifier run
+            const verifierResponseMessages: any[] =
+                verificationRun?.response?.messages || [];
+
             const secondChanceResult: any = await throttledGenerateText({
                 byokConfig: secrets.byokConfig,
                 organizationId: input.telemetryMetadata?.organizationId,
@@ -2600,31 +3059,20 @@ async function verifySingleFindingWithTools(params: {
                                 modelName: (internalModel as any)?.modelId,
                             },
                         ),
-                        system: `You are a surgical code review verifier.
-
-You already investigated the candidate finding with tools. Do NOT call any more tools.
-
-Your job now is only to return the final verdict as JSON.`,
-                        prompt: `${evidenceBundle.bundle}
-
-<VerifierInvestigation>
-${investigationSummary}
-</VerifierInvestigation>
-
-Based on the investigation above, return ONLY JSON:
-\`\`\`json
-{
-  "index": ${index},
-  "keep": true,
-  "rationale": "why the evidence supports keep/drop",
-  "confidence": "high|medium|low"
-}
-\`\`\`
-
-Rules:
-- Drop only if you found concrete evidence against the candidate.
-- If you cannot refute it, keep it.
-- No prose outside JSON.`,
+                        system: 'You are a surgical code review verifier.',
+                        messages: [
+                            // Original verification prompt with evidence
+                            { role: 'user' as const, content: verificationPrompt.prompt },
+                            // Full conversation history from verifier (tool calls + results)
+                            ...verifierResponseMessages,
+                            // Instruction to finalize
+                            {
+                                role: 'user' as const,
+                                content:
+                                    'You have finished investigating. Respond NOW with your verdict as JSON. Do NOT call any tools.\n\n' +
+                                    `Return ONLY JSON:\n\`\`\`json\n{"index": ${index}, "keep": true, "rationale": "why", "confidence": "high|medium|low"}\n\`\`\``,
+                            },
+                        ],
                         stopWhen: stepCountIs(1),
                     }),
             });
@@ -2645,7 +3093,7 @@ Rules:
 
             if (verificationText) {
                 logger.log({
-                    message: `[AGENT-VERIFY-SECOND-CHANCE] finding=${index} recovered text response after tool-only verifier run`,
+                    message: `[AGENT-VERIFY-SECOND-CHANCE] finding=${index} recovered text response (full context)`,
                     context: 'AgentLoop',
                 });
             }
@@ -2697,7 +3145,15 @@ Rules:
         });
     }
 
-    const baseUsage = verificationRun.usage ?? verificationRun.totalUsage ?? {};
+    const baseUsage = extractUsage(
+        verificationRun.usage ?? verificationRun.totalUsage ?? null,
+    );
+
+    const finalVerifyInput = Math.max(baseUsage.inputTokens, totalInputTokens);
+    const finalVerifyOutput = Math.max(
+        baseUsage.outputTokens,
+        totalOutputTokens,
+    );
 
     return {
         decision:
@@ -2712,18 +3168,21 @@ Rules:
         parseMode: decision ? parseMode : 'default-keep',
         rawTextPreview,
         usage: {
-            inputTokens: Math.max(baseUsage.inputTokens ?? 0, totalInputTokens),
-            outputTokens: Math.max(
-                baseUsage.outputTokens ?? 0,
-                totalOutputTokens,
+            inputTokens: finalVerifyInput,
+            cacheReadTokens: Math.max(
+                baseUsage.cacheReadTokens,
+                totalCacheReadTokens,
             ),
+            cacheWriteTokens: Math.max(
+                baseUsage.cacheWriteTokens,
+                totalCacheWriteTokens,
+            ),
+            outputTokens: finalVerifyOutput,
             reasoningTokens: Math.max(
-                baseUsage.reasoningTokens ?? 0,
+                baseUsage.reasoningTokens,
                 totalReasoningTokens,
             ),
-            totalTokens:
-                Math.max(baseUsage.inputTokens ?? 0, totalInputTokens) +
-                Math.max(baseUsage.outputTokens ?? 0, totalOutputTokens),
+            totalTokens: finalVerifyInput + finalVerifyOutput,
         },
     };
 }
