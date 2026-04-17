@@ -193,27 +193,96 @@ export class TeamMemberService implements ITeamMemberService {
         organizationAndTeamData: OrganizationAndTeamData,
         inviterEmail?: string,
     ): Promise<IUpdateOrCreateMembersResponse> {
-        const emails = members.map((member) => member.email);
-        const usersToSendInvite = [];
-        const results: IInviteResult[] = [];
+        try {
+            const emails = members.map((member) => member.email);
+            const usersToSendInvite = [];
+            const results: IInviteResult[] = [];
 
-        const { success, problematicUserIds } =
-            await this.checkExistingUsersInOtherOrganizations(
-                emails,
-                organizationAndTeamData.organizationId,
+            const { success, problematicUserIds } =
+                await this.checkExistingUsersInOtherOrganizations(
+                    emails,
+                    organizationAndTeamData.organizationId,
+                );
+
+            // Process problematic users (users already in other organizations)
+            if (problematicUserIds.length > 0) {
+                for (const problematicUser of problematicUserIds) {
+                    results.push({
+                        email: problematicUser.email,
+                        status: 'user_already_registered_in_other_organization',
+                        uuid: problematicUser.uuid,
+                        message:
+                            'User already registered in another organization',
+                    });
+                }
+            }
+
+            // If there are problematic users, we still process the valid ones
+            if (!success) {
+                // Continue processing valid users but return partial success
+                const validEmails = emails.filter(
+                    (email) =>
+                        !problematicUserIds.some((pu) => pu.email === email),
+                );
+
+                if (validEmails.length === 0) {
+                    return {
+                        success: false,
+                        results,
+                    };
+                }
+
+                // Filter members to only include valid ones
+                members = members.filter((member) =>
+                    validEmails.includes(member.email),
+                );
+            }
+
+            members = await this.getUserIdFromMembers(
+                members,
+                organizationAndTeamData,
             );
 
-        // Process problematic users (users already in other organizations)
-        if (problematicUserIds.length > 0) {
-            for (const problematicUser of problematicUserIds) {
+            for (const member of members) {
+                let user: IUser;
+
+                if (member.userId) {
+                    user = await this.usersService.findOne({
+                        uuid: member.userId,
+                    });
+
+                    if (user && user.status !== STATUS.ACTIVE) {
+                        usersToSendInvite.push(user);
+                    }
+                } else {
+                    user = await this.createNewUser(
+                        organizationAndTeamData,
+                        member,
+                    );
+
+                    usersToSendInvite.push(user);
+                }
+
+                if (!member.uuid) {
+                    await this.createTeamMember(
+                        organizationAndTeamData,
+                        member,
+                        user,
+                    );
+                } else {
+                    await this.updateTeamMember(
+                        organizationAndTeamData,
+                        member,
+                    );
+                }
+
+                // Add successful result
                 results.push({
-                    email: problematicUser.email,
-                    status: 'user_already_registered_in_other_organization',
-                    uuid: problematicUser.uuid,
-                    message: 'User already registered in another organization',
+                    email: member.email,
+                    status: 'invite_sent',
+                    message: 'Invite sent successfully',
                 });
             }
-        }
 
             if (usersToSendInvite?.length > 0) {
                 this.sendInvitations(
@@ -229,63 +298,13 @@ export class TeamMemberService implements ITeamMemberService {
                 });
             }
 
-            // Filter members to only include valid ones
-            members = members.filter((member) =>
-                validEmails.includes(member.email),
-            );
+            return {
+                success: true,
+                results,
+            };
+        } catch (error) {
+            throw new Error(error);
         }
-
-        members = await this.getUserIdFromMembers(
-            members,
-            organizationAndTeamData,
-        );
-
-        for (const member of members) {
-            let user: IUser;
-
-            if (member.userId) {
-                user = await this.usersService.findOne({
-                    uuid: member.userId,
-                });
-
-                if (user && user.status !== STATUS.ACTIVE) {
-                    usersToSendInvite.push(user);
-                }
-            } else {
-                user = await this.createNewUser(
-                    organizationAndTeamData,
-                    member,
-                );
-
-                usersToSendInvite.push(user);
-            }
-
-            if (!member.uuid) {
-                await this.createTeamMember(
-                    organizationAndTeamData,
-                    member,
-                    user,
-                );
-            } else {
-                await this.updateTeamMember(organizationAndTeamData, member);
-            }
-
-            // Add successful result
-            results.push({
-                email: member.email,
-                status: 'invite_sent',
-                message: 'Invite sent successfully',
-            });
-        }
-
-        if (usersToSendInvite?.length > 0) {
-            this.sendInvitations(usersToSendInvite, organizationAndTeamData);
-        }
-
-        return {
-            success: true,
-            results,
-        };
     }
 
     private async checkExistingUsersInOtherOrganizations(
