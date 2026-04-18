@@ -49,6 +49,10 @@ const hasTaskQualitySchema = z.looseObject({
     taskQuality: taskQualitySchema,
 });
 
+const validateTaskContextInputSchema = z.looseObject({
+    taskQuality: taskQualitySchema,
+});
+
 const validateContextInputSchema = z.looseObject({
     taskQuality: taskQualitySchema,
     prDiff: z.string(),
@@ -239,7 +243,7 @@ export function createBusinessRulesBlueprint(
             type: 'gate',
             name: 'validateTaskContext',
             contract: {
-                input: validateContextInputSchema,
+                input: validateTaskContextInputSchema,
                 output: gateOutputSchema,
             },
             condition: (ctx) => {
