@@ -333,6 +333,16 @@ export interface ReviewAgentInput {
     reviewMode?: 'fast' | 'normal' | 'deep';
     /** Optional per-agent step budget for the main investigation loop. */
     maxSteps?: number;
+    /** When true, skip recovery, second-chance, AND synthesis-rescue
+     *  passes. Used by very-narrow agents (rule checks in fast mode,
+     *  self-contained CLI flow). */
+    skipHeavyPasses?: boolean;
+    /** When true, run recovery + second-chance but skip ONLY the
+     *  synthesis-rescue pass. The rescue pass re-words the same finding
+     *  with different language, which is fine for open-ended bug review
+     *  but produces duplicate comments for explicit-rule agents like
+     *  kody-rules. */
+    skipSynthesisRescue?: boolean;
     /** Categories allowed for this run when using a mixed/generalist reviewer. */
     requestedCategories?: Array<'bug' | 'security' | 'performance'>;
 }
@@ -380,7 +390,14 @@ export abstract class BaseCodeReviewAgentProvider {
     ) {}
 
     protected abstract getIdentity(): ReviewAgentIdentity;
-    protected abstract getCategoryPrompt(): string;
+    /**
+     * Return the category-specific chunk that gets embedded in the system
+     * prompt. Receives `input` so subclasses can include per-request data
+     * (e.g. the kody-rules agent renders the current team rules) without
+     * stashing it on instance state — keeping the provider safe to share
+     * across concurrent reviews.
+     */
+    protected abstract getCategoryPrompt(input: ReviewAgentInput): string;
     protected abstract getCategoryLabel(): string;
 
     protected supportsMixedLabels(): boolean {
@@ -640,6 +657,12 @@ export abstract class BaseCodeReviewAgentProvider {
                 fileTiers,
                 reviewMode: input.reviewMode,
                 maxSteps: input.maxSteps,
+                // Heavy-pass gating: forwarded explicitly because loopParams
+                // is built field-by-field. Without this line, callers like
+                // KodyRulesAgentProvider that opt out of synthesis-rescue
+                // would have their preference silently dropped here.
+                skipHeavyPasses: input.skipHeavyPasses,
+                skipSynthesisRescue: input.skipSynthesisRescue,
                 contextWindowTokens: contextWindow,
                 reasoningEffort: byokConfig?.main?.reasoningEffort,
                 reasoningConfigOverride:
@@ -1229,7 +1252,7 @@ export abstract class BaseCodeReviewAgentProvider {
         }
 
         const identity = this.getIdentity();
-        const categoryPrompt = this.getCategoryPrompt();
+        const categoryPrompt = this.getCategoryPrompt(input);
         const overridesSection = this.formatOverrides(input);
         const memoryRulesSection = this.formatMemoryRules(input.memoryRules);
 
@@ -1402,8 +1425,8 @@ ${mixedLabelTaskGuidance}
   <CoverageContract>
     ${
         input.fileTiers
-            ? 'You must inspect every CRITICAL file below with readFile before finalizing. Warm files contribute to the 70% total coverage requirement — inspect them if budget allows. Optional files appear with hunk headers only; do not spend steps on them unless a concrete hypothesis points to one.'
-            : 'You must inspect every changed file below with readFile before finalizing.'
+            ? 'You must readFile EVERY hunk of every CRITICAL file below before finalizing — a file with multiple hunks is only fully covered when each listed line range has been read. Warm files contribute to the 70% total coverage requirement — readFile their hunks if budget allows. Optional files appear with hunk headers only; do not spend steps on them unless a concrete hypothesis points to one.'
+            : 'You must readFile EVERY hunk of every changed file below before finalizing. A file with multiple hunks is only fully covered when each listed line range has been read; reading the first hunk of a multi-hunk file does NOT cover the rest.'
     }
     grep, findFile, and listDir help navigation, but they do not count as coverage.
 ${coverageTargets ? `${coverageTargets}\n` : ''}
@@ -1477,7 +1500,7 @@ ${coverageTargets ? `${coverageTargets}\n` : ''}
      */
     private buildSelfContainedSystemPrompt(input: ReviewAgentInput): string {
         const identity = this.getIdentity();
-        const categoryPrompt = this.getCategoryPrompt();
+        const categoryPrompt = this.getCategoryPrompt(input);
         const overridesSection = this.formatOverrides(input);
         const memoryRulesSection = this.formatMemoryRules(input.memoryRules);
 

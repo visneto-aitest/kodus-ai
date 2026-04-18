@@ -7,12 +7,12 @@ import {
 
 describe('agent-loop timeout primitives', () => {
     describe('AGENT_TIMEOUT_MS contract', () => {
-        it('caps a single agent at exactly 20 minutes', () => {
-            expect(AGENT_TIMEOUT_MS).toBe(20 * 60 * 1000);
+        it('caps a single agent at exactly 30 minutes', () => {
+            expect(AGENT_TIMEOUT_MS).toBe(30 * 60 * 1000);
         });
 
-        it('caps a single LLM call at exactly 5 minutes', () => {
-            expect(LLM_CALL_TIMEOUT_MS).toBe(5 * 60 * 1000);
+        it('caps a single LLM call at exactly 10 minutes', () => {
+            expect(LLM_CALL_TIMEOUT_MS).toBe(10 * 60 * 1000);
         });
     });
 
@@ -36,7 +36,7 @@ describe('agent-loop timeout primitives', () => {
             expect(signal.aborted).toBe(true);
         });
 
-        it('produces an aborted signal after AGENT_TIMEOUT_MS (20min)', () => {
+        it('produces an aborted signal after AGENT_TIMEOUT_MS (30min)', () => {
             const signal = timeoutSignal(AGENT_TIMEOUT_MS);
             jest.advanceTimersByTime(AGENT_TIMEOUT_MS);
             expect(signal.aborted).toBe(true);
@@ -113,8 +113,8 @@ describe('agent-loop timeout primitives', () => {
             await expect(wrapped).rejects.toThrow('inner-fail');
         });
 
-        it('uses AGENT_TIMEOUT_MS as the contract for a 20-minute agent run', async () => {
-            // End-to-end: a 20-min budget + 5s grace ⇒ rejects at 20:05.
+        it('uses AGENT_TIMEOUT_MS as the contract for a 30-minute agent run', async () => {
+            // End-to-end: a 30-min budget + 5s grace ⇒ rejects at 30:05.
             const inner = new Promise<never>(() => {});
             const wrapped = hardTimeout(
                 inner,
@@ -128,8 +128,8 @@ describe('agent-loop timeout primitives', () => {
             const err = await result;
             expect((err as Error).message).toContain('[HARD-TIMEOUT]');
             expect((err as Error).message).toContain('agent-loop');
-            // 20 minutes = 1200 seconds
-            expect((err as Error).message).toContain('1200s');
+            // 30 minutes = 1800 seconds
+            expect((err as Error).message).toContain('1800s');
         });
     });
 });

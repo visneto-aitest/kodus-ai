@@ -66,11 +66,15 @@ export class KodyRulesAgentProvider extends BaseCodeReviewAgentProvider {
         return 'kody_rules';
     }
 
-    // Store rules for injection into system prompt
-    private currentRules: string = '';
-
     /**
-     * Override execute to inject rules into the prompt dynamically.
+     * Override execute to filter team rules and forward them to the base
+     * agent. The previous implementation stashed the formatted rules on a
+     * `this.currentRules` field, but since the provider is a NestJS
+     * singleton that field raced across concurrent reviews — two orgs
+     * hitting the same worker at once could end up validated against each
+     * other's rules. Now we pre-filter the `active`/non-memory rules and
+     * let the base class read them off the input object, so there is no
+     * shared mutable state per request.
      */
     async execute(
         input: ReviewAgentInput & { kodyRules?: Partial<IKodyRule>[] },
@@ -88,10 +92,9 @@ export class KodyRulesAgentProvider extends BaseCodeReviewAgentProvider {
             };
         }
 
-        // Store formatted rules — getCategoryPrompt() will include them
-        this.currentRules = this.formatKodyRules(rules, input.changedFiles);
+        const formatted = this.formatKodyRules(rules, input.changedFiles);
 
-        if (!this.currentRules) {
+        if (!formatted) {
             return {
                 suggestions: [],
                 agentName: this.getIdentity().name,
@@ -100,18 +103,46 @@ export class KodyRulesAgentProvider extends BaseCodeReviewAgentProvider {
             };
         }
 
-        // Kody Rules checks explicit user-defined rules — recovery, rescue,
-        // and second-chance passes are designed for open-ended bug discovery
-        // and would just re-find the same rule violations with different
-        // wording, causing duplicate comments.
-        return super.execute({ ...input, skipHeavyPasses: true });
+        // Kody Rules check explicit user-defined rules. Coverage recovery
+        // and second-chance still help — they push the agent to actually
+        // open the changed files when the main loop didn't reach all of
+        // them, and any new findings they produce keep their `ruleUuid`
+        // because the prompt of those passes carries the rules forward.
+        //
+        // Synthesis-rescue is the one we MUST skip: its prompt is
+        // open-ended ("re-think the review") and emits findings against a
+        // generic schema (`label: bug|security|performance`) without
+        // `ruleUuid`. For a kody-rules run that path produces:
+        //   1. duplicate findings (same violation, re-worded), and
+        //   2. findings that lose `ruleUuid`, so they no longer bypass
+        //      the verifier — and the verifier doesn't have rules in its
+        //      prompt, so it confidently drops them as "hallucinated
+        //      rules". We've seen both happen on PR 25.
+        return super.execute({
+            ...input,
+            // Keep the filtered rules list on the passed-down input so
+            // buildUserPrompt / ruleUuid reconciliation still works.
+            kodyRules: rules,
+            skipSynthesisRescue: true,
+        });
     }
 
     /**
-     * Override to include the current rules in the category prompt.
-     * This places rules inside <Expertise> in the system prompt.
+     * Override to include the request's rules in the category prompt. The
+     * formatted rule section is derived from `input.kodyRules` each call
+     * instead of from instance state, so concurrent reviews cannot see
+     * each other's rule set.
      */
-    protected getCategoryPrompt(): string {
+    protected getCategoryPrompt(input: ReviewAgentInput): string {
+        const rules = (
+            (input as ReviewAgentInput & {
+                kodyRules?: Partial<IKodyRule>[];
+            }).kodyRules || []
+        ).filter(
+            (r) => r.type !== KodyRulesType.MEMORY && r.status === 'active',
+        );
+        const formatted = this.formatKodyRules(rules, input.changedFiles);
+
         const base = `## Focus: Team Rules & Conventions
 
 You validate code against the team's custom rules listed below. Your ONLY job is to check these rules — do not look for general bugs, security issues, or performance problems.
@@ -133,8 +164,8 @@ You validate code against the team's custom rules listed below. Your ONLY job is
 - Code that follows the rules correctly
 - Rules whose path patterns don't match any changed file`;
 
-        if (this.currentRules) {
-            return `${base}\n\n${this.currentRules}`;
+        if (formatted) {
+            return `${base}\n\n${formatted}`;
         }
         return base;
     }
