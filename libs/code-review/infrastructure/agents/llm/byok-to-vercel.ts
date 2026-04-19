@@ -17,7 +17,7 @@ import { decrypt } from '@libs/common/utils/crypto';
  */
 const DEFAULT_MODEL = {
     provider: BYOKProvider.GOOGLE_GEMINI,
-    model: 'gemini-2.5-pro',
+    model: 'gemini-3.1-pro-preview-customtools',
 };
 
 /**
@@ -40,13 +40,48 @@ export function byokToVercelModel(
         role === 'fallback' ? byokConfig?.fallback : byokConfig?.main;
 
     if (!config) {
-        // No BYOK — use default with environment API key
+        // No BYOK — pick the default based on deployment mode.
+        // Self-hosted: honor `API_LLM_PROVIDER_MODEL` (+ `API_OPEN_AI_API_KEY` /
+        //   `API_OPENAI_FORCE_BASE_URL` / `API_VERTEX_AI_API_KEY`) so the
+        //   customer's own keys from .env drive the main model, the same way
+        //   `getInternalModel` does for helper calls.
+        // Cloud (managed/trial): fall back to Kodus's bundled Gemini default
+        //   (`DEFAULT_MODEL.model` → v5 agent-first uses
+        //   gemini-3.1-pro-preview-customtools; legacy v2 stays on
+        //   gemini-2.5-pro via `LLMModelProvider` enum in llmAnalysis.service).
+        const envMode = process.env.API_LLM_PROVIDER_MODEL ?? 'auto';
+        if (envMode !== 'auto') {
+            const vertexKey = process.env.API_VERTEX_AI_API_KEY;
+            if (vertexKey) {
+                try {
+                    return createGoogleGenerativeAI({ apiKey: vertexKey })(
+                        envMode,
+                    );
+                } catch {
+                    // fall through to OpenAI-compatible
+                }
+            }
+
+            const openaiKey = process.env.API_OPEN_AI_API_KEY;
+            const openaiBaseURL = process.env.API_OPENAI_FORCE_BASE_URL;
+            if (openaiKey) {
+                return createOpenAICompatible({
+                    name: 'self-hosted',
+                    apiKey: openaiKey,
+                    baseURL: openaiBaseURL || '',
+                })(envMode);
+            }
+            // self-hosted mode declared but no usable env key — fall through
+            // to the Gemini default so the call still has a model to attach
+            // (it'll fail fast on the API call instead of here).
+        }
+
         const googleKey =
             process.env.API_GOOGLE_AI_API_KEY ||
             process.env.GOOGLE_GENERATIVE_AI_API_KEY ||
             '';
         return createGoogleGenerativeAI({ apiKey: googleKey })(
-            'gemini-2.5-pro',
+            DEFAULT_MODEL.model,
         );
     }
 
@@ -109,10 +144,25 @@ export function byokToVercelModel(
 
 /**
  * Extract a human-readable model name from BYOK config.
+ * Mirrors the fallback logic in `byokToVercelModel` so telemetry/logs
+ * reflect the model that will actually be used.
  */
 export function getModelName(byokConfig?: BYOKConfig): string {
-    if (!byokConfig?.main) return DEFAULT_MODEL.model;
-    return `${byokConfig.main.provider}:${byokConfig.main.model}`;
+    if (byokConfig?.main) {
+        return `${byokConfig.main.provider}:${byokConfig.main.model}`;
+    }
+
+    const envMode = process.env.API_LLM_PROVIDER_MODEL ?? 'auto';
+    if (envMode !== 'auto') {
+        if (process.env.API_VERTEX_AI_API_KEY) {
+            return `google_vertex:${envMode}`;
+        }
+        if (process.env.API_OPEN_AI_API_KEY) {
+            return `openai_compatible:${envMode}`;
+        }
+    }
+
+    return DEFAULT_MODEL.model;
 }
 
 /**
