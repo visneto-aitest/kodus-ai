@@ -23,8 +23,10 @@ import { SignUpUseCase } from '@libs/identity/application/use-cases/auth/signup.
 
 import { SSOCheckUseCase } from '@libs/ee/sso/use-cases/sso-check.use-case';
 import { SSOLoginUseCase } from '@libs/ee/sso/use-cases/sso-login.use-case';
+import { SamlAuthGuard } from '@libs/ee/sso/guards/saml-auth.guard';
+import { SSOTestSessionService } from '@libs/ee/sso/services/sso-test-session.service';
+import { mapSSOError } from '@libs/ee/sso/utils/sso-error.util';
 import { SignUpDTO } from '@libs/identity/dtos/create-user-organization.dto';
-import { AuthGuard } from '@nestjs/passport';
 import { CreateUserOrganizationOAuthDto } from '../dtos/create-user-organization-oauth.dto';
 import {
     ApiBody,
@@ -70,6 +72,7 @@ export class AuthController {
         private readonly resendEmailUseCase: ResendEmailUseCase,
         private readonly ssoLoginUseCase: SSOLoginUseCase,
         private readonly ssoCheckUseCase: SSOCheckUseCase,
+        private readonly ssoTestSessionService: SSOTestSessionService,
     ) {}
 
     @Post('login')
@@ -200,7 +203,7 @@ export class AuthController {
 
     @Get('sso/login/:organizationId')
     @Public()
-    @UseGuards(AuthGuard('saml'))
+    @UseGuards(SamlAuthGuard)
     @ApiParam({ name: 'organizationId', required: true })
     @ApiOperation({
         summary: 'SSO login',
@@ -212,7 +215,7 @@ export class AuthController {
 
     @Post('sso/saml/callback/:organizationId')
     @Public()
-    @UseGuards(AuthGuard('saml'))
+    @UseGuards(SamlAuthGuard)
     @ApiParam({ name: 'organizationId', required: true })
     @ApiOperation({
         summary: 'SSO callback',
@@ -223,29 +226,71 @@ export class AuthController {
         @Res() res: Response,
         @Param('organizationId') organizationId: string,
     ) {
-        const { accessToken, refreshToken } =
-            await this.ssoLoginUseCase.execute(req.user, organizationId);
-
         const frontendUrl = process.env.API_FRONTEND_URL;
+        const relayState =
+            (req.body?.RelayState as string) ||
+            (req.query?.RelayState as string);
 
         if (!frontendUrl) {
             throw new Error('Frontend URL not found');
         }
 
-        const payload = JSON.stringify({ accessToken, refreshToken });
+        try {
+            if (relayState) {
+                const testSession =
+                    await this.ssoTestSessionService.getSession(relayState);
 
-        res.cookie('sso_handoff', payload, {
-            httpOnly: false,
-            secure: process.env.API_NODE_ENV !== 'development',
-            sameSite: 'lax',
-            path: '/',
-            maxAge: 15 * 1000,
-            domain:
-                process.env.API_NODE_ENV !== 'development'
-                    ? '.kodus.io'
-                    : undefined,
-        });
+                if (
+                    testSession &&
+                    testSession.organizationId === organizationId
+                ) {
+                    await this.ssoTestSessionService.markSessionSuccess(
+                        relayState,
+                    );
 
-        return res.redirect(`${frontendUrl}/sso-callback`);
+                    return res.redirect(
+                        `${frontendUrl}/organization/sso?ssoTestSessionId=${encodeURIComponent(relayState)}`,
+                    );
+                }
+            }
+
+            const { accessToken, refreshToken } =
+                await this.ssoLoginUseCase.execute(req.user, organizationId);
+
+            const payload = JSON.stringify({ accessToken, refreshToken });
+
+            res.cookie('sso_handoff', payload, {
+                httpOnly: false,
+                secure: process.env.API_NODE_ENV !== 'development',
+                sameSite: 'lax',
+                path: '/',
+                maxAge: 15 * 1000,
+                domain:
+                    process.env.API_NODE_ENV !== 'development'
+                        ? '.kodus.io'
+                        : undefined,
+            });
+
+            return res.redirect(`${frontendUrl}/sso-callback`);
+        } catch (error) {
+            const mappedError = mapSSOError(error);
+
+            if (relayState) {
+                await this.ssoTestSessionService.markSessionFailed(relayState, {
+                    failureCode: mappedError.failureCode,
+                    failureMessage: mappedError.message,
+                });
+
+                return res.redirect(
+                    `${frontendUrl}/organization/sso?ssoTestSessionId=${encodeURIComponent(relayState)}`,
+                );
+            }
+
+            const reasonMessage = encodeURIComponent(mappedError.message);
+
+            return res.redirect(
+                `${frontendUrl}/sign-in?reason=${mappedError.reasonCode}&reasonMessage=${reasonMessage}`,
+            );
+        }
     }
 }

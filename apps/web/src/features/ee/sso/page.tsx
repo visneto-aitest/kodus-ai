@@ -16,7 +16,7 @@ export default async function SsoOrganizationSettingsPage() {
     }
 
     const jwtPayload = await auth();
-    const email = jwtPayload?.user.email ?? "";
+    const email = jwtPayload?.user?.email ?? "";
 
     let ssoConfig: SSOConfig<SSOProtocol.SAML> = {
         protocol: SSOProtocol.SAML,
@@ -42,6 +42,7 @@ export default async function SsoOrganizationSettingsPage() {
                 providerConfig: result.providerConfig,
                 uuid: result.uuid,
                 domains: result.domains,
+                connectionTest: result.connectionTest,
             };
         }
     } catch (error: unknown) {

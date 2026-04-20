@@ -40,6 +40,7 @@ export function UserAuthForm() {
     const searchParams = useSearchParams();
     const callbackUrl = searchParams.get("callbackUrl");
     const reason = searchParams.get("reason");
+    const reasonMessageParam = searchParams.get("reasonMessage");
 
     const [step, setStep] = useState<AuthStep>("email");
     const [typePassword, setTypePassword] = useState<"password" | "text">(
@@ -60,12 +61,36 @@ export function UserAuthForm() {
                 return "Your account has been removed from the organization.";
             case "inactive":
                 return "Your account is inactive. Please contact your administrator.";
+            case "sso-config-not-found":
+                return "SSO is not configured for this organization. Contact your administrator.";
+            case "sso-invalid-email-assertion":
+                return "Your identity provider did not send a valid email claim. Contact your administrator.";
+            case "sso-invalid-assertion":
+                return "The SSO response could not be validated. Please retry or contact your administrator.";
+            case "sso-expired-request":
+                return "The SSO request expired. Start sign in again.";
+            case "sso-auth-failed":
+                return "SSO authentication failed. Please try again or contact your administrator.";
             default:
                 return null;
         }
     };
 
     const reasonMessage = getReasonMessage();
+
+    const detailedReasonMessage = (() => {
+        if (!reasonMessageParam) {
+            return null;
+        }
+
+        try {
+            return decodeURIComponent(reasonMessageParam);
+        } catch {
+            return reasonMessageParam;
+        }
+    })();
+
+    const displayReasonMessage = detailedReasonMessage || reasonMessage;
 
     useEffect(() => {
         if (callbackUrl?.includes("setup_action=install")) {
@@ -160,16 +185,16 @@ export function UserAuthForm() {
 
     return (
         <form onSubmit={handleSubmit} className="grid w-full gap-6">
-            {reasonMessage && (
+            {displayReasonMessage && (
                 <Card className="bg-danger/10 text-sm">
                     <CardHeader className="flex-row items-center gap-4">
                         <AlertTriangleIcon className="text-danger size-5" />
-                        <span>{reasonMessage}</span>
+                        <span>{displayReasonMessage}</span>
                     </CardHeader>
                 </Card>
             )}
 
-            {isError && !reasonMessage && (
+            {isError && !displayReasonMessage && (
                 <Card className="bg-warning/10 text-sm">
                     <CardHeader className="flex-row items-center gap-4">
                         <AlertTriangleIcon className="text-warning size-5" />
