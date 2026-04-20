@@ -101,6 +101,13 @@ export class PermissionValidationService {
     }
 
     /**
+     * Verifies if the plan requires per-user license validation
+     */
+    private requiresUserLicense(planType: PlanType | null): boolean {
+        return planType === PlanType.BYOK || planType === PlanType.MANAGED;
+    }
+
+    /**
      * Unified permission validation for operations that need license + BYOK
      */
     async validateExecutionPermissions(
@@ -201,9 +208,9 @@ export class PermissionValidationService {
                 }
             }
 
-            if (identifiedPlanType === PlanType.MANAGED && !userGitId) {
+            if (this.requiresUserLicense(identifiedPlanType) && !userGitId) {
                 this.logger.warn({
-                    message: 'Managed plan requires licensed user, NOT_ERROR',
+                    message: 'Plan requires licensed user, NOT_ERROR',
                     context: contextName || PermissionValidationService.name,
                     metadata: { organizationAndTeamData },
                 });
@@ -217,8 +224,8 @@ export class PermissionValidationService {
                 };
             }
 
-            // 6. Validate specific user (ALWAYS validates if userGitId provided, except trial)
-            if (!this.requiresBYOK(identifiedPlanType) && userGitId) {
+            // 6. Validate specific user (ALWAYS validates if userGitId provided, except trial and free)
+            if (this.requiresUserLicense(identifiedPlanType) && userGitId) {
                 const users = await this.licenseService.getAllUsersWithLicense(
                     organizationAndTeamData,
                 );
