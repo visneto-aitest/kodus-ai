@@ -1,10 +1,9 @@
 "use client";
 
-import {
-    Alert,
-    AlertDescription,
-    AlertTitle,
-} from "@components/ui/alert";
+import { useState } from "react";
+import { Alert, AlertDescription, AlertTitle } from "@components/ui/alert";
+import { Button } from "@components/ui/button";
+import { Card, CardContent } from "@components/ui/card";
 import { magicModal } from "@components/ui/magic-modal";
 import { Page } from "@components/ui/page";
 import { toast } from "@components/ui/toaster/use-toast";
@@ -14,12 +13,22 @@ import {
     type LLMConfigStatus,
 } from "@services/organizationParameters/fetch";
 import { OrganizationParametersConfigKey } from "@services/parameters/types";
-import { InfoIcon } from "lucide-react";
+import {
+    ExternalLinkIcon,
+    InfoIcon,
+    LayersIcon,
+    PlusIcon,
+    ShieldCheckIcon,
+    TrashIcon,
+} from "lucide-react";
 import { ConfirmModal } from "src/core/components/ui/confirm-modal";
 import { revalidateServerSidePath } from "src/core/utils/revalidate-server-side";
 
 import type { BYOKConfig } from "../_types";
-import { BYOKCard } from "./card";
+import { CuratedCatalog } from "./catalog/catalog";
+import { ConfiguredSummary } from "./configured-summary";
+
+type SlotState = "idle" | "editing";
 
 const providerLabel = (providerId?: string) => {
     switch (providerId) {
@@ -85,28 +94,29 @@ const EnvConfigNotice = ({ env }: { env: LLMConfigStatus["env"] }) => {
                                 Vertex location
                             </dt>
                             <dd>
-                                <EnvDataValue>{env.vertexLocation}</EnvDataValue>
+                                <EnvDataValue>
+                                    {env.vertexLocation}
+                                </EnvDataValue>
                             </dd>
                         </>
                     )}
                 </dl>
 
                 <p className="text-pretty">
-                    The API key is not shown for security. Filling in the form
+                    The API key is not shown for security. Choosing a model
                     below and saving will{" "}
                     <strong className="text-text-primary font-semibold">
                         override
                     </strong>{" "}
-                    this env-based configuration — clear the form to go back to
-                    env.
+                    this env-based configuration.
                 </p>
             </AlertDescription>
         </Alert>
     );
 };
 
-const confirmEnvOverride = (): Promise<boolean> => {
-    return new Promise((resolve) => {
+const confirmEnvOverride = (): Promise<boolean> =>
+    new Promise((resolve) => {
         magicModal.show(() => (
             <ConfirmModal
                 open
@@ -125,21 +135,34 @@ const confirmEnvOverride = (): Promise<boolean> => {
             />
         ));
     });
-};
 
 export const ByokPageClient = ({
     config,
     llmConfigStatus,
 }: {
-    config: { main: BYOKConfig; fallback: BYOKConfig } | null;
+    config: { main: BYOKConfig; fallback: BYOKConfig } | null | undefined;
     llmConfigStatus: LLMConfigStatus | null;
 }) => {
+    const [mainState, setMainState] = useState<SlotState>(
+        config?.main ? "idle" : "editing",
+    );
+    const [fallbackState, setFallbackState] = useState<SlotState>("idle");
+    const [isDeletingMain, setIsDeletingMain] = useState(false);
+    const [isDeletingFallback, setIsDeletingFallback] = useState(false);
+
     const envIsActiveSource = llmConfigStatus?.source === "env";
+    const showEnvNotice =
+        !!llmConfigStatus?.env.configured && !config?.main;
+
+    const existingKeyByProvider: Partial<Record<string, string>> = {};
+    if (config?.main) {
+        existingKeyByProvider[config.main.provider] = config.main.apiKey;
+    }
+    if (config?.fallback) {
+        existingKeyByProvider[config.fallback.provider] = config.fallback.apiKey;
+    }
 
     const onSaveMain = async (newConfig: BYOKConfig) => {
-        // Only warn when saving the main slot while env is the active source
-        // — fallback never overrides env on its own, and a re-save on an
-        // already-BYOK install is a normal edit.
         if (envIsActiveSource) {
             const proceed = await confirmEnvOverride();
             if (!proceed) return;
@@ -148,22 +171,13 @@ export const ByokPageClient = ({
         try {
             await createOrUpdateOrganizationParameter(
                 OrganizationParametersConfigKey.BYOK_CONFIG,
-                {
-                    main: newConfig,
-                },
+                { main: newConfig },
             );
-
-            toast({
-                variant: "success",
-                title: "Main key saved",
-            });
-
+            toast({ variant: "success", title: "Main model saved" });
+            setMainState("idle");
             await revalidateServerSidePath("/organization/byok");
         } catch {
-            toast({
-                variant: "danger",
-                title: "Main key couldn't be saved",
-            });
+            toast({ variant: "danger", title: "Couldn't save main model" });
         }
     };
 
@@ -171,71 +185,113 @@ export const ByokPageClient = ({
         try {
             await createOrUpdateOrganizationParameter(
                 OrganizationParametersConfigKey.BYOK_CONFIG,
-                {
-                    fallback: newConfig,
-                },
+                { fallback: newConfig },
             );
-
-            toast({
-                variant: "success",
-                title: "Fallback key saved",
-            });
-
+            toast({ variant: "success", title: "Fallback model saved" });
+            setFallbackState("idle");
             await revalidateServerSidePath("/organization/byok");
         } catch {
             toast({
                 variant: "danger",
-                title: "Fallback key couldn't be saved",
+                title: "Couldn't save fallback model",
                 description:
-                    "If you're trying to add Fallback key before Main one, it will not work.",
+                    "Configure a Main model first — fallback needs one to back up.",
             });
         }
     };
 
     const onDeleteMain = async () => {
+        const ok = await new Promise<boolean>((resolve) => {
+            magicModal.show(() => (
+                <ConfirmModal
+                    open
+                    title="Remove main model?"
+                    description="Kodus will stop using this key immediately. Any fallback model will also be cleared."
+                    confirmText="Remove"
+                    variant="primary-dark"
+                    onConfirm={() => {
+                        resolve(true);
+                        magicModal.hide();
+                    }}
+                    onCancel={() => {
+                        resolve(false);
+                        magicModal.hide();
+                    }}
+                />
+            ));
+        });
+        if (!ok) return;
+
+        setIsDeletingMain(true);
         try {
             await deleteBYOK({ configType: "main" });
-
-            toast({
-                variant: "success",
-                title: "Main key deleted",
-            });
-
+            toast({ variant: "success", title: "Main model removed" });
             await revalidateServerSidePath("/organization/byok");
         } catch {
-            toast({
-                variant: "danger",
-                title: "Main key couldn't be deleted",
-            });
+            toast({ variant: "danger", title: "Couldn't remove main model" });
+        } finally {
+            setIsDeletingMain(false);
         }
     };
 
     const onDeleteFallback = async () => {
+        const ok = await new Promise<boolean>((resolve) => {
+            magicModal.show(() => (
+                <ConfirmModal
+                    open
+                    title="Remove fallback model?"
+                    description="Kodus will stop using this fallback immediately. Reviews will rely solely on your main model."
+                    confirmText="Remove"
+                    variant="primary-dark"
+                    onConfirm={() => {
+                        resolve(true);
+                        magicModal.hide();
+                    }}
+                    onCancel={() => {
+                        resolve(false);
+                        magicModal.hide();
+                    }}
+                />
+            ));
+        });
+        if (!ok) return;
+
+        setIsDeletingFallback(true);
         try {
             await deleteBYOK({ configType: "fallback" });
-
-            toast({
-                variant: "success",
-                title: "Fallback key deleted",
-            });
-
+            toast({ variant: "success", title: "Fallback model removed" });
             await revalidateServerSidePath("/organization/byok");
         } catch {
             toast({
                 variant: "danger",
-                title: "Fallback key couldn't be deleted",
+                title: "Couldn't remove fallback model",
             });
+        } finally {
+            setIsDeletingFallback(false);
         }
     };
-
-    const showEnvNotice =
-        !!llmConfigStatus?.env.configured && !config?.main;
 
     return (
         <Page.Root>
             <Page.Header>
                 <Page.TitleContainer>
-                    <Page.Title>Bring your own key</Page.Title>
+                    <Page.Title className="text-balance">
+                        Bring your own key
+                    </Page.Title>
+                    <Page.Description className="flex flex-wrap items-center gap-x-2 gap-y-1 text-pretty">
+                        <span>
+                            Pick a model for code review. You pay your
+                            provider directly — Kodus never sees your key.
+                        </span>
+                        <a
+                            href="https://docs.kodus.io/how_to_use/en/byok"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-primary-light inline-flex items-center gap-1 text-xs hover:underline">
+                            Learn more
+                            <ExternalLinkIcon size={12} />
+                        </a>
+                    </Page.Description>
                 </Page.TitleContainer>
             </Page.Header>
 
@@ -244,32 +300,122 @@ export const ByokPageClient = ({
                     <EnvConfigNotice env={llmConfigStatus.env} />
                 )}
 
-                <div className="flex gap-4">
-                    <BYOKCard
-                        type="main"
-                        config={config?.main}
-                        onSave={onSaveMain}
-                        onDelete={onDeleteMain}
-                        tooltip={
-                            <div>
-                                <p>This key will be the first to be used.</p>
-                            </div>
-                        }
+                <section className="flex flex-col gap-3">
+                    <SlotHeader
+                        icon={<ShieldCheckIcon size={16} />}
+                        title="Main model"
+                        description="Used for every review."
                     />
-                    <BYOKCard
-                        type="fallback"
-                        config={config?.fallback}
-                        onSave={onSaveFallback}
-                        onDelete={onDeleteFallback}
-                        tooltip={
-                            <p>
-                                Optional. This key will be used if Main key
-                                fails.
-                            </p>
-                        }
-                    />
-                </div>
+
+                    {mainState === "idle" && config?.main ? (
+                        <ConfiguredSummary
+                            config={config.main}
+                            isDeleting={isDeletingMain}
+                            onChange={() => setMainState("editing")}
+                            onDelete={onDeleteMain}
+                        />
+                    ) : (
+                        <CuratedCatalog
+                            slot="main"
+                            existingKeyByProvider={existingKeyByProvider}
+                            onSave={onSaveMain}
+                            onCancel={
+                                config?.main
+                                    ? () => setMainState("idle")
+                                    : undefined
+                            }
+                        />
+                    )}
+                </section>
+
+                {config?.main && (
+                    <section className="flex flex-col gap-3">
+                        <SlotHeader
+                            icon={<LayersIcon size={16} />}
+                            title="Fallback model"
+                            description="Optional. Used if the main model fails."
+                        />
+
+                        {fallbackState === "idle" && config?.fallback ? (
+                            <ConfiguredSummary
+                                config={config.fallback}
+                                isDeleting={isDeletingFallback}
+                                onChange={() => setFallbackState("editing")}
+                                onDelete={onDeleteFallback}
+                            />
+                        ) : fallbackState === "idle" ? (
+                            <EmptyFallback
+                                onAdd={() => setFallbackState("editing")}
+                            />
+                        ) : (
+                            <CuratedCatalog
+                                slot="fallback"
+                                existingKeyByProvider={existingKeyByProvider}
+                                onSave={onSaveFallback}
+                                onCancel={() => setFallbackState("idle")}
+                            />
+                        )}
+
+                        {config?.fallback && fallbackState === "idle" && (
+                            <Button
+                                type="button"
+                                size="xs"
+                                variant="cancel"
+                                className="text-danger self-start [--button-foreground:var(--color-danger)]"
+                                leftIcon={<TrashIcon />}
+                                loading={isDeletingFallback}
+                                onClick={onDeleteFallback}>
+                                Remove fallback
+                            </Button>
+                        )}
+                    </section>
+                )}
             </Page.Content>
         </Page.Root>
     );
 };
+
+function SlotHeader({
+    icon,
+    title,
+    description,
+}: {
+    icon: React.ReactNode;
+    title: string;
+    description: string;
+}) {
+    return (
+        <div className="flex items-center gap-2">
+            <span className="text-text-secondary">{icon}</span>
+            <div className="flex flex-col">
+                <h3 className="text-text-primary text-sm font-semibold text-balance">
+                    {title}
+                </h3>
+                <p className="text-text-tertiary text-xs text-pretty">
+                    {description}
+                </p>
+            </div>
+        </div>
+    );
+}
+
+function EmptyFallback({ onAdd }: { onAdd: () => void }) {
+    return (
+        <Card color="lv1" className="border-card-lv2 border-dashed">
+            <CardContent className="flex items-center justify-between gap-4 py-4">
+                <p className="text-text-secondary text-sm text-pretty">
+                    Add a fallback so reviews keep running if your main model
+                    is rate-limited or down.
+                </p>
+                <Button
+                    type="button"
+                    size="sm"
+                    variant="helper"
+                    leftIcon={<PlusIcon />}
+                    onClick={onAdd}>
+                    Add fallback
+                </Button>
+            </CardContent>
+        </Card>
+    );
+}

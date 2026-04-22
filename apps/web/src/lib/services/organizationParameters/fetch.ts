@@ -56,6 +56,39 @@ export const deleteBYOK = async (params: {
     );
 };
 
+export type TestBYOKResultCode =
+    | "ok"
+    | "auth"
+    | "not_found"
+    | "bad_request"
+    | "payment"
+    | "rate_limit"
+    | "server_error"
+    | "network"
+    | "unknown";
+
+export type TestBYOKResult = {
+    ok: boolean;
+    code: TestBYOKResultCode;
+    latencyMs: number;
+    message?: string;
+    providerMessage?: string;
+    httpStatus?: number;
+};
+
+export const testBYOK = async (params: {
+    provider: string;
+    apiKey: string;
+    baseURL?: string;
+    model?: string;
+}): Promise<TestBYOKResult> => {
+    const envelope = await axiosAuthorized.post<{ data: TestBYOKResult }>(
+        ORGANIZATION_PARAMETERS_PATHS.TEST_BYOK,
+        params,
+    );
+    return envelope.data;
+};
+
 export type LLMConfigSource = "byok" | "env" | "none";
 
 export type LLMConfigStatus = {

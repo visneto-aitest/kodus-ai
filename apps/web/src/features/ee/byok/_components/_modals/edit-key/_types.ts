@@ -13,6 +13,8 @@ const baseFields = {
         .nullable()
         .optional(),
     reasoningConfigOverride: z.string().nullable().optional(),
+    openrouterProviderOrder: z.array(z.string()).nullable().optional(),
+    openrouterAllowFallbacks: z.boolean().nullable().optional(),
 };
 
 export const createKeySchema = z.object({
