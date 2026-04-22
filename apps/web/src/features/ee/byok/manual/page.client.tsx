@@ -37,7 +37,7 @@ import type { BYOKConfig } from "../_types";
 import { maskKey } from "../_utils";
 import { ByokAdvancedSettings } from "../_components/_modals/edit-key/_components/advanced-settings";
 import { ByokBaseURLInput } from "../_components/_modals/edit-key/_components/baseurl-input";
-import { ByokKeyInput } from "../_components/_modals/edit-key/_components/key-input";
+import { ByokCredentialsInput } from "../_components/_modals/edit-key/_components/credentials-input";
 import {
     ByokManualModelInput,
     ByokModelSelect,
@@ -118,6 +118,12 @@ export function ByokManualPageClient({
                 existingConfig?.openrouterProviderOrder ?? null,
             openrouterAllowFallbacks:
                 existingConfig?.openrouterAllowFallbacks ?? null,
+            vertexLocation: existingConfig?.vertexLocation ?? null,
+            awsBearerToken: existingConfig?.awsBearerToken ?? null,
+            awsAccessKeyId: existingConfig?.awsAccessKeyId ?? null,
+            awsSecretAccessKey: existingConfig?.awsSecretAccessKey ?? null,
+            awsRegion: existingConfig?.awsRegion ?? null,
+            awsSessionToken: existingConfig?.awsSessionToken ?? null,
         },
     });
 
@@ -135,8 +141,17 @@ export function ByokManualPageClient({
         if (!valid) return null;
 
         const data = form.getValues();
-        if (!data.apiKey?.trim()) {
-            // Editing with no new key: skip test (key stays unchanged server-side)
+        const hasNewCredentials =
+            data.provider === "amazon_bedrock"
+                ? !!(
+                      data.awsBearerToken?.trim() ||
+                      (data.awsAccessKeyId?.trim() &&
+                          data.awsSecretAccessKey?.trim())
+                  )
+                : !!data.apiKey?.trim();
+
+        if (!hasNewCredentials) {
+            // Editing with no new credentials: skip test (creds stay unchanged server-side)
             return { ok: true, code: "ok", latencyMs: 0 };
         }
 
@@ -147,6 +162,12 @@ export function ByokManualPageClient({
                 apiKey: data.apiKey,
                 baseURL: data.baseURL ?? undefined,
                 model: data.model,
+                vertexLocation: data.vertexLocation ?? undefined,
+                awsBearerToken: data.awsBearerToken ?? undefined,
+                awsAccessKeyId: data.awsAccessKeyId ?? undefined,
+                awsSecretAccessKey: data.awsSecretAccessKey ?? undefined,
+                awsRegion: data.awsRegion ?? undefined,
+                awsSessionToken: data.awsSessionToken ?? undefined,
             });
             if (result.ok) {
                 setTestState({ status: "success", latencyMs: result.latencyMs });
@@ -201,6 +222,35 @@ export function ByokManualPageClient({
                 data.provider === "open_router" &&
                 typeof data.openrouterAllowFallbacks === "boolean"
                     ? data.openrouterAllowFallbacks
+                    : undefined,
+            vertexLocation:
+                data.provider === "google_vertex" &&
+                data.vertexLocation?.trim()
+                    ? data.vertexLocation.trim()
+                    : undefined,
+            awsBearerToken:
+                data.provider === "amazon_bedrock" &&
+                data.awsBearerToken?.trim()
+                    ? data.awsBearerToken.trim()
+                    : undefined,
+            awsAccessKeyId:
+                data.provider === "amazon_bedrock" &&
+                data.awsAccessKeyId?.trim()
+                    ? data.awsAccessKeyId.trim()
+                    : undefined,
+            awsSecretAccessKey:
+                data.provider === "amazon_bedrock" &&
+                data.awsSecretAccessKey?.trim()
+                    ? data.awsSecretAccessKey.trim()
+                    : undefined,
+            awsRegion:
+                data.provider === "amazon_bedrock" && data.awsRegion?.trim()
+                    ? data.awsRegion.trim()
+                    : undefined,
+            awsSessionToken:
+                data.provider === "amazon_bedrock" &&
+                data.awsSessionToken?.trim()
+                    ? data.awsSessionToken.trim()
                     : undefined,
         };
 
@@ -367,11 +417,11 @@ export function ByokManualPageClient({
                         )}
                     </QueryErrorResetBoundary>
 
-                    {model?.trim().length > 0 && (
+                    {provider?.trim().length > 0 && (
                         <Card color="lv1">
                             <CardHeader>
                                 <h3 className="text-text-primary text-sm font-semibold text-balance">
-                                    Step 2 — API key
+                                    Step 2 — Credentials
                                 </h3>
                             </CardHeader>
                             <CardContent className="flex flex-col gap-4">
@@ -380,7 +430,7 @@ export function ByokManualPageClient({
                                         resetKeys={[provider, model]}
                                         fallbackRender={() => null}>
                                         <Suspense fallback={null}>
-                                            <ByokKeyInput />
+                                            <ByokCredentialsInput />
                                         </Suspense>
                                     </ErrorBoundary>
                                 ) : (
@@ -408,7 +458,7 @@ export function ByokManualPageClient({
                         </Card>
                     )}
 
-                    {model?.trim().length > 0 && (
+                    {provider?.trim().length > 0 && (
                         <Card color="lv1">
                             <CardHeader>
                                 <h3 className="text-text-primary text-sm font-semibold text-balance">
@@ -421,9 +471,7 @@ export function ByokManualPageClient({
                         </Card>
                     )}
 
-                    {model?.trim().length > 0 && (
-                        <TestResultBanner state={testState} />
-                    )}
+                    <TestResultBanner state={testState} />
 
                     <div
                         className="flex flex-wrap items-center justify-end gap-2"

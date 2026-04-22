@@ -78,9 +78,15 @@ export type TestBYOKResult = {
 
 export const testBYOK = async (params: {
     provider: string;
-    apiKey: string;
+    apiKey?: string;
     baseURL?: string;
     model?: string;
+    vertexLocation?: string;
+    awsBearerToken?: string;
+    awsAccessKeyId?: string;
+    awsSecretAccessKey?: string;
+    awsRegion?: string;
+    awsSessionToken?: string;
 }): Promise<TestBYOKResult> => {
     const envelope = await axiosAuthorized.post<{ data: TestBYOKResult }>(
         ORGANIZATION_PARAMETERS_PATHS.TEST_BYOK,
