@@ -8,6 +8,7 @@ export const ORGANIZATION_PARAMETERS_PATHS = {
         "/organization-parameters/list-models",
     ),
     DELETE_BYOK: pathToApiUrl("/organization-parameters/delete-byok-config"),
+    TEST_BYOK: pathToApiUrl("/organization-parameters/test-byok"),
     GET_LLM_CONFIG_STATUS: pathToApiUrl(
         "/organization-parameters/llm-config/status",
     ),

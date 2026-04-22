@@ -90,6 +90,7 @@ KEYS=(
     "/prod/kodus-orchestrator/API_CRON_SYNC_CODE_REVIEW_REACTIONS"
     "/prod/kodus-orchestrator/API_CRON_KODY_LEARNING"
     "/prod/kodus-orchestrator/API_CRON_CHECK_IF_PR_SHOULD_BE_APPROVED"
+    "/prod/kodus-orchestrator/API_CRON_SSO_TEST_SESSION_CLEANUP"
 
     "/prod/kodus-orchestrator/KODUS_SERVICE_TEAMS"
     "/prod/kodus-orchestrator/GLOBAL_KODUS_SERVICE_SLACK"

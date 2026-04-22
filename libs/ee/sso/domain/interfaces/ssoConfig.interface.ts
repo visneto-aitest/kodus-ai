@@ -59,6 +59,7 @@ export interface SSOConnectionTestSession<P extends SSOProtocol> {
     createdBy?: string;
     createdAt: string;
     updatedAt: string;
+    expiresAt: string;
     failureCode?: string;
     failureMessage?: string;
     testedAt?: string;

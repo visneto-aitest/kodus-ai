@@ -84,3 +84,14 @@ export const shouldShowBYOKMissingKeyTopbar = (params: {
         resource: ResourceType.OrganizationSettings,
     });
 };
+
+/**
+ * Obfuscate an API key for display so shoulder-surfing and screen-sharing
+ * can't leak the secret. Keeps a short prefix + suffix so the user can
+ * still recognize which key is stored.
+ */
+export const maskKey = (key?: string): string => {
+    if (!key) return "";
+    if (key.length <= 8) return "•••• ••••";
+    return `${key.slice(0, 4)}•••••${key.slice(-4)}`;
+};

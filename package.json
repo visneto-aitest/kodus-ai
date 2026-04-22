@@ -152,6 +152,7 @@
         "docker:start:all": "docker compose -f docker-compose.dev.yml up"
     },
     "dependencies": {
+        "@ai-sdk/amazon-bedrock": "^3",
         "@ai-sdk/anthropic": "^3.0.71",
         "@ai-sdk/google": "^3.0.64",
         "@ai-sdk/google-vertex": "^4.0.112",
@@ -206,8 +207,8 @@
         "@sentry/node": "^10.49.0",
         "@sentry/opentelemetry": "^10.49.0",
         "@sentry/profiling-node": "^10.49.0",
-        "ai": "^6.0.168",
         "@types/archiver": "^7.0.0",
+        "ai": "^6.0.168",
         "ajv": "^8.18.0",
         "amqp-connection-manager": "^5.0.0",
         "amqplib": "^1.0.3",

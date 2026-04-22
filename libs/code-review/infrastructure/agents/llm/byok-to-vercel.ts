@@ -9,6 +9,7 @@ import { createOpenAI } from '@ai-sdk/openai';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createVertex } from '@ai-sdk/google-vertex';
+import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { BYOKConfig, BYOKProvider } from '@kodus/kodus-common/llm';
 import { decrypt } from '@libs/common/utils/crypto';
@@ -25,13 +26,16 @@ import { decrypt } from '@libs/common/utils/crypto';
 function vertexModelFromSaJson(
     base64SaJson: string,
     modelId: string,
+    locationOverride?: string,
 ): LanguageModel | null {
     try {
         const decoded = Buffer.from(base64SaJson, 'base64').toString('utf-8');
         const credentials = JSON.parse(decoded) as { project_id?: string };
         if (!credentials?.project_id) return null;
-        const location =
-            process.env.API_VERTEX_AI_LOCATION || 'us-central1';
+        // Keep this helper pure: the caller is responsible for resolving
+        // the region (BYOK config or env var) and passing it as
+        // locationOverride. Default to us-central1 when omitted.
+        const location = locationOverride?.trim() || 'us-central1';
         return createVertex({
             project: credentials.project_id,
             location,
@@ -44,6 +48,51 @@ function vertexModelFromSaJson(
 
 const CLAUDE_MODEL_PATTERN = /^claude[-_]/i;
 const GEMINI_MODEL_PATTERN = /^gemini[-_]/i;
+
+/**
+ * Build a Vercel AI SDK model for Amazon Bedrock.
+ *
+ * Two auth paths, in priority order:
+ *   1. Bearer API key (recommended) — single-token auth, released by AWS
+ *      in 2025. `@ai-sdk/amazon-bedrock` accepts it via `apiKey` prop and
+ *      takes precedence over any SigV4 config.
+ *   2. Static IAM user credentials (SigV4) — legacy path, kept for teams
+ *      that haven't migrated to API keys or that prefer IAM policies.
+ *
+ * Returns a LanguageModel that will emit a clear auth error at call time
+ * when credentials are missing — we don't pre-validate here because the
+ * test-byok endpoint already catches empty fields before save.
+ */
+function bedrockModelFromCredentials(
+    config: BYOKConfig['main'] | BYOKConfig['fallback'],
+    modelId: string,
+): LanguageModel {
+    const region = config?.awsRegion?.trim() || 'us-east-1';
+
+    if (config?.awsBearerToken?.trim()) {
+        return createAmazonBedrock({
+            region,
+            apiKey: decrypt(config.awsBearerToken),
+        })(modelId);
+    }
+
+    const accessKeyId = config?.awsAccessKeyId
+        ? decrypt(config.awsAccessKeyId)
+        : '';
+    const secretAccessKey = config?.awsSecretAccessKey
+        ? decrypt(config.awsSecretAccessKey)
+        : '';
+    const sessionToken = config?.awsSessionToken
+        ? decrypt(config.awsSessionToken)
+        : undefined;
+
+    return createAmazonBedrock({
+        region,
+        accessKeyId,
+        secretAccessKey,
+        sessionToken,
+    })(modelId);
+}
 
 /**
  * When the user sets `API_OPENAI_FORCE_BASE_URL` to a non-native endpoint
@@ -143,6 +192,7 @@ export function byokToVercelModel(
                     const vertexModel = vertexModelFromSaJson(
                         vertexKey,
                         envMode,
+                        process.env.API_VERTEX_AI_LOCATION,
                     );
                     if (vertexModel) return vertexModel;
                     return createGoogleGenerativeAI({ apiKey: vertexKey })(
@@ -237,9 +287,17 @@ export function byokToVercelModel(
             // back to AI Studio if the value isn't a valid SA JSON (e.g. the
             // user typed a plain AIzaSy... key into the Vertex provider
             // slot — degraded but still usable).
-            const vertexModel = vertexModelFromSaJson(apiKey, model);
+            const vertexModel = vertexModelFromSaJson(
+                apiKey,
+                model,
+                config.vertexLocation,
+            );
             if (vertexModel) return vertexModel;
             return createGoogleGenerativeAI({ apiKey })(model);
+        }
+
+        case BYOKProvider.AMAZON_BEDROCK: {
+            return bedrockModelFromCredentials(config, model);
         }
 
         default:
@@ -331,7 +389,11 @@ export function getInternalModel(
                 );
             }
             if (vertexKey) {
-                const vertexModel = vertexModelFromSaJson(vertexKey, envMode);
+                const vertexModel = vertexModelFromSaJson(
+                    vertexKey,
+                    envMode,
+                    process.env.API_VERTEX_AI_LOCATION,
+                );
                 if (vertexModel) return vertexModel;
                 return createGoogleGenerativeAI({ apiKey: vertexKey })(envMode);
             }
