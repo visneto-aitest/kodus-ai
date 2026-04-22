@@ -8,6 +8,7 @@ export enum BYOKProvider {
     ANTHROPIC = 'anthropic',
     GOOGLE_GEMINI = 'google_gemini',
     GOOGLE_VERTEX = 'google_vertex',
+    AMAZON_BEDROCK = 'amazon_bedrock',
     OPENAI_COMPATIBLE = 'openai_compatible',
     OPEN_ROUTER = 'open_router',
     NOVITA = 'novita',
@@ -32,6 +33,19 @@ export interface BYOKConfig {
         maxInputTokens?: number;
         maxConcurrentRequests?: number;
         maxOutputTokens?: number;
+        /** Google Vertex AI region (e.g. "us-central1"). When omitted,
+         *  defaults to env var API_VERTEX_AI_LOCATION then "us-central1". */
+        vertexLocation?: string;
+        /** Amazon Bedrock API key (bearer token). When set, takes
+         *  precedence over SigV4 IAM credentials below. This is the
+         *  recommended auth for Bedrock. */
+        awsBearerToken?: string;
+        /** Advanced: static IAM user credentials for Amazon Bedrock
+         *  (SigV4). Used only when awsBearerToken is not set. */
+        awsAccessKeyId?: string;
+        awsSecretAccessKey?: string;
+        awsRegion?: string;
+        awsSessionToken?: string;
     };
     fallback?: {
         provider: BYOKProvider;
@@ -42,6 +56,12 @@ export interface BYOKConfig {
         maxInputTokens?: number;
         maxConcurrentRequests?: number;
         maxOutputTokens?: number;
+        vertexLocation?: string;
+        awsBearerToken?: string;
+        awsAccessKeyId?: string;
+        awsSecretAccessKey?: string;
+        awsRegion?: string;
+        awsSessionToken?: string;
     };
 }
 
@@ -186,6 +206,7 @@ export class BYOKProviderService {
             [BYOKProvider.ANTHROPIC]: 'Anthropic',
             [BYOKProvider.GOOGLE_GEMINI]: 'Google Gemini',
             [BYOKProvider.GOOGLE_VERTEX]: 'Google Vertex',
+            [BYOKProvider.AMAZON_BEDROCK]: 'Amazon Bedrock',
             [BYOKProvider.OPENAI_COMPATIBLE]: 'OpenAI Compatible',
             [BYOKProvider.OPEN_ROUTER]: 'OpenRouter',
             [BYOKProvider.NOVITA]: 'Novita',

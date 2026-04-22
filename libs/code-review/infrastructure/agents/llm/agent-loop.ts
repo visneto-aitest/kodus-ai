@@ -125,6 +125,8 @@ export function buildProviderOptions(
         reasoningConfigOverride?: string;
         byokProvider?: BYOKProvider | string;
         modelName?: string;
+        openrouterProviderOrder?: string[];
+        openrouterAllowFallbacks?: boolean;
     },
 ): Record<string, any> {
     const langsmith = buildLangSmithProviderOptions(runName, meta);
@@ -132,8 +134,16 @@ export function buildProviderOptions(
     // JSON override takes precedence over effort preset
     if (input?.reasoningConfigOverride) {
         try {
-            const override = JSON.parse(input.reasoningConfigOverride);
-            return { ...langsmith, ...override };
+            const parsed = JSON.parse(input.reasoningConfigOverride);
+            const override = autoWrapProviderOverride(
+                parsed,
+                input?.byokProvider,
+            );
+            return {
+                ...langsmith,
+                ...buildOpenRouterRouting(input),
+                ...override,
+            };
         } catch {
             // Invalid JSON — fall through to effort-based mapping
         }
@@ -144,7 +154,11 @@ export function buildProviderOptions(
         input?.reasoningEffort,
         input?.modelName,
     );
-    const merged = { ...langsmith, ...reasoning };
+    const routing = buildOpenRouterRouting(input);
+    const merged = mergeOpenRouterOptions(
+        { ...langsmith, ...reasoning },
+        routing,
+    );
     logger.log({
         message: '[thinking] providerOptions resolved',
         context: 'buildProviderOptions',
@@ -155,8 +169,107 @@ export function buildProviderOptions(
             reasoningEffort: input?.reasoningEffort,
             hasOverride: !!input?.reasoningConfigOverride,
             reasoningPayload: reasoning,
+            openrouterRouting: routing,
         },
     });
+    return merged;
+}
+
+/**
+ * Build the OpenRouter provider-pinning payload, if configured.
+ * Emits { openrouter: { provider: { order, allow_fallbacks } } } so the
+ * upstream @openrouter/ai-sdk-provider forwards it in the request body.
+ * Returns {} when no pinning is set or provider isn't OpenRouter.
+ */
+function buildOpenRouterRouting(input?: {
+    byokProvider?: BYOKProvider | string;
+    openrouterProviderOrder?: string[];
+    openrouterAllowFallbacks?: boolean;
+}): Record<string, any> {
+    if (!input || input.byokProvider !== BYOKProvider.OPEN_ROUTER) return {};
+
+    const order = input.openrouterProviderOrder?.filter(
+        (p) => typeof p === 'string' && p.trim().length > 0,
+    );
+    const hasOrder = !!order && order.length > 0;
+    const hasFallbacksOverride =
+        typeof input.openrouterAllowFallbacks === 'boolean';
+
+    if (!hasOrder && !hasFallbacksOverride) return {};
+
+    const providerPayload: Record<string, any> = {};
+    if (hasOrder) providerPayload.order = order;
+    if (hasFallbacksOverride) {
+        providerPayload.allow_fallbacks = input.openrouterAllowFallbacks;
+    }
+    return { openrouter: { provider: providerPayload } };
+}
+
+/**
+ * Maps a BYOK provider ID to the Vercel AI SDK `providerOptions` namespace key
+ * that the corresponding adapter listens on.
+ */
+const PROVIDER_OPTIONS_NAMESPACE: Partial<Record<string, string>> = {
+    [BYOKProvider.ANTHROPIC]: 'anthropic',
+    [BYOKProvider.GOOGLE_GEMINI]: 'google',
+    [BYOKProvider.GOOGLE_VERTEX]: 'google',
+    [BYOKProvider.OPENAI]: 'openai',
+    [BYOKProvider.OPEN_ROUTER]: 'openrouter',
+    [BYOKProvider.OPENAI_COMPATIBLE]: 'openaiCompatible',
+    [BYOKProvider.NOVITA]: 'openaiCompatible',
+};
+
+/** Keys that count as "already namespaced" at the top level of an override. */
+const KNOWN_NAMESPACE_KEYS = new Set([
+    'anthropic',
+    'google',
+    'openai',
+    'openrouter',
+    'openaiCompatible',
+    'langsmith',
+]);
+
+/**
+ * Auto-wrap a user-pasted override JSON under the active provider's namespace
+ * when the user didn't wrap it themselves. Lets them paste flat shapes like
+ *   { "thinking": { "type": "enabled" } }
+ * for openai_compatible providers without knowing the Vercel SDK namespace rule.
+ * If the override already contains a known namespace key, pass it through
+ * unchanged so power users can multi-namespace explicitly.
+ */
+function autoWrapProviderOverride(
+    override: unknown,
+    provider?: BYOKProvider | string,
+): Record<string, any> {
+    if (!override || typeof override !== 'object' || Array.isArray(override)) {
+        return {};
+    }
+    const obj = override as Record<string, any>;
+    const keys = Object.keys(obj);
+    if (keys.length === 0) return {};
+
+    const alreadyNamespaced = keys.some((k) => KNOWN_NAMESPACE_KEYS.has(k));
+    if (alreadyNamespaced) return obj;
+
+    const ns = provider
+        ? PROVIDER_OPTIONS_NAMESPACE[provider as string]
+        : undefined;
+    if (!ns) return obj; // Unknown provider — pass through and let the SDK decide.
+
+    return { [ns]: obj };
+}
+
+/** Deep-merge the openrouter namespace so reasoning + routing co-exist. */
+function mergeOpenRouterOptions(
+    base: Record<string, any>,
+    routing: Record<string, any>,
+): Record<string, any> {
+    if (!routing.openrouter) return base;
+    const merged = { ...base };
+    merged.openrouter = {
+        ...(base.openrouter ?? {}),
+        ...routing.openrouter,
+    };
     return merged;
 }
 import { z } from 'zod';
@@ -661,6 +774,14 @@ export interface AgentLoopInput {
     /** BYOK provider type — needed to map reasoning effort to the correct
      *  provider-specific format in providerOptions. */
     byokProvider?: BYOKProvider | string;
+    /** Pin OpenRouter requests to specific upstream providers (in order).
+     *  Ignored when byokProvider !== 'openrouter'. */
+    openrouterProviderOrder?: string[];
+    /** Allow OpenRouter to fall back to other upstreams when the preferred
+     *  order is unavailable. Defaults to OpenRouter's default (true) when
+     *  undefined; set to false to hard-fail if the pinned providers aren't
+     *  available. */
+    openrouterAllowFallbacks?: boolean;
 }
 
 /**
@@ -863,6 +984,10 @@ export async function runAgentLoop(
                                 input.reasoningConfigOverride,
                             byokProvider: input.byokProvider,
                             modelName: (input.model as any)?.modelId,
+                            openrouterProviderOrder:
+                                input.openrouterProviderOrder,
+                            openrouterAllowFallbacks:
+                                input.openrouterAllowFallbacks,
                         },
                     ),
                     tools: isSelfContained
@@ -1338,6 +1463,10 @@ export async function runAgentLoop(
                                     input.reasoningConfigOverride,
                                 byokProvider: input.byokProvider,
                                 modelName: (input.model as any)?.modelId,
+                                openrouterProviderOrder:
+                                    input.openrouterProviderOrder,
+                                openrouterAllowFallbacks:
+                                    input.openrouterAllowFallbacks,
                             },
                         ),
                         messages: [
@@ -1913,6 +2042,10 @@ async function runCoverageRecoveryPass(params: {
                                 input.reasoningConfigOverride,
                             byokProvider: input.byokProvider,
                             modelName: (input.model as any)?.modelId,
+                            openrouterProviderOrder:
+                                input.openrouterProviderOrder,
+                            openrouterAllowFallbacks:
+                                input.openrouterAllowFallbacks,
                         },
                     ),
                     system:
@@ -2176,6 +2309,10 @@ async function runLowCoverageSecondChance(params: {
                                 input.reasoningConfigOverride,
                             byokProvider: input.byokProvider,
                             modelName: (input.model as any)?.modelId,
+                            openrouterProviderOrder:
+                                input.openrouterProviderOrder,
+                            openrouterAllowFallbacks:
+                                input.openrouterAllowFallbacks,
                         },
                     ),
                     system:
@@ -2426,6 +2563,10 @@ async function runSynthesisRescuePass(params: {
                                 input.reasoningConfigOverride,
                             byokProvider: input.byokProvider,
                             modelName: (input.model as any)?.modelId,
+                            openrouterProviderOrder:
+                                input.openrouterProviderOrder,
+                            openrouterAllowFallbacks:
+                                input.openrouterAllowFallbacks,
                         },
                     ),
                     system:
@@ -3026,6 +3167,9 @@ async function verifySingleFindingWithTools(params: {
                         reasoningConfigOverride: input.reasoningConfigOverride,
                         byokProvider: input.byokProvider,
                         modelName: (internalModel as any)?.modelId,
+                        openrouterProviderOrder: input.openrouterProviderOrder,
+                        openrouterAllowFallbacks:
+                            input.openrouterAllowFallbacks,
                     },
                 ),
                 system: verificationPrompt.system,
@@ -3188,6 +3332,10 @@ async function verifySingleFindingWithTools(params: {
                                     input.reasoningConfigOverride,
                                 byokProvider: input.byokProvider,
                                 modelName: (internalModel as any)?.modelId,
+                                openrouterProviderOrder:
+                                    input.openrouterProviderOrder,
+                                openrouterAllowFallbacks:
+                                    input.openrouterAllowFallbacks,
                             },
                         ),
                         system: 'You are a surgical code review verifier.',

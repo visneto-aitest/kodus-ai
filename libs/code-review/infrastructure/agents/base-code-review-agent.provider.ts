@@ -668,6 +668,10 @@ export abstract class BaseCodeReviewAgentProvider {
                 reasoningConfigOverride:
                     byokConfig?.main?.reasoningConfigOverride,
                 byokProvider: byokConfig?.main?.provider,
+                openrouterProviderOrder: (byokConfig?.main as any)
+                    ?.openrouterProviderOrder,
+                openrouterAllowFallbacks: (byokConfig?.main as any)
+                    ?.openrouterAllowFallbacks,
 
                 onStepFinish: (step: any) => {
                     stepCount++;
