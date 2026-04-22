@@ -3,9 +3,12 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { SSO_CONFIG_REPOSITORY_TOKEN } from './domain/contracts/ssoConfig.repository.contract';
 import { SSO_CONFIG_SERVICE_TOKEN } from './domain/contracts/ssoConfig.service.contract';
+import { SSO_TEST_SESSION_REPOSITORY_TOKEN } from './domain/contracts/ssoTestSession.repository.contract';
 import { SamlAuthGuard } from './guards/saml-auth.guard';
 import { SSOConfigModel } from './repositories/ssoConfig.model';
 import { SSOConfigRepository } from './repositories/ssoConfig.repository';
+import { SSOTestSessionModel } from './repositories/ssoTestSession.model';
+import { SSOTestSessionRepository } from './repositories/ssoTestSession.repository';
 import { SSODomainVerificationService } from './services/sso-domain-verification.service';
 import { SSOConfigService } from './services/ssoConfig.service';
 import { SSOTestSessionService } from './services/sso-test-session.service';
@@ -13,7 +16,10 @@ import { SamlStrategy } from './strategies/saml-auth.strategy';
 import { UseCases } from './use-cases';
 
 @Module({
-    imports: [TypeOrmModule.forFeature([SSOConfigModel]), AuthModule],
+    imports: [
+        TypeOrmModule.forFeature([SSOConfigModel, SSOTestSessionModel]),
+        AuthModule,
+    ],
     providers: [
         SamlStrategy,
         SamlAuthGuard,
@@ -27,6 +33,10 @@ import { UseCases } from './use-cases';
         {
             provide: SSO_CONFIG_SERVICE_TOKEN,
             useClass: SSOConfigService,
+        },
+        {
+            provide: SSO_TEST_SESSION_REPOSITORY_TOKEN,
+            useClass: SSOTestSessionRepository,
         },
     ],
     exports: [

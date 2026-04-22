@@ -1,7 +1,10 @@
 import { randomUUID } from 'crypto';
 
-import { CacheService } from '@libs/core/cache/cache.service';
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
+import {
+    ISSOTestSessionRepository,
+    SSO_TEST_SESSION_REPOSITORY_TOKEN,
+} from '../domain/contracts/ssoTestSession.repository.contract';
 
 import {
     SSOConnectionTestSession,
@@ -15,16 +18,14 @@ import {
     normalizeDomains,
 } from '../utils/sso-fingerprint.util';
 
-const SSO_TEST_SESSION_KEY_PREFIX = 'sso:test-session';
 const SSO_TEST_SESSION_TTL_MS = 15 * 60 * 1000;
 
 @Injectable()
 export class SSOTestSessionService {
-    constructor(private readonly cacheService: CacheService) {}
-
-    private getCacheKey(sessionId: string): string {
-        return `${SSO_TEST_SESSION_KEY_PREFIX}:${sessionId}`;
-    }
+    constructor(
+        @Inject(SSO_TEST_SESSION_REPOSITORY_TOKEN)
+        private readonly ssoTestSessionRepository: ISSOTestSessionRepository,
+    ) {}
 
     async createSession<P extends SSOProtocol>(params: {
         organizationId: string;
@@ -33,7 +34,6 @@ export class SSOTestSessionService {
         domains: string[];
         createdBy?: string;
     }): Promise<SSOConnectionTestSession<P>> {
-        const now = new Date().toISOString();
         const sessionId = randomUUID();
         const normalizedDomains = normalizeDomains(params.domains);
         const configFingerprint = buildSSOConfigFingerprint({
@@ -42,7 +42,7 @@ export class SSOTestSessionService {
             domains: normalizedDomains,
         });
 
-        const session: SSOConnectionTestSession<P> = {
+        return this.ssoTestSessionRepository.create<P>({
             sessionId,
             organizationId: params.organizationId,
             protocol: params.protocol,
@@ -51,17 +51,8 @@ export class SSOTestSessionService {
             providerConfig: params.providerConfig,
             domains: normalizedDomains,
             createdBy: params.createdBy,
-            createdAt: now,
-            updatedAt: now,
-        };
-
-        await this.cacheService.addToCache(
-            this.getCacheKey(sessionId),
-            session,
-            SSO_TEST_SESSION_TTL_MS,
-        );
-
-        return session;
+            expiresAt: new Date(Date.now() + SSO_TEST_SESSION_TTL_MS),
+        });
     }
 
     async getSession<P extends SSOProtocol>(
@@ -71,11 +62,7 @@ export class SSOTestSessionService {
             return null;
         }
 
-        const session = await this.cacheService.getFromCache<
-            SSOConnectionTestSession<P>
-        >(this.getCacheKey(sessionId));
-
-        return session || null;
+        return this.ssoTestSessionRepository.findValidBySessionId<P>(sessionId);
     }
 
     async markSessionSuccess<P extends SSOProtocol>(
@@ -87,23 +74,12 @@ export class SSOTestSessionService {
             return null;
         }
 
-        const testedAt = new Date().toISOString();
-        const updatedSession: SSOConnectionTestSession<P> = {
-            ...session,
+        return this.ssoTestSessionRepository.updateStatus<P>(sessionId, {
             status: SSOConnectionTestSessionStatus.SUCCESS,
-            testedAt,
-            updatedAt: testedAt,
+            testedAt: new Date(),
             failureCode: undefined,
             failureMessage: undefined,
-        };
-
-        await this.cacheService.addToCache(
-            this.getCacheKey(sessionId),
-            updatedSession,
-            SSO_TEST_SESSION_TTL_MS,
-        );
-
-        return updatedSession;
+        });
     }
 
     async markSessionFailed<P extends SSOProtocol>(
@@ -119,23 +95,16 @@ export class SSOTestSessionService {
             return null;
         }
 
-        const testedAt = new Date().toISOString();
-        const updatedSession: SSOConnectionTestSession<P> = {
-            ...session,
+        return this.ssoTestSessionRepository.updateStatus<P>(sessionId, {
             status: SSOConnectionTestSessionStatus.FAILED,
-            testedAt,
-            updatedAt: testedAt,
+            testedAt: new Date(),
             failureCode: failure.failureCode,
             failureMessage: failure.failureMessage,
-        };
+        });
+    }
 
-        await this.cacheService.addToCache(
-            this.getCacheKey(sessionId),
-            updatedSession,
-            SSO_TEST_SESSION_TTL_MS,
-        );
-
-        return updatedSession;
+    async cleanupExpiredSessions(referenceDate: Date = new Date()) {
+        return this.ssoTestSessionRepository.purgeExpired(referenceDate);
     }
 
     toConnectionTestMetadata<P extends SSOProtocol>(

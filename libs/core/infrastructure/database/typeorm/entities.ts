@@ -35,6 +35,7 @@ import { AstEdgeModel } from '../../../../code-review/infrastructure/adapters/re
 import { InboxMessageModel } from '../../../workflow/infrastructure/repositories/schemas/inbox-message.model';
 import { OutboxMessageModel } from '../../../workflow/infrastructure/repositories/schemas/outbox-message.model';
 import { WorkflowJobModel } from '../../../workflow/infrastructure/repositories/schemas/workflow-job.model';
+import { SSOTestSessionModel } from '@libs/ee/sso/repositories/ssoTestSession.model';
 
 export const ENTITIES = [
     DryRunModel,
@@ -66,6 +67,7 @@ export const ENTITIES = [
     IntegrationModel,
     KodyRulesModel,
     SSOConfigModel,
+    SSOTestSessionModel,
     ProfileModel,
     CodeReviewExecutionModel,
     InteractionModel,
