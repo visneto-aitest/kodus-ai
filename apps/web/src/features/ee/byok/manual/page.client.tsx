@@ -34,6 +34,7 @@ import { ConfirmModal } from "src/core/components/ui/confirm-modal";
 import { revalidateServerSidePath } from "src/core/utils/revalidate-server-side";
 
 import type { BYOKConfig } from "../_types";
+import { maskKey } from "../_utils";
 import { ByokAdvancedSettings } from "../_components/_modals/edit-key/_components/advanced-settings";
 import { ByokBaseURLInput } from "../_components/_modals/edit-key/_components/baseurl-input";
 import { ByokKeyInput } from "../_components/_modals/edit-key/_components/key-input";
@@ -388,8 +389,8 @@ export function ByokManualPageClient({
                                             Key
                                         </FormControl.Label>
                                         <div className="flex items-center gap-3">
-                                            <span className="text-text-secondary text-sm">
-                                                {existingConfig?.apiKey}
+                                            <span className="text-text-secondary font-mono text-sm">
+                                                {maskKey(existingConfig?.apiKey)}
                                             </span>
                                             <Button
                                                 type="button"

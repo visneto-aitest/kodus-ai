@@ -17,13 +17,8 @@ import {
 import curatedCatalog from "../_data/curated-models.json";
 import type { CuratedModel } from "../_data/curated-models.types";
 import type { BYOKConfig } from "../_types";
+import { maskKey } from "../_utils";
 import { PROVIDER_LABELS } from "./catalog/model-card";
-
-const maskKey = (key?: string): string => {
-    if (!key) return "";
-    if (key.length <= 8) return "•••• ••••";
-    return `${key.slice(0, 4)}•••••${key.slice(-4)}`;
-};
 
 const formatReasoning = (config: BYOKConfig): string | null => {
     if (!config.reasoningEffort || config.reasoningEffort === "none")
