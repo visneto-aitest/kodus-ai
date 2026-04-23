@@ -158,13 +158,10 @@ const nextConfig = {
         WEB_NODE_ENV: process.env.WEB_NODE_ENV,
         WEB_HOSTNAME_API: process.env.WEB_HOSTNAME_API,
         WEB_PORT_API: process.env.WEB_PORT_API,
-        WEB_GITHUB_INSTALL_URL: process.env.WEB_GITHUB_INSTALL_URL,
-        // GitLab OAuth envs (GLOBAL_GITLAB_*, WEB_GITLAB_*) migrated to
-        // PublicConfig / useConfig() in Wave 1 — no longer inlined.
+        // Wave 1 (GitLab OAuth), Wave 2 (docs/support/token-docs) and
+        // Wave 3 (GitHub / Bitbucket install URLs) migrated to PublicConfig
+        // / useConfig() — no longer inlined at build time.
         WEB_TERMS_AND_CONDITIONS: process.env.WEB_TERMS_AND_CONDITIONS,
-        // Wave 2 doc/support/token-docs envs (WEB_SUPPORT_*, WEB_TOKEN_DOCS_*)
-        // migrated to PublicConfig / useConfig() — no longer inlined.
-        WEB_BITBUCKET_INSTALL_URL: process.env.WEB_BITBUCKET_INSTALL_URL,
         WEB_HOSTNAME_BILLING: process.env.WEB_HOSTNAME_BILLING,
         WEB_PORT_BILLING: process.env.WEB_PORT_BILLING,
 
