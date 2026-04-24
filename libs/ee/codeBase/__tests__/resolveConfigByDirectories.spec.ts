@@ -39,12 +39,18 @@ function resolveConfigByDirectories(
         );
     };
 
-    const groupMatchers = repoConfig.directories.flatMap((group: any) =>
-        (group.folders || []).map((folder: any) => ({
+    const groupMatchers = repoConfig.directories.flatMap((group: any) => {
+        const folders =
+            group.folders?.length > 0
+                ? group.folders
+                : group.path
+                  ? [{ path: group.path }]
+                  : [];
+        return folders.map((folder: any) => ({
             group,
             normalizedPath: normalizePath(folder.path),
-        })),
-    );
+        }));
+    });
 
     const matchingEntries = groupMatchers.filter(
         ({ normalizedPath }: any) =>
@@ -161,5 +167,27 @@ describe('resolveConfigByDirectories', () => {
         ]);
         expect(result).toBeDefined();
         expect(result.id).toBe('group-abc');
+    });
+
+    it('handles legacy format (path instead of folders)', () => {
+        const legacyRepoConfig = {
+            ...repoConfig,
+            directories: [
+                {
+                    id: 'legacy-dir',
+                    name: 'api',
+                    isSelected: true,
+                    configs: { reviewOptions: { bug: true } },
+                    path: '/src/api',
+                    // no folders field
+                },
+            ],
+        };
+        const result = resolveConfigByDirectories(legacyRepoConfig, [
+            '/src/api/controller.ts',
+            '/src/other/file.ts',
+        ]);
+        expect(result).toBeDefined();
+        expect(result.id).toBe('legacy-dir');
     });
 });
