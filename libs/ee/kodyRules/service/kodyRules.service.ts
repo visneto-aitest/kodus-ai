@@ -165,18 +165,17 @@ export class KodyRulesService implements IKodyRulesService {
         total: number;
     }> {
         try {
-            const existing = await this.findByOrganizationId(
+            // Count server-side via aggregation instead of loading the
+            // entire rules array and filtering in JS. Orgs with 100s–
+            // 1000s of rules saw the old path transfer 100KB+ of
+            // embedded docs per request just to compute a single
+            // number.
+            const total = await this.kodyRulesRepository.countRules(
                 organizationAndTeamData.organizationId,
+                KodyRulesStatus.ACTIVE,
             );
 
-            const totalActiveRules =
-                existing?.rules?.filter(
-                    (rule) => rule.status === KodyRulesStatus.ACTIVE,
-                )?.length || 0;
-
-            return {
-                total: totalActiveRules,
-            };
+            return { total };
         } catch (error) {
             this.logger.error({
                 message: 'Error getting rules limit status',
