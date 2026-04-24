@@ -21,12 +21,12 @@ jest.mock("src/core/utils/server-side", () => {
     };
 });
 
+const createUrlMock = jest.fn(
+    (host: string | undefined, port: string | undefined, path: string) =>
+        `http://${host}:${port}${path}`,
+);
 jest.mock("src/core/utils/helpers", () => ({
-    createUrl: (
-        host: string | undefined,
-        port: string | undefined,
-        path: string,
-    ) => `http://${host}:${port}${path}`,
+    createUrl: (...args: unknown[]) => (createUrlMock as any)(...args),
 }));
 
 jest.mock("src/core/utils/session", () => ({
@@ -58,6 +58,7 @@ describe("mcpManagerFetch dual-mode", () => {
 
     beforeEach(() => {
         jest.resetModules();
+        createUrlMock.mockClear();
         typedFetchMock.mockReset();
         typedFetchMock.mockResolvedValue({ ok: true });
         process.env.WEB_HOSTNAME_MCP_MANAGER = "mcp.internal";
@@ -113,5 +114,20 @@ describe("mcpManagerFetch dual-mode", () => {
         await mcpManagerFetch("integrations");
         const [url] = typedFetchMock.mock.calls[0];
         expect(url).toBe("/api/proxy/mcp/integrations");
+    });
+
+    // Regression guard: createUrl's self-hosted branch compares hostName
+    // against a default that points at the API container. MCP must pass
+    // its own hostName as containerName so the http+port branch keeps
+    // firing for MCP under WEB_NODE_ENV=self-hosted — mirrors the
+    // billing/utils.ts + billing proxy route behavior.
+    it("server side: passes resolved hostName as containerName option to createUrl", async () => {
+        setServer(true);
+        process.env.WEB_HOSTNAME_MCP_MANAGER = "localhost";
+        process.env.GLOBAL_MCP_MANAGER_CONTAINER_NAME = "my-mcp-container";
+        const { mcpManagerFetch } = await import("./utils");
+        await mcpManagerFetch("/integrations");
+        const [, , , options] = createUrlMock.mock.calls[0];
+        expect(options).toEqual({ containerName: "my-mcp-container" });
     });
 });
