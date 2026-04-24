@@ -9,8 +9,8 @@ import {
  * 2. Parse JSON from response text — zero cost if model cooperates
  * 3. If JSON parse fails — `generateText` with `Output.object` (cheap model) to structure the text
  */
-import * as aiSdk from 'ai';
 import {
+    generateText as _aiSdkGenerateText,
     stepCountIs,
     hasToolCall,
     Output,
@@ -19,24 +19,15 @@ import {
     type LanguageModel,
 } from 'ai';
 
-// Wrap AI SDK with LangSmith tracing when LANGCHAIN_TRACING_V2=true
-let generateText = aiSdk.generateText;
-if (process.env.LANGCHAIN_TRACING_V2 === 'true') {
-    try {
-        const { wrapAISDK } = require('langsmith/experimental/vercel');
-        const wrapped = wrapAISDK(aiSdk);
-        generateText = wrapped.generateText;
-    } catch {
-        // LangSmith wrapping not available — use original
-    }
-}
-
 // Wrap generateText with a hard timeout safety net.
 // Some BYOK providers (Synthetic, Z.AI) ignore AbortSignal and hang forever.
 // This ensures every LLM call has a maximum wall-clock time.
-const _rawGenerateText = generateText;
-generateText = (async (...args: Parameters<typeof _rawGenerateText>) => {
-    // Extract timeout from the abortSignal if present, otherwise use AGENT_TIMEOUT_MS
+// Langfuse tracing is consumed via `experimental_telemetry` on each call
+// (see `buildLangfuseTelemetry`) and exported through the OTel span
+// processor registered in `libs/core/log/langfuse.ts`.
+let generateText: typeof _aiSdkGenerateText = (async (
+    ...args: Parameters<typeof _aiSdkGenerateText>
+) => {
     const opts = args[0] as any;
     const ms =
         opts?.__kodusHardTimeoutMs ??
@@ -44,10 +35,10 @@ generateText = (async (...args: Parameters<typeof _rawGenerateText>) => {
             ? LLM_CALL_TIMEOUT_MS // secondary calls already set timeoutSignal
             : AGENT_TIMEOUT_MS); // main call uses agent-level timeout
     const label = opts?.experimental_telemetry?.functionId || 'generateText';
-    return hardTimeout(_rawGenerateText(...args), ms, label);
-}) as typeof generateText;
+    return hardTimeout(_aiSdkGenerateText(...args), ms, label);
+}) as typeof _aiSdkGenerateText;
 
-/** Re-export the LangSmith-wrapped (+ hard-timeout) generateText for use outside the agent loop. */
+/** Re-export the hard-timeout-wrapped generateText for use outside the agent loop. */
 export { generateText as tracedGenerateText };
 
 /**
@@ -75,51 +66,22 @@ function throttledGenerateText<T>(params: {
     );
 }
 
-/**
- * Standard metadata sent to LangSmith for every LLM call in the code review pipeline.
- * Centralised here so adding a new field only requires changing one place.
- */
-export interface LangSmithTelemetryMetadata {
-    organizationId?: string;
-    teamId?: string;
-    pullRequestId?: number;
-    repositoryId?: string;
-    provider?: string;
-}
+export type { LangfuseTelemetryMetadata } from '@libs/core/log/langfuse';
+export { buildLangfuseTelemetry } from '@libs/core/log/langfuse';
+
+import {
+    buildLangfuseTelemetry as _buildLangfuseTelemetry,
+    type LangfuseTelemetryMetadata,
+} from '@libs/core/log/langfuse';
 
 /**
- * Build the `providerOptions.langsmith` object for a generateText call.
- * Fields in `metadata` appear in the **Metadata tab** of LangSmith.
- * `name` sets the run name.
- */
-export function buildLangSmithProviderOptions(
-    runName: string,
-    meta?: LangSmithTelemetryMetadata,
-) {
-    return {
-        langsmith: {
-            name: runName,
-            metadata: meta
-                ? {
-                      organizationId: meta.organizationId,
-                      teamId: meta.teamId,
-                      pullRequestId: meta.pullRequestId,
-                      repositoryId: meta.repositoryId,
-                      provider: meta.provider,
-                  }
-                : undefined,
-        },
-    };
-}
-
-/**
- * Build merged providerOptions: langsmith tracing + reasoning config.
- * Used by all generateText calls in the agent loop to ensure consistent
- * provider options across main loop, recovery, rescue, and verify passes.
+ * Build provider-specific reasoning `providerOptions` for a generateText call.
+ * Telemetry metadata is no longer merged here — callers pass
+ * `experimental_telemetry: buildLangfuseTelemetry(runName, meta)` separately.
  */
 export function buildProviderOptions(
     runName: string,
-    meta?: LangSmithTelemetryMetadata,
+    _meta?: LangfuseTelemetryMetadata,
     input?: {
         reasoningEffort?: ReasoningEffort;
         reasoningConfigOverride?: string;
@@ -127,13 +89,11 @@ export function buildProviderOptions(
         modelName?: string;
     },
 ): Record<string, any> {
-    const langsmith = buildLangSmithProviderOptions(runName, meta);
-
     // JSON override takes precedence over effort preset
     if (input?.reasoningConfigOverride) {
         try {
             const override = JSON.parse(input.reasoningConfigOverride);
-            return { ...langsmith, ...override };
+            return override;
         } catch {
             // Invalid JSON — fall through to effort-based mapping
         }
@@ -144,7 +104,6 @@ export function buildProviderOptions(
         input?.reasoningEffort,
         input?.modelName,
     );
-    const merged = { ...langsmith, ...reasoning };
     logger.log({
         message: '[thinking] providerOptions resolved',
         context: 'buildProviderOptions',
@@ -157,7 +116,7 @@ export function buildProviderOptions(
             reasoningPayload: reasoning,
         },
     });
-    return merged;
+    return reasoning;
 }
 import { z } from 'zod';
 import { BYOKProvider } from '@kodus/kodus-common/llm';
@@ -174,7 +133,6 @@ export const EFFORT_TO_BUDGET: Record<ReasoningEffort, number> = {
 
 /**
  * Build provider-specific reasoning/thinking options for generateText.
- * Merges into providerOptions alongside langsmith tracing config.
  *
  * Maps a normalized effort level to each provider's native format:
  *   - Anthropic (new): adaptive thinking + output_config.effort
@@ -624,8 +582,8 @@ export interface AgentLoopInput {
     model: LanguageModel;
     systemPrompt: string;
     userPrompt: string;
-    agentName?: string; // e.g. 'kodus-bug-review-agent' — used for LangSmith trace identification
-    telemetryMetadata?: LangSmithTelemetryMetadata;
+    agentName?: string; // e.g. 'kodus-bug-review-agent' — used as Langfuse observation name
+    telemetryMetadata?: LangfuseTelemetryMetadata;
     maxSteps?: number;
     onStepFinish?: (event: any) => void;
     changedFiles?: any[];
@@ -665,7 +623,7 @@ export interface AgentLoopInput {
 
 /**
  * Secrets and service references that must NEVER be serialized into
- * LangSmith traces or LLM payloads. Extracted from the old AgentLoopInput
+ * tracing spans or LLM payloads. Extracted from the old AgentLoopInput
  * to prevent accidental leaks (NestJS ConfigService carries all env vars).
  */
 export interface AgentLoopSecrets {
@@ -784,9 +742,9 @@ export interface AgentAnomalySummary {
 /**
  * Run the agent loop with native function calling.
  *
- * `secrets` is kept separate from `input` so that LangSmith tracing
- * (which serializes `input`) never captures API keys, tokens, or
- * NestJS service instances that carry ConfigService with all env vars.
+ * `secrets` is kept separate from `input` so that span I/O recording
+ * (Langfuse / OTel) never captures API keys, tokens, or NestJS service
+ * instances that carry ConfigService with all env vars.
  */
 export async function runAgentLoop(
     input: AgentLoopInput,
@@ -850,10 +808,10 @@ export async function runAgentLoop(
                     abortSignal: abortController.signal,
                     system: input.systemPrompt,
                     prompt: input.userPrompt,
-                    experimental_telemetry: {
-                        isEnabled: true,
-                        functionId: input.agentName ?? 'agent-loop',
-                    },
+                    experimental_telemetry: _buildLangfuseTelemetry(
+                        input.agentName ?? 'agent-loop',
+                        input.telemetryMetadata,
+                    ),
                     providerOptions: buildProviderOptions(
                         input.agentName ?? 'agent-loop',
                         input.telemetryMetadata,
@@ -1325,10 +1283,10 @@ export async function runAgentLoop(
                         abortSignal: secondChanceSignal,
                         model: input.model,
                         system: input.systemPrompt,
-                        experimental_telemetry: {
-                            isEnabled: true,
-                            functionId: `${input.agentName ?? 'agent-loop'}-second-chance`,
-                        },
+                        experimental_telemetry: _buildLangfuseTelemetry(
+                            `${input.agentName ?? 'agent-loop'}-second-chance`,
+                            input.telemetryMetadata,
+                        ),
                         providerOptions: buildProviderOptions(
                             `${input.agentName ?? 'agent-loop'}-second-chance`,
                             input.telemetryMetadata,
@@ -1900,10 +1858,10 @@ async function runCoverageRecoveryPass(params: {
                 generateText({
                     abortSignal: recoverySignal,
                     model: input.model,
-                    experimental_telemetry: {
-                        isEnabled: true,
-                        functionId: `${input.agentName ?? 'agent-loop'}-coverage-recovery`,
-                    },
+                    experimental_telemetry: _buildLangfuseTelemetry(
+                        `${input.agentName ?? 'agent-loop'}-coverage-recovery`,
+                        input.telemetryMetadata,
+                    ),
                     providerOptions: buildProviderOptions(
                         `${input.agentName ?? 'agent-loop'}-coverage-recovery`,
                         input.telemetryMetadata,
@@ -2163,10 +2121,10 @@ async function runLowCoverageSecondChance(params: {
                 generateText({
                     abortSignal: lowCoverageSignal,
                     model: input.model,
-                    experimental_telemetry: {
-                        isEnabled: true,
-                        functionId: `${input.agentName ?? 'agent-loop'}-coverage-second-chance`,
-                    },
+                    experimental_telemetry: _buildLangfuseTelemetry(
+                        `${input.agentName ?? 'agent-loop'}-coverage-second-chance`,
+                        input.telemetryMetadata,
+                    ),
                     providerOptions: buildProviderOptions(
                         `${input.agentName ?? 'agent-loop'}-coverage-second-chance`,
                         input.telemetryMetadata,
@@ -2413,10 +2371,10 @@ async function runSynthesisRescuePass(params: {
                 generateText({
                     abortSignal: synthesisSignal,
                     model: input.model,
-                    experimental_telemetry: {
-                        isEnabled: true,
-                        functionId: `${input.agentName ?? 'agent-loop'}-synthesis-rescue`,
-                    },
+                    experimental_telemetry: _buildLangfuseTelemetry(
+                        `${input.agentName ?? 'agent-loop'}-synthesis-rescue`,
+                        input.telemetryMetadata,
+                    ),
                     providerOptions: buildProviderOptions(
                         `${input.agentName ?? 'agent-loop'}-synthesis-rescue`,
                         input.telemetryMetadata,
@@ -3014,10 +2972,10 @@ async function verifySingleFindingWithTools(params: {
             generateText({
                 abortSignal: verifierSignal,
                 model: internalModel as any,
-                experimental_telemetry: {
-                    isEnabled: true,
-                    functionId: `${input.agentName ?? 'agent-loop'}-verify-finding`,
-                },
+                experimental_telemetry: _buildLangfuseTelemetry(
+                    `${input.agentName ?? 'agent-loop'}-verify-finding`,
+                    input.telemetryMetadata,
+                ),
                 providerOptions: buildProviderOptions(
                     `${input.agentName ?? 'agent-loop'}-verify-finding`,
                     input.telemetryMetadata,
@@ -3175,10 +3133,10 @@ async function verifySingleFindingWithTools(params: {
                     generateText({
                         abortSignal: verifierSecondChanceSignal,
                         model: internalModel as any,
-                        experimental_telemetry: {
-                            isEnabled: true,
-                            functionId: `${input.agentName ?? 'agent-loop'}-verify-finding-second-chance`,
-                        },
+                        experimental_telemetry: _buildLangfuseTelemetry(
+                            `${input.agentName ?? 'agent-loop'}-verify-finding-second-chance`,
+                            input.telemetryMetadata,
+                        ),
                         providerOptions: buildProviderOptions(
                             `${input.agentName ?? 'agent-loop'}-verify-finding-second-chance`,
                             input.telemetryMetadata,
@@ -3772,11 +3730,9 @@ async function structureVerificationDecisionWithFallbackModel(
                 generateText({
                     abortSignal: verifierFallbackSignal,
                     model: internalModel as any,
-                    experimental_telemetry: {
-                        isEnabled: true,
-                        functionId: 'verify-structure-fallback',
-                    },
-                    providerOptions: buildLangSmithProviderOptions('verify-structure-fallback'),
+                    experimental_telemetry: _buildLangfuseTelemetry(
+                        'verify-structure-fallback',
+                    ),
                     output: Output.object({
                         schema: jsonSchema({
                             type: 'object',
@@ -4049,11 +4005,9 @@ async function structureWithFallbackModel(
                 generateText({
                     abortSignal: structureFallbackSignal,
                     model: internalModel as any,
-                    experimental_telemetry: {
-                        isEnabled: true,
-                        functionId: 'review-structure-fallback',
-                    },
-                    providerOptions: buildLangSmithProviderOptions('review-structure-fallback'),
+                    experimental_telemetry: _buildLangfuseTelemetry(
+                        'review-structure-fallback',
+                    ),
                     output: Output.object({
                         schema: jsonSchema({
                             type: 'object',

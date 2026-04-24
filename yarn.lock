@@ -1493,6 +1493,42 @@
   dependencies:
     js-tiktoken "^1.0.12"
 
+"@langfuse/client@^5.2.0":
+  version "5.2.0"
+  resolved "https://registry.yarnpkg.com/@langfuse/client/-/client-5.2.0.tgz#68573ce7a4ae948e1685f1fd7b0e095a89d2b719"
+  integrity sha512-QauEfkwkg0zyfVVg4GxQWLnTVZxb81R45U4CCLf3F6NQwYpv9ZJneHGNSKmmNHLkXGw8VfkJoUw0DwQQ/AEIOw==
+  dependencies:
+    "@langfuse/core" "^5.2.0"
+    "@langfuse/tracing" "^5.2.0"
+    mustache "^4.2.0"
+
+"@langfuse/core@^5.2.0":
+  version "5.2.0"
+  resolved "https://registry.yarnpkg.com/@langfuse/core/-/core-5.2.0.tgz#33a9190bddda28c1b82a2c3a1fad7cd2faefd962"
+  integrity sha512-zUD0vdrFN/LsufBfR6oPWCT4KIb4zeH8sZtF1YjKVTrPjR+WPWJJb9TI20PFByHo4XFJoLUXdTJNfMWtUx0iEg==
+
+"@langfuse/langchain@^5.2.0":
+  version "5.2.0"
+  resolved "https://registry.yarnpkg.com/@langfuse/langchain/-/langchain-5.2.0.tgz#6c870fafc48321cc3e91bad827a911b6e0d89c33"
+  integrity sha512-z+VDJcuDFVWIdAd2vfJbdPyXLI+YV1o20QXmj08eScgJwVDqq8X5Pe3rQgzMHB2yRbcVNtomMDyNQ41+Mi44qQ==
+  dependencies:
+    "@langfuse/core" "^5.2.0"
+    "@langfuse/tracing" "^5.2.0"
+
+"@langfuse/otel@^5.2.0":
+  version "5.2.0"
+  resolved "https://registry.yarnpkg.com/@langfuse/otel/-/otel-5.2.0.tgz#071722a8861954e424e4131bf9119f6ae2b7422d"
+  integrity sha512-U2ArG13tjY7Ybl5K8QE91Igpg2HXoBHXQNqmnw9JNZYatSV/ABgLS6SlUGQS/i4qbdQT+9k6lK3GUf99D+6B4w==
+  dependencies:
+    "@langfuse/core" "^5.2.0"
+
+"@langfuse/tracing@^5.2.0":
+  version "5.2.0"
+  resolved "https://registry.yarnpkg.com/@langfuse/tracing/-/tracing-5.2.0.tgz#7bf3dd6ed8257c96ab7be58b11206ef685574258"
+  integrity sha512-lMNkcwujfsEAHFiw9uJSTGd+90BwdeR1BVP3c/bANujkIfZ/nWhkTSO9IlRU5Gs4dMLAFqaPGEMVZaIgEPLquw==
+  dependencies:
+    "@langfuse/core" "^5.2.0"
+
 "@llamaduck/forgejo-ts@14.0.2-4":
   version "14.0.2-4"
   resolved "https://registry.npmjs.org/@llamaduck/forgejo-ts/-/forgejo-ts-14.0.2-4.tgz#67e132a6efc6f9a0a348a383002dd9e06626f8ad"
@@ -8803,14 +8839,6 @@ kind-of@^6.0.2:
   resolved "https://registry.npmjs.org/kind-of/-/kind-of-6.0.3.tgz#07c05034a6c349fa06e24fa35aa76db4580ce4dd"
   integrity sha512-dcS1ul+9tmeD95T+x28/ehLgd9mENa3LsvDTtzm3vyBEO7RPptvAD+t44WVXaUjTBRcrpFeFlC8WCruUR456hw==
 
-langsmith@0.5.20:
-  version "0.5.20"
-  resolved "https://registry.npmjs.org/langsmith/-/langsmith-0.5.20.tgz#4021847d2ccd5a86c5eb96060f9bb5f19f80eca5"
-  integrity sha512-ULhLM8RswvQDXufLtNtvclHrWCBx8Cb5UPI6lAZC+8Dq59iHsVPz/3Ac9khWNm1VIvChRsuykixD/WrmzuuA3Q==
-  dependencies:
-    p-queue "6.6.2"
-    uuid "10.0.0"
-
 "langsmith@>=0.4.0 <1.0.0", langsmith@>=0.4.6, "langsmith@>=0.5.0 <1.0.0":
   version "0.5.13"
   resolved "https://registry.npmjs.org/langsmith/-/langsmith-0.5.13.tgz#869360861fe72c7fa2e77da3d946ba8ffe35903b"
@@ -9800,7 +9828,7 @@ p-locate@^5.0.0:
   dependencies:
     p-limit "^3.0.2"
 
-p-queue@6.6.2, p-queue@^6.6.2:
+p-queue@^6.6.2:
   version "6.6.2"
   resolved "https://registry.npmjs.org/p-queue/-/p-queue-6.6.2.tgz#2068a9dcf8e67dd0ec3e7a2bcb76810faa85e426"
   integrity sha512-RwFpb72c/BhQLEXIZ5K2e+AhgNVmIejGlTgiB9MzZ0e93GRvqZ7uSi0dvRF7/XIXDeNkra2fNHBxTyPDGySpjQ==
@@ -11986,7 +12014,7 @@ utils-merge@^1.0.1:
   resolved "https://registry.npmjs.org/utils-merge/-/utils-merge-1.0.1.tgz#9f95710f50a267947b2ccc124741c1028427e713"
   integrity sha512-pMZTvIkT1d+TFGvDOqodOclx0QWkkgi6Tdoa8gC8ffGAAqz9pzPTZWAybbsHHoED/ztMtkv/VoYTYyShUn81hA==
 
-uuid@10.0.0, uuid@^10.0.0:
+uuid@^10.0.0:
   version "10.0.0"
   resolved "https://registry.npmjs.org/uuid/-/uuid-10.0.0.tgz#5a95aa454e6e002725c79055fd42aaba30ca6294"
   integrity sha512-8XkAphELsDnEGrDxUOHB3RGvXz6TeuYSGEZBOjtTtPm2lwhGBjLgOzLHB63IUWfBpNucQjND6d3AOudO+H3RWQ==
