@@ -137,20 +137,24 @@ export class CockpitDeveloperProductivityService {
               `AND pr.repo_full_name = $${params.length}`)
             : '';
 
+        // "PR Cycle Time" = duration the PR was open (opened → closed).
+        // Departs from the legacy BQ semantic of `closed - MIN(commit)`
+        // because that definition produces absurd p75 values (days or
+        // weeks) when branches carry rebased/ancestral commits whose
+        // `author.date` is far in the past — a common pattern. Using
+        // opened_at keeps the metric stable and defensible.
         const rows = (await this.ds.query(
             `WITH pr_lead_times AS (
                 SELECT date_trunc('week', pr.parsed_closed_at) AS week_start,
-                       EXTRACT(EPOCH FROM (pr.parsed_closed_at - MIN(c.commit_timestamp))) / 60 AS lead_time_minutes
+                       EXTRACT(EPOCH FROM (pr.parsed_closed_at - pr.parsed_opened_at)) / 60 AS lead_time_minutes
                   FROM "analytics"."pull_requests_opt" pr
-                  JOIN "analytics"."commits_view" c ON pr."_id" = c.pull_request_id
                  WHERE pr."closedAt" IS NOT NULL AND pr."closedAt" <> ''
                    AND pr."status" = 'closed'
                    AND pr.parsed_closed_at >= $2::timestamptz
                    AND pr.parsed_closed_at <= $3::timestamptz
+                   AND pr.parsed_opened_at IS NOT NULL
                    AND pr."organizationId" = $1
                    ${repoFilter}
-                 GROUP BY pr."_id", pr.parsed_closed_at
-                HAVING COUNT(c.commit_hash) > 0
             )
             SELECT to_char(week_start, 'YYYY-MM-DD') AS week_start,
                    percentile_cont(0.75) WITHIN GROUP (ORDER BY lead_time_minutes) AS lead_time_p75_minutes
@@ -186,18 +190,18 @@ export class CockpitDeveloperProductivityService {
                 ? (params.push(q.repository),
                   `AND pr.repo_full_name = $${params.length}`)
                 : '';
+            // See `getLeadTimeChart` for the rationale on opened→closed
+            // over the legacy `closed - MIN(commit)` semantic.
             const rows = (await this.ds.query(
                 `WITH pr_lead_times AS (
-                    SELECT EXTRACT(EPOCH FROM (pr.parsed_closed_at - MIN(c.commit_timestamp))) / 60 AS lead_time_minutes
+                    SELECT EXTRACT(EPOCH FROM (pr.parsed_closed_at - pr.parsed_opened_at)) / 60 AS lead_time_minutes
                       FROM "analytics"."pull_requests_opt" pr
-                      JOIN "analytics"."commits_view" c ON pr."_id" = c.pull_request_id
                      WHERE pr."closedAt" IS NOT NULL AND pr."closedAt" <> ''
                        AND pr."status" = 'closed'
                        AND pr.parsed_closed_at BETWEEN $2::timestamptz AND $3::timestamptz
+                       AND pr.parsed_opened_at IS NOT NULL
                        AND pr."organizationId" = $1
                        ${repoFilter}
-                     GROUP BY pr."_id", pr.parsed_closed_at
-                    HAVING COUNT(c.commit_hash) > 0
                 )
                 SELECT percentile_cont(0.75) WITHIN GROUP (ORDER BY lead_time_minutes) AS p75
                   FROM pr_lead_times`,
@@ -358,6 +362,14 @@ export class CockpitDeveloperProductivityService {
               `AND pr.repo_full_name = $${params.length}`)
             : '';
 
+        // Webhook payloads only carry `author.date`, not `committer.date`.
+        // For rebased branches that means the "first commit" can be the
+        // author-date of a main-branch ancestor from weeks or months
+        // before the PR existed, inflating `coding_time` to absurd
+        // values. Cap the commit JOIN to a 30-day window before
+        // `parsed_opened_at` — beyond that the commit is almost
+        // certainly a rebased ancestor. Feature branches older than
+        // 30 days drop out (better than reporting garbage).
         const rows = (await this.ds.query(
             `WITH pr_lead_times AS (
                 SELECT pr."_id",
@@ -367,7 +379,9 @@ export class CockpitDeveloperProductivityService {
                        MIN(c.commit_timestamp) AS first_commit,
                        MAX(c.commit_timestamp) AS last_commit
                   FROM "analytics"."pull_requests_opt" pr
-                  JOIN "analytics"."commits_view" c ON pr."_id" = c.pull_request_id
+                  JOIN "analytics"."commits_view" c
+                    ON pr."_id" = c.pull_request_id
+                   AND c.commit_timestamp >= pr.parsed_opened_at - interval '30 days'
                  WHERE pr."closedAt" IS NOT NULL AND pr."closedAt" <> ''
                    AND pr."status" = 'closed'
                    AND pr.parsed_closed_at BETWEEN $2::timestamptz AND $3::timestamptz
