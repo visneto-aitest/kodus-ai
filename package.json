@@ -104,6 +104,8 @@
         "analytics:parity-check": "TS_NODE_PROJECT=tsconfig.json ts-node -r tsconfig-paths/register scripts/analytics/parity-check.ts",
         "analytics:parity-vs-bq": "TS_NODE_PROJECT=tsconfig.json ts-node -r tsconfig-paths/register scripts/analytics/parity-vs-bq.ts",
         "analytics:seed-test": "TS_NODE_PROJECT=tsconfig.json ts-node -r tsconfig-paths/register scripts/analytics/seed-test-data.cli.ts",
+        "analytics:clone-from-prod": "TS_NODE_PROJECT=tsconfig.json ts-node -r tsconfig-paths/register scripts/analytics/clone-org-from-prod.cli.ts",
+        "analytics:mint-dev-jwt": "TS_NODE_PROJECT=tsconfig.json ts-node -r tsconfig-paths/register scripts/analytics/mint-dev-jwt.cli.ts",
         "analytics:test-suite": "bash scripts/analytics/test-suite.sh",
         "docker:logs:analytics-worker": "docker compose -f docker-compose.dev.yml logs -f worker-analytics",
         "seed": "API_PG_DB_HOST=localhost TS_NODE_PROJECT=tsconfig.json ts-node -r tsconfig-paths/register libs/core/infrastructure/database/typeorm/seed/seed.ts",
