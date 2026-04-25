@@ -13,6 +13,7 @@ import { MetricsModule } from '@libs/core/infrastructure/metrics/metrics.module'
 import { ReviewResponseMonitorService } from '@libs/core/infrastructure/metrics/review-response-monitor.service';
 import { WebhookFailureMonitorService } from '@libs/core/infrastructure/metrics/webhook-failure-monitor.service';
 import { RabbitMQWrapperModule } from '@libs/core/infrastructure/queue/rabbitmq.module';
+import { LangfuseShutdownProvider } from '@libs/core/log/langfuse-shutdown.provider';
 import { LoggerWrapperService } from '@libs/core/log/loggerWrapper.service';
 import { OutboxRelayService } from '@libs/core/workflow/infrastructure/outbox-relay.service';
 import { WorkflowModule } from '@libs/core/workflow/modules/workflow.module';
@@ -72,6 +73,7 @@ export class WorkerModule {
                     ErrorRateMonitorService,
                     ReviewResponseMonitorService,
                     WebhookFailureMonitorService,
+                    LangfuseShutdownProvider,
                 ] satisfies Provider[],
             };
         }
@@ -91,6 +93,7 @@ export class WorkerModule {
                 WorkerHealthGuardService,
                 AnalyticsIngestionCron,
                 AnalyticsClassifierCron,
+                LangfuseShutdownProvider,
             ] satisfies Provider[],
         };
     }

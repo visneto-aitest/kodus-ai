@@ -84,6 +84,7 @@ import { TokenUsageController } from './controllers/tokenUsage.controller';
 import { UsersController } from './controllers/user.controller';
 import { CronModule } from './cron/cron.module';
 import { CentralizedConfigModule } from '@libs/centralized-config/modules/centralized-config.module';
+import { LangfuseShutdownProvider } from '@libs/core/log/langfuse-shutdown.provider';
 
 @Module({
     imports: [
@@ -174,5 +175,6 @@ import { CentralizedConfigModule } from '@libs/centralized-config/modules/centra
         CockpitCodeHealthController,
         CockpitProductivityController,
     ],
+    providers: [LangfuseShutdownProvider],
 })
 export class ApiModule {}
