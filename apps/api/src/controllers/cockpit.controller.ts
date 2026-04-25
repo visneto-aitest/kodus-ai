@@ -1,19 +1,13 @@
 import {
     BadRequestException,
     Controller,
-    ForbiddenException,
     Get,
     Param,
-    Post,
     Query,
     UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
-import {
-    BackfillOrchestratorService,
-    PullRequestIngestionService,
-} from '@libs/analytics-warehouse';
 import {
     CockpitCodeHealthService,
     CockpitDeveloperProductivityService,
@@ -50,34 +44,6 @@ function requireRange(q: CockpitRangeQuery): void {
     }
 }
 
-function parseOptionalPositiveInt(
-    raw: string | undefined,
-    field: string,
-): number | undefined {
-    if (raw === undefined || raw === '') return undefined;
-    const n = Number(raw);
-    if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) {
-        throw new BadRequestException(
-            `${field} must be a positive integer (got "${raw}")`,
-        );
-    }
-    return n;
-}
-
-function parseOptionalNonNegativeInt(
-    raw: string | undefined,
-    field: string,
-): number | undefined {
-    if (raw === undefined || raw === '') return undefined;
-    const n = Number(raw);
-    if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) {
-        throw new BadRequestException(
-            `${field} must be a non-negative integer (got "${raw}")`,
-        );
-    }
-    return n;
-}
-
 // -------------------------------------------------------------------------
 // /cockpit/*  — validation + ops
 // -------------------------------------------------------------------------
@@ -91,8 +57,6 @@ export class CockpitController {
         private readonly healthService: CockpitHealthService,
         private readonly sourceResolver: CockpitSourceResolver,
         private readonly validationService: CockpitValidationService,
-        private readonly ingestionService: PullRequestIngestionService,
-        private readonly backfillOrchestrator: BackfillOrchestratorService,
     ) {}
 
     // Public so external monitoring (BetterStack, status pages, k8s
@@ -113,77 +77,6 @@ export class CockpitController {
     })
     async runsHealth(@Query('source') source?: string) {
         return this.healthService.runsSummary(source || undefined);
-    }
-
-    /**
-     * Operator/test trigger to force an ingestion pass without waiting
-     * for the next cron tick. Gated by `API_ANALYTICS_ALLOW_TRIGGER` so
-     * production stays locked down — staging and dev opt in by setting
-     * the env var to `true`. Idempotent: a run that scans nothing just
-     * heartbeats.
-     */
-    @Public()
-    @Post('/admin/trigger-ingestion')
-    @ApiOperation({ summary: 'Force an ingestion run (dev/staging only)' })
-    async triggerIngestion(
-        @Query('organizationId') organizationId?: string,
-        @Query('since') since?: string,
-        @Query('until') until?: string,
-        @Query('max') max?: string,
-    ) {
-        if (process.env.API_ANALYTICS_ALLOW_TRIGGER !== 'true') {
-            throw new ForbiddenException(
-                'analytics trigger disabled — set API_ANALYTICS_ALLOW_TRIGGER=true',
-            );
-        }
-        return this.ingestionService.run({
-            organizationId,
-            since: since ? new Date(since) : undefined,
-            until: until ? new Date(until) : undefined,
-            maxRows: max ? Number(max) : undefined,
-        });
-    }
-
-    /**
-     * Synchronous backfill driver. Replaces the standalone CLI for
-     * dev/test contexts where bootstrapping a second Nest app trips on
-     * mongoose-paginate plugin double-registration. Call with care: the
-     * request blocks until the orchestrator finishes all windows.
-     * Same env gate as `/admin/trigger-ingestion`.
-     */
-    @Public()
-    @Post('/admin/backfill')
-    @ApiOperation({ summary: 'Run chunked backfill (dev/staging only)' })
-    async runBackfill(
-        @Query('fresh') fresh?: string,
-        @Query('from') from?: string,
-        @Query('until') until?: string,
-        @Query('stepDays') stepDays?: string,
-        @Query('pauseMs') pauseMs?: string,
-        @Query('batch') batch?: string,
-        @Query('organizationId') organizationId?: string,
-    ) {
-        if (process.env.API_ANALYTICS_ALLOW_TRIGGER !== 'true') {
-            throw new ForbiddenException(
-                'analytics backfill disabled — set API_ANALYTICS_ALLOW_TRIGGER=true',
-            );
-        }
-        // Validate numeric inputs before handing them to the
-        // orchestrator. `stepDays <= 0` would loop forever because the
-        // window cursor can't advance; `pauseMs < 0` and `batch <= 0`
-        // would break the scanner in subtler ways.
-        const stepDaysNum = parseOptionalPositiveInt(stepDays, 'stepDays');
-        const pauseMsNum = parseOptionalNonNegativeInt(pauseMs, 'pauseMs');
-        const batchNum = parseOptionalPositiveInt(batch, 'batch');
-        return this.backfillOrchestrator.run({
-            fresh: fresh === 'true',
-            from,
-            until,
-            stepDays: stepDaysNum,
-            pauseMs: pauseMsNum,
-            batchSize: batchNum,
-            organizationId,
-        });
     }
 
     @Get('/source/:organizationId')
