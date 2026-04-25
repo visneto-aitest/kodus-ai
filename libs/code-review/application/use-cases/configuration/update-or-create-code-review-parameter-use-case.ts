@@ -196,13 +196,17 @@ export class UpdateOrCreateCodeReviewParameterUseCase {
                     }
 
                     // Ensure no path is already used in a DIFFERENT group
+                    const otherUsedPaths = new Set<string>();
+                    for (const group of targetRepo.directories) {
+                        if (group.id !== directoryId) {
+                            for (const f of group.folders || []) {
+                                otherUsedPaths.add(f.path);
+                            }
+                        }
+                    }
+
                     for (const path of resolvedPaths) {
-                        const conflicting = targetRepo.directories.find(
-                            (group) =>
-                                group.id !== directoryId &&
-                                group.folders?.some((f) => f.path === path),
-                        );
-                        if (conflicting) {
+                        if (otherUsedPaths.has(path)) {
                             throw new Error(
                                 `Path "${path}" is already covered by another directory group`,
                             );
@@ -239,14 +243,15 @@ export class UpdateOrCreateCodeReviewParameterUseCase {
                         directoryId = existingGroup.id;
                     } else {
                         // Ensure no path is already used in another group
+                        const usedPaths = new Set<string>();
+                        for (const group of targetRepo.directories) {
+                            for (const f of group.folders || []) {
+                                usedPaths.add(f.path);
+                            }
+                        }
+
                         for (const path of resolvedPaths) {
-                            const conflicting = targetRepo.directories.find(
-                                (group) =>
-                                    group.folders?.some(
-                                        (f) => f.path === path,
-                                    ),
-                            );
-                            if (conflicting) {
+                            if (usedPaths.has(path)) {
                                 throw new Error(
                                     `Path "${path}" is already covered by another directory group`,
                                 );
