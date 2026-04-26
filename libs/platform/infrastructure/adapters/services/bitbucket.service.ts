@@ -344,7 +344,7 @@ export class BitbucketService implements Omit<
                       })
                     : null;
 
-                                if (
+            if (
                 !branchAlreadyExists &&
                 resolvedBranchName !== resolvedBaseBranch &&
                 !baseBranchHead
@@ -2171,7 +2171,9 @@ export class BitbucketService implements Omit<
         const minIndent = Math.min(...indents);
         if (minIndent === 0) return code;
         return lines
-            .map((line) => (line.length >= minIndent ? line.slice(minIndent) : line))
+            .map((line) =>
+                line.length >= minIndent ? line.slice(minIndent) : line,
+            )
             .join('\n');
     }
 
@@ -3102,6 +3104,7 @@ export class BitbucketService implements Omit<
         token?: string;
         username?: string;
         email?: string;
+        host?: string;
     }): Promise<{ success: boolean; status?: CreateAuthIntegrationStatus }> {
         try {
             let res: {
@@ -3122,6 +3125,7 @@ export class BitbucketService implements Omit<
                     token: params.token,
                     username: params.username,
                     email: params.email,
+                    host: params.host,
                 });
             }
 
@@ -3390,9 +3394,9 @@ export class BitbucketService implements Omit<
         username: string;
         token: string;
     }): Promise<Schema.Workspace[]> {
-        const basic = Buffer.from(
-            `${auth.username}:${auth.token}`,
-        ).toString('base64');
+        const basic = Buffer.from(`${auth.username}:${auth.token}`).toString(
+            'base64',
+        );
         const workspaces: Schema.Workspace[] = [];
         let nextUrl: string | undefined =
             'https://api.bitbucket.org/2.0/user/workspaces?pagelen=50';
@@ -3502,6 +3506,7 @@ export class BitbucketService implements Omit<
         username: string;
         token: string;
         email?: string;
+        host?: string;
     }): Promise<{ success: boolean; status?: CreateAuthIntegrationStatus }> {
         try {
             const { organizationAndTeamData, token, username, email } = params;
@@ -3547,6 +3552,7 @@ export class BitbucketService implements Omit<
                 appPassword: encrypt(token),
                 authMode: AuthMode.TOKEN,
                 email: email,
+                host: params.host,
             };
 
             await this.handleIntegration(

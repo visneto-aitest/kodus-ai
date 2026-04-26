@@ -74,11 +74,12 @@ const openBitbucketModal = async (props: {
 }) =>
     magicModal.show(() => (
         <BitbucketModal
-            onSaveAction={async (token, username, email) => {
+            onSaveAction={async (token, username, email, selfHostedUrl) => {
                 await onSaveToken({
                     token,
                     username,
                     email,
+                    selfHostedUrl,
                     teamId: props.teamId,
                     onSuccess: props.onSaveToken,
                     integrationKey: INTEGRATIONS_KEY.BITBUCKET,

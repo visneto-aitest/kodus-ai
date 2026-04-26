@@ -321,11 +321,12 @@ export default function CardsGroup({
     const openBitbucketModal = async () => {
         magicModal.show(() => (
             <BitbucketModal
-                onSave={async (token, username, email) => {
+                onSave={async (token, username, email, selfHostedUrl) => {
                     await onSaveToken({
                         token,
                         username,
                         email,
+                        selfHostedUrl,
                         integrationKey: INTEGRATIONS_KEY.BITBUCKET,
                         integrationType: PlatformType.BITBUCKET,
                     });

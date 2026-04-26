@@ -1,11 +1,19 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@components/ui/button";
+import { Card, CardHeader } from "@components/ui/card";
+import {
+    Collapsible,
+    CollapsibleContent,
+    CollapsibleTrigger,
+} from "@components/ui/collapsible";
 import { FormControl } from "@components/ui/form-control";
 import { Input } from "@components/ui/input";
 import { KodyReviewPreview } from "@components/ui/kody-review-preview";
 import { magicModal } from "@components/ui/magic-modal";
+import { Switch } from "@components/ui/switch";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { createCodeManagementIntegration } from "@services/codeManagement/fetch";
 import { AxiosError } from "axios";
@@ -34,6 +42,7 @@ const tokenFormSchema = z.object({
     email: z.email({
         error: "Enter a valid email",
     }),
+    selfHostedUrl: z.string().optional(),
 });
 
 function getUsernameFromEmail(email: string): string {
@@ -46,6 +55,7 @@ export const BitbucketTokenModal = (props: {
     userEmail: string;
 }) => {
     const router = useRouter();
+    const [selfhosted, setSelfhosted] = useState(false);
     const nextStepPath = "/setup/choosing-repositories";
 
     const form = useForm({
@@ -55,6 +65,7 @@ export const BitbucketTokenModal = (props: {
             token: "",
             username: "",
             email: "",
+            selfHostedUrl: "",
         },
     });
 
@@ -71,6 +82,7 @@ export const BitbucketTokenModal = (props: {
                 },
                 username: data.username,
                 email: data.email,
+                host: selfhosted ? data.selfHostedUrl : undefined,
             });
 
             captureSegmentEvent({
@@ -213,6 +225,72 @@ export const BitbucketTokenModal = (props: {
                             )}
                         />
 
+                        <Collapsible
+                            open={selfhosted}
+                            onOpenChange={(open) => setSelfhosted(open)}
+                            className="flex flex-col gap-1">
+                            <div className="relative">
+                                <CollapsibleTrigger asChild>
+                                    <Button
+                                        type="button"
+                                        variant="helper"
+                                        size="lg"
+                                        className="w-full items-center justify-between py-4">
+                                        <FormControl.Label className="mb-0">
+                                            Self-hosted
+                                        </FormControl.Label>
+                                    </Button>
+                                </CollapsibleTrigger>
+
+                                <div className="pointer-events-none absolute inset-y-0 right-6 flex items-center">
+                                    <Switch decorative checked={selfhosted} />
+                                </div>
+                            </div>
+
+                            <CollapsibleContent>
+                                <Card color="lv1">
+                                    <CardHeader>
+                                        <Controller
+                                            name="selfHostedUrl"
+                                            control={form.control}
+                                            rules={{
+                                                validate: (value) =>
+                                                    !selfhosted ||
+                                                    !!value?.trim() ||
+                                                    "Enter the Bitbucket base URL",
+                                            }}
+                                            render={({ field, fieldState }) => (
+                                                <FormControl.Root>
+                                                    <FormControl.Label
+                                                        htmlFor={field.name}>
+                                                        Bitbucket Base URL
+                                                    </FormControl.Label>
+
+                                                    <FormControl.Input>
+                                                        <Input
+                                                            {...field}
+                                                            id={field.name}
+                                                            error={
+                                                                fieldState.error
+                                                            }
+                                                            placeholder="https://bitbucket.your-company.com"
+                                                        />
+                                                    </FormControl.Input>
+
+                                                    <FormControl.Error>
+                                                        {
+                                                            fieldState.error
+                                                                ?.message
+                                                        }
+                                                    </FormControl.Error>
+                                                </FormControl.Root>
+                                            )}
+                                        />
+                                    </CardHeader>
+                                </Card>
+                            </CollapsibleContent>
+                        </Collapsible>
+
                         <GitTokenDocs provider="bitbucket" />
                     </div>
 
@@ -231,7 +309,11 @@ export const BitbucketTokenModal = (props: {
                             variant="primary"
                             leftIcon={<SaveIcon />}
                             loading={formIsSubmitting}
-                            disabled={!formIsValid}>
+                            disabled={
+                                !formIsValid ||
+                                (selfhosted &&
+                                    !form.watch("selfHostedUrl")?.trim())
+                            }>
                             Validate and save
                         </Button>
                     </DialogFooter>
