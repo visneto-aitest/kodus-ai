@@ -1408,10 +1408,38 @@ export class KodyRulesSyncService {
                             ? directoryByPath[sourcePath]
                             : undefined;
 
+                    // Single point of truth for path normalisation. Catches
+                    // the legacy "path = sourcePath" failure mode (David's
+                    // Webview/SecretStorage rules) and any IDE-marker leak
+                    // the LLM might still emit. Falls back to repo-wide
+                    // when the rule has no usable sourcePath at all.
+                    const validated = sourcePath
+                        ? validateAndScopeIdeRulePath({
+                              llmPath: rule.path as string | undefined,
+                              sourceFilePath: sourcePath,
+                              pathSource: (rule as any)?.pathSource,
+                          })
+                        : { path: '**/*', reason: 'rejected-empty' as const };
+                    if (validated.reason !== 'accepted-as-is') {
+                        this.logger.log({
+                            message: `[kody-rules-fast] path validation: ${validated.reason}`,
+                            context: KodyRulesSyncService.name,
+                            metadata: {
+                                sourceFilePath: sourcePath,
+                                originalLlmPath: (validated as any)
+                                    .originalLlmPath,
+                                finalPath: validated.path,
+                                pathSource:
+                                    (rule as any)?.pathSource ?? 'unspecified',
+                                repositoryId: targetRepositoryId,
+                            },
+                        });
+                    }
+
                     const dto: CreateKodyRuleDto = {
                         title: rule.title as string,
                         rule: rule.rule as string,
-                        path: (rule.path as string) || sourcePath || '**/*',
+                        path: validated.path,
                         sourcePath: sourcePath,
                         repositoryId: targetRepositoryId,
                         directoryId,

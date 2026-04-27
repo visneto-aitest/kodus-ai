@@ -222,7 +222,15 @@ export function validateAndScopeIdeRulePath(params: {
     pathSource?: string | null;
 }): ValidatedRulePath {
     const { llmPath, sourceFilePath, pathSource } = params;
-    const subdir = extractRepoSubdirFromIdeSource(sourceFilePath);
+    // Defensive: if `sourceFilePath` itself looks like a glob (legacy rows
+    // in the DB persisted sourcePath as a glob, not a concrete file),
+    // fall back to repo-wide rather than producing a Frankenstein scope
+    // like "src/**/**/*". The new prompt always sets sourcePath to a
+    // concrete file, so this only kicks in for legacy data.
+    const sourceLooksLikeGlob = /[*?[]/.test(sourceFilePath || '');
+    const subdir = sourceLooksLikeGlob
+        ? null
+        : extractRepoSubdirFromIdeSource(sourceFilePath);
     const subdirGlob = subdir ? `${subdir}/**/*` : '**/*';
 
     const isEmpty =

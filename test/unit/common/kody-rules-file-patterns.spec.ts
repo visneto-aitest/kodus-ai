@@ -308,4 +308,34 @@ describe('validateAndScopeIdeRulePath', () => {
         expect(result.path).toBe('apps/web/**/*.tsx');
         expect(result.reason).toBe('accepted-as-is');
     });
+
+    it('rejects David-case: path === sourcePath where sourcePath itself is a glob', () => {
+        // Real bug from production: rules persisted with
+        //   sourcePath: "src/**/*.ts"
+        //   path:       "src/**/*.ts"
+        // because the LLM (or the legacy fallback) copied sourcePath into
+        // path. The validator must catch this. Because `sourcePath` is
+        // itself a glob (legacy row), we can't recover a meaningful subdir
+        // from it — fall back repo-wide.
+        const result = validateAndScopeIdeRulePath({
+            llmPath: 'src/**/*.ts',
+            sourceFilePath: 'src/**/*.ts',
+            pathSource: undefined,
+        });
+        expect(result.path).toBe('**/*');
+        expect(result.reason).toBe('rejected-empty');
+    });
+
+    it('handles whitespace around an otherwise-valid glob', () => {
+        // The validator currently does not trim, but this guards against
+        // accidental change. If someone later decides to trim, the test
+        // tells them the call sites that depend on this behaviour.
+        const result = validateAndScopeIdeRulePath({
+            llmPath: '  src/**/*.ts  ',
+            sourceFilePath: '.cursor/rules/foo.mdc',
+            pathSource: 'declared',
+        });
+        expect(result.path).toBe('  src/**/*.ts  ');
+        expect(result.reason).toBe('accepted-as-is');
+    });
 });
