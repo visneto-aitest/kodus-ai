@@ -12,8 +12,7 @@ import type { IOrganizationService } from '@libs/organization/domain/organizatio
  * Weekly recap email — replaces the legacy n8n flow that called Customer.io.
  *
  * Schedule: Friday 09:00 UTC by default. Override via `API_CRON_WEEKLY_RECAP`
- * (standard cron expression). Disable entirely with
- * `API_CRON_WEEKLY_RECAP_ENABLED=false` (default ON).
+ * (standard cron expression) — set to a never-firing expression to disable.
  *
  * Window: previous Monday → previous Sunday (last full ISO week). Friday
  * publishing of "last week's recap" gives complete data and avoids the
@@ -40,9 +39,6 @@ export class WeeklyRecapCron {
         timeZone: 'UTC',
     })
     async handle(): Promise<void> {
-        if (process.env.API_CRON_WEEKLY_RECAP_ENABLED === 'false') {
-            return;
-        }
         if (!environment.API_CLOUD_MODE) {
             // Self-hosted: warehouse has a single org, so ranking is moot
             // and the email loses its weekly-network framing. Skip.

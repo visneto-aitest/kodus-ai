@@ -58,7 +58,6 @@ KEYS=(
     "/qa/kodus-orchestrator/API_CRON_CHECK_IF_PR_SHOULD_BE_APPROVED"
     "/qa/kodus-orchestrator/API_CRON_SSO_TEST_SESSION_CLEANUP"
     "/qa/kodus-orchestrator/API_CRON_WEEKLY_RECAP"
-    "/qa/kodus-orchestrator/API_CRON_WEEKLY_RECAP_ENABLED"
 
     "/qa/kodus-orchestrator/KODUS_SERVICE_TEAMS"
 
