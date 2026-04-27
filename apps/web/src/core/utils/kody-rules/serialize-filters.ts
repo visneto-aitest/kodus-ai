@@ -17,6 +17,7 @@ const ALLOWED_ORIGINS: ReadonlySet<InferredRuleOrigin> = new Set([
     "Auto-sync",
     "Onboard",
     "Kody-generated",
+    "Library",
     "manual",
 ]);
 

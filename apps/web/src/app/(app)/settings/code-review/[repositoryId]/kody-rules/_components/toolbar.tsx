@@ -155,6 +155,7 @@ const ORIGIN_OPTIONS: InferredRuleOrigin[] = [
     "Auto-sync",
     "Onboard",
     "Kody-generated",
+    "Library",
     "manual",
 ];
 

@@ -1,23 +1,48 @@
 /**
  * Classifies a Kody rule's origin for UI display.
  *
- * The backend persists rules produced by several different flows but they all
- * share the same shape. To show meaningful badges (instead of a blanket
- * "Auto-sync" label) we infer the origin from the combination of `origin`
- * and `sourcePath`:
+ * The backend's `KodyRulesOrigin` enum has only three discrete values
+ * (`USER` / `LIBRARY` / `GENERATED`). The web UI wants finer granularity
+ * because the `USER` bucket is the umbrella for several import flows
+ * that each set distinct `sourcePath` shapes.
  *
- *   - "Kody-generated": rule was proposed by the LLM-based generator (originally
- *     created with `origin === "generated"`, pending user approval).
- *   - "Auto-sync": rule was imported from a recognised IDE rule file such as
- *     `.cursorrules`, `.cursor/rules/**.mdc`, `CLAUDE.md`, etc.
- *   - "Onboard": rule was persisted by the fast-sync onboarding flow which
- *     analyses arbitrary repo files (package.json, esbuild.config.js, etc).
- *   - "manual": hand-authored in the web UI.
+ * Rule of inference, in order:
+ *
+ *   1. `origin === "generated"`      → "Kody-generated"
+ *      (LLM-proposed rule from past reviews / comment analysis)
+ *
+ *   2. `origin === "library"`        → "Library"
+ *      (rule added from the Kody library catalog)
+ *
+ *   3. `origin === "user"` (or unset legacy) — split by `sourcePath`:
+ *      a. `!sourcePath`                         → "manual"
+ *         Hand-authored in the web UI; the modal never populates
+ *         sourcePath, so its absence pins the rule to manual creation.
+ *      b. `sourcePath` matches RULE_FILE_PATTERNS → "Auto-sync"
+ *         Imported by the IDE-rule sync flow from `.cursorrules`,
+ *         `.cursor/rules/**.mdc`, `CLAUDE.md`, `.windsurfrules`, etc.
+ *         The importer always writes the filename it read, which by
+ *         definition matches one of those patterns.
+ *      c. otherwise (sourcePath outside IDE patterns) → "Onboard"
+ *         Imported by the onboarding fast-sync, which inspects arbitrary
+ *         repo files (package.json, esbuild.config.js, tsconfig.json…).
+ *
+ * Why this is safe in practice (verified on the backend importers):
+ *   - kodyRulesSync.service.ts always sets sourcePath = IDE rule filename
+ *   - import-fast-kody-rules.use-case.ts always sets sourcePath = analysed file
+ *   - apps/web modal.tsx sends payloads WITHOUT sourcePath
+ *   - add-library-kody-rules.use-case.ts and commentAnalysis.service.ts
+ *     don't set sourcePath either
+ *
+ * If a future flow starts populating sourcePath in a different bucket,
+ * either give it its own `KodyRulesOrigin` enum member (preferred) or
+ * extend this function — don't shoehorn it through.
  */
 export type InferredRuleOrigin =
     | "Auto-sync"
     | "Onboard"
     | "Kody-generated"
+    | "Library"
     | "manual";
 
 // Keep the key names the badge uses verbatim as the classifier output so the
@@ -56,7 +81,12 @@ export function inferRuleOrigin(rule: {
     sourcePath?: string | null;
     origin?: string | null;
 }): InferredRuleOrigin {
+    // 1. Origins the backend marks explicitly take precedence.
     if (rule?.origin === "generated") return "Kody-generated";
+    if (rule?.origin === "library") return "Library";
+
+    // 2. The remaining `origin === "user"` (or unset legacy) bucket is
+    //    split by sourcePath shape, per the contract in the docblock above.
     if (!rule?.sourcePath) return "manual";
     if (isIdeRuleSource(rule.sourcePath)) return "Auto-sync";
     return "Onboard";
