@@ -113,12 +113,6 @@ export const analyticsFetch = async <Data>(
             'kodus-analytics-service';
     }
 
-    const params = {
-        ...options.params,
-        organizationId,
-        ...(selectedRepository && { repository: selectedRepository }),
-    };
-
     // Analytics service is intra-network — http + port, no heuristics.
     const finalUrl = createUrl(`${hostName}`, port, `/api${url}`, {
         internal: true,
