@@ -4,9 +4,8 @@ import NextLink from "next/link";
 import { Button } from "@components/ui/button";
 import { SvgDiscord } from "@components/ui/icons/SvgDiscord";
 import { SvgFounder } from "@components/ui/icons/SvgFounder";
-import { ChevronDown, FileTextIcon } from "lucide-react";
-import { useConfig } from "@providers/ConfigProvider";
 import { ChevronDown, FileTextIcon, Headset } from "lucide-react";
+import { useConfig } from "@providers/ConfigProvider";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -41,38 +40,35 @@ export const SupportDropdown = () => {
             </DropdownMenuTrigger>
 
             <DropdownMenuContent className="w-52" align="end">
+                {showHelpdesk && (
+                    <NextLink href="/helpdesk">
+                        <DropdownMenuItem leftIcon={<Headset />}>
+                            Helpdesk
+                        </DropdownMenuItem>
+                    </NextLink>
+                )}
+
                 <NextLink target="_blank" href={cfg.supportDocsUrl || ""}>
-                    {showHelpdesk && (
-                        <NextLink href="/helpdesk">
-                            <DropdownMenuItem leftIcon={<Headset />}>
-                                Helpdesk
-                            </DropdownMenuItem>
-                        </NextLink>
-                    )}
+                    <DropdownMenuItem leftIcon={<FileTextIcon />}>
+                        View docs
+                    </DropdownMenuItem>
+                </NextLink>
 
-                    <NextLink
-                        target="_blank"
-                        href={process.env.WEB_SUPPORT_DOCS_URL ?? ""}>
-                        <DropdownMenuItem leftIcon={<FileTextIcon />}>
-                            View docs
-                        </DropdownMenuItem>
-                    </NextLink>
+                <NextLink
+                    target="_blank"
+                    href={cfg.supportDiscordInviteUrl || ""}>
+                    <DropdownMenuItem leftIcon={<SvgDiscord />}>
+                        Our Discord
+                    </DropdownMenuItem>
+                </NextLink>
 
-                    <NextLink
-                        target="_blank"
-                        href={cfg.supportDiscordInviteUrl || ""}>
-                        <DropdownMenuItem leftIcon={<SvgDiscord />}>
-                            Our Discord
-                        </DropdownMenuItem>
-                    </NextLink>
-
-                    <NextLink
-                        target="_blank"
-                        href={cfg.supportTalkToFounderUrl || ""}>
-                        <DropdownMenuItem leftIcon={<SvgFounder />}>
-                            Talk to a Founder
-                        </DropdownMenuItem>
-                    </NextLink>
+                <NextLink
+                    target="_blank"
+                    href={cfg.supportTalkToFounderUrl || ""}>
+                    <DropdownMenuItem leftIcon={<SvgFounder />}>
+                        Talk to a Founder
+                    </DropdownMenuItem>
+                </NextLink>
             </DropdownMenuContent>
         </DropdownMenu>
     );

@@ -91,27 +91,45 @@ export class KodyRulesSyncListener {
         if (!event?.repositoryId) {
             this.logger.warn({
                 message:
-                    'Received ide-rules-sync.disabled event without repositoryId, skipping purge',
+                    'Received ide-rules-sync.disabled event without repositoryId, skipping',
                 context: KodyRulesSyncListener.name,
                 metadata: { event },
             });
             return;
         }
 
+        // Action defaults to 'keep' (least destructive) when missing — matches
+        // the use-case behaviour for callers that don't pass it explicitly.
+        const action = event.action ?? 'keep';
+
         this.logger.log({
-            message:
-                'Handling ide-rules-sync.disabled event: purging IDE-synced rules',
+            message: `Handling ide-rules-sync.disabled event with action=${action}`,
             context: KodyRulesSyncListener.name,
             metadata: {
                 repositoryId: event.repositoryId,
                 organizationAndTeamData: event.organizationAndTeamData,
+                action,
             },
         });
 
-        await this.kodyRulesSyncService.purgeAllIdeSyncRulesForRepository({
-            organizationAndTeamData: event.organizationAndTeamData,
-            repositoryId: event.repositoryId,
-        });
+        switch (action) {
+            case 'keep':
+                // No-op: the user only stopped automatic re-imports. Rules
+                // stay ACTIVE.
+                return;
+            case 'pause':
+                await this.kodyRulesSyncService.pauseAllIdeSyncRulesForRepository({
+                    organizationAndTeamData: event.organizationAndTeamData,
+                    repositoryId: event.repositoryId,
+                });
+                return;
+            case 'delete':
+                await this.kodyRulesSyncService.purgeAllIdeSyncRulesForRepository({
+                    organizationAndTeamData: event.organizationAndTeamData,
+                    repositoryId: event.repositoryId,
+                });
+                return;
+        }
     }
 
     private async isCentralizedConfigRepo(

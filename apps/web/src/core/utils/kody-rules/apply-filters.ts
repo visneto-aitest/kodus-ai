@@ -20,12 +20,15 @@ export type ListFilters = {
     origins: Set<InferredRuleOrigin>;
     severities: Set<string>; // lower-case (low/medium/high/critical)
     withSyncErrors: boolean;
+    /** Toggle: when true, only rules with status === "paused" pass the filter. */
+    pausedOnly: boolean;
 };
 
 export const EMPTY_LIST_FILTERS: ListFilters = {
     origins: new Set(),
     severities: new Set(),
     withSyncErrors: false,
+    pausedOnly: false,
 };
 
 export function matchesOriginFilter(
@@ -49,7 +52,8 @@ export function hasActiveListFilters(filters: ListFilters): boolean {
     return (
         filters.origins.size > 0 ||
         filters.severities.size > 0 ||
-        filters.withSyncErrors
+        filters.withSyncErrors ||
+        filters.pausedOnly
     );
 }
 
@@ -59,6 +63,14 @@ export function matchesSyncErrorsFilter(
 ): boolean {
     if (!filters.withSyncErrors) return true;
     return Array.isArray(rule.syncErrors) && rule.syncErrors.length > 0;
+}
+
+export function matchesPausedOnlyFilter(
+    rule: { status?: string | null },
+    filters: ListFilters,
+): boolean {
+    if (!filters.pausedOnly) return true;
+    return rule.status === "paused";
 }
 
 const SEVERITY_RANK: Record<string, number> = {

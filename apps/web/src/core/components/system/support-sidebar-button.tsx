@@ -15,9 +15,8 @@ import {
     TooltipProvider,
     TooltipTrigger,
 } from "@components/ui/tooltip";
-import { FileTextIcon, LifeBuoy } from "lucide-react";
-import { useConfig } from "@providers/ConfigProvider";
 import { FileTextIcon, Headset, LifeBuoy } from "lucide-react";
+import { useConfig } from "@providers/ConfigProvider";
 import { cn } from "src/core/utils/components";
 import { useSubscriptionStatus } from "src/features/ee/subscription/_hooks/use-subscription-status";
 import { isSelfHosted } from "src/core/utils/self-hosted";

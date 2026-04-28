@@ -344,6 +344,8 @@ export class AutomationCodeReviewService implements Omit<
                             organizationAndTeamData,
                             pullRequestNumber: pullRequest?.number,
                             repositoryId: repository?.id,
+                            workflowJobId: payload.workflowJobId,
+                            correlationId: payload.correlationId,
                         },
                         teamAutomation: { uuid: teamAutomationId },
                         origin: origin || 'System',

@@ -20,6 +20,7 @@ describe("matchesOriginFilter", () => {
             origins: new Set(),
             severities: new Set(),
             withSyncErrors: false,
+            pausedOnly: false,
         };
         expect(
             matchesOriginFilter(
@@ -40,6 +41,7 @@ describe("matchesOriginFilter", () => {
             origins: new Set(["Auto-sync"]),
             severities: new Set(),
             withSyncErrors: false,
+            pausedOnly: false,
         };
         expect(
             matchesOriginFilter(
@@ -66,6 +68,7 @@ describe("matchesOriginFilter", () => {
             origins: new Set(["Auto-sync", "Onboard"]),
             severities: new Set(),
             withSyncErrors: false,
+            pausedOnly: false,
         };
         expect(
             matchesOriginFilter(
@@ -91,6 +94,7 @@ describe("matchesSeverityFilter", () => {
             origins: new Set(),
             severities: new Set(),
             withSyncErrors: false,
+            pausedOnly: false,
         };
         expect(
             matchesSeverityFilter(buildRule({ severity: "low" }), filter),
@@ -105,6 +109,7 @@ describe("matchesSeverityFilter", () => {
             origins: new Set(),
             severities: new Set(["critical"]),
             withSyncErrors: false,
+            pausedOnly: false,
         };
         expect(
             matchesSeverityFilter(buildRule({ severity: "critical" }), filter),
@@ -125,6 +130,7 @@ describe("matchesSeverityFilter", () => {
             origins: new Set(),
             severities: new Set(["critical", "high"]),
             withSyncErrors: false,
+            pausedOnly: false,
         };
         expect(
             matchesSeverityFilter(buildRule({ severity: "critical" }), filter),
@@ -142,6 +148,7 @@ describe("matchesSeverityFilter", () => {
             origins: new Set(),
             severities: new Set(["critical"]),
             withSyncErrors: false,
+            pausedOnly: false,
         };
         expect(
             matchesSeverityFilter(buildRule({ severity: undefined }), filter),
@@ -162,6 +169,7 @@ describe("matchesSyncErrorsFilter", () => {
             origins: new Set(),
             severities: new Set(),
             withSyncErrors: false,
+            pausedOnly: false,
         };
         expect(matchesSyncErrorsFilter({ syncErrors: undefined }, filter)).toBe(
             true,
@@ -176,6 +184,7 @@ describe("matchesSyncErrorsFilter", () => {
             origins: new Set(),
             severities: new Set(),
             withSyncErrors: true,
+            pausedOnly: false,
         };
         expect(matchesSyncErrorsFilter({ syncErrors: undefined }, filter)).toBe(
             false,
@@ -184,6 +193,33 @@ describe("matchesSyncErrorsFilter", () => {
         expect(
             matchesSyncErrorsFilter({ syncErrors: [{ msg: "err" }] }, filter),
         ).toBe(true);
+    });
+});
+
+describe("matchesPausedOnlyFilter", () => {
+    const { matchesPausedOnlyFilter } = jest.requireActual<
+        typeof import("../../../apps/web/src/core/utils/kody-rules/apply-filters")
+    >("../../../apps/web/src/core/utils/kody-rules/apply-filters");
+
+    const off: ListFilters = {
+        origins: new Set(),
+        severities: new Set(),
+        withSyncErrors: false,
+        pausedOnly: false,
+    };
+    const on: ListFilters = { ...off, pausedOnly: true };
+
+    it("passes every rule when pausedOnly is false", () => {
+        expect(matchesPausedOnlyFilter({ status: "active" }, off)).toBe(true);
+        expect(matchesPausedOnlyFilter({ status: "paused" }, off)).toBe(true);
+        expect(matchesPausedOnlyFilter({ status: undefined }, off)).toBe(true);
+    });
+
+    it("passes only rules whose status === 'paused' when filter is on", () => {
+        expect(matchesPausedOnlyFilter({ status: "paused" }, on)).toBe(true);
+        expect(matchesPausedOnlyFilter({ status: "active" }, on)).toBe(false);
+        expect(matchesPausedOnlyFilter({ status: "deleted" }, on)).toBe(false);
+        expect(matchesPausedOnlyFilter({ status: undefined }, on)).toBe(false);
     });
 });
 

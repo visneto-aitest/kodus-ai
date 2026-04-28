@@ -50,7 +50,8 @@ export const KodyRulesToolbar = ({
     const activeFilterCount =
         listFilters.origins.size +
         listFilters.severities.size +
-        (listFilters.withSyncErrors ? 1 : 0);
+        (listFilters.withSyncErrors ? 1 : 0) +
+        (listFilters.pausedOnly ? 1 : 0);
 
     // Global "/" shortcut focuses the search input (skips when the user is
     // already typing in another input/textarea/contenteditable).
@@ -100,22 +101,6 @@ export const KodyRulesToolbar = ({
                 disabled={isDisabled}
                 className="grow"
             />
-            {/* Native <select>: avoids the Radix Slot + composeRefs chain
-                that was producing a "Maximum update depth" loop on
-                mount in our toolbar. Plain DOM select keeps the
-                accessibility, keyboard support and form semantics that
-                Radix gives, with zero ref composition. */}
-            <select
-                value={sortOption}
-                onChange={(e) =>
-                    onSortOptionChange(e.target.value as SortOption)
-                }
-                aria-label="Sort by"
-                className="border-card-lv3 bg-card-lv2 text-text-primary focus-visible:ring-primary h-9 rounded-md border px-3 text-sm focus:outline-none focus-visible:ring-2">
-                <option value="recent">Recently updated</option>
-                <option value="severity-desc">Severity (high → low)</option>
-                <option value="alphabetical">A → Z</option>
-            </select>
             <Popover>
                 <PopoverTrigger asChild>
                     <Button
@@ -149,6 +134,8 @@ export const KodyRulesToolbar = ({
                         isRepoView={isRepoView}
                         isGlobalView={isGlobalView}
                         entityLabel={entityLabel}
+                        sortOption={sortOption}
+                        onSortOptionChange={onSortOptionChange}
                     />
                 </PopoverContent>
             </Popover>
@@ -168,6 +155,7 @@ const ORIGIN_OPTIONS: InferredRuleOrigin[] = [
     "Auto-sync",
     "Onboard",
     "Kody-generated",
+    "Library",
     "manual",
 ];
 
@@ -186,6 +174,8 @@ type FilterPopoverContentProps = {
     isRepoView: boolean; // Viewing a repository (not a directory within it)
     isGlobalView: boolean; // Viewing the global config
     entityLabel?: "rules" | "memories";
+    sortOption: SortOption;
+    onSortOptionChange: (option: SortOption) => void;
 };
 
 export const FilterPopoverContent = ({
@@ -196,6 +186,8 @@ export const FilterPopoverContent = ({
     isRepoView,
     isGlobalView,
     entityLabel = "rules",
+    sortOption,
+    onSortOptionChange,
 }: FilterPopoverContentProps) => {
     const handleScopeChange = (
         scope: keyof VisibleScopes,
@@ -228,6 +220,27 @@ export const FilterPopoverContent = ({
 
     return (
         <div className="grid gap-4 p-1">
+            <section className="grid gap-2">
+                <h4 className="text-sm leading-none font-medium">Sort by</h4>
+                {/* Native <select> for the same reason as the rest of the
+                    toolbar: avoids the Radix Slot + composeRefs chain that
+                    triggers an update-depth loop on mount with our hook
+                    composition. Plain DOM still gives us keyboard + a11y. */}
+                <select
+                    value={sortOption}
+                    onChange={(e) =>
+                        onSortOptionChange(e.target.value as SortOption)
+                    }
+                    aria-label="Sort by"
+                    className="border-card-lv3 bg-card-lv2 text-text-primary focus-visible:ring-primary h-9 w-full rounded-md border px-3 text-sm focus:outline-none focus-visible:ring-2">
+                    <option value="recent">Recently updated</option>
+                    <option value="severity-desc">
+                        Severity (high → low)
+                    </option>
+                    <option value="alphabetical">A → Z</option>
+                </select>
+            </section>
+
             {showScopeSection && (
                 <section className="grid gap-2">
                     <h4 className="text-sm leading-none font-medium">View</h4>
@@ -391,6 +404,21 @@ export const FilterPopoverContent = ({
                     />
                     <Label htmlFor="filter-sync-errors">
                         Has sync errors
+                    </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                    <Checkbox
+                        id="filter-paused-only"
+                        checked={listFilters.pausedOnly}
+                        onCheckedChange={(checked) =>
+                            onListFiltersChange({
+                                ...listFilters,
+                                pausedOnly: Boolean(checked),
+                            })
+                        }
+                    />
+                    <Label htmlFor="filter-paused-only">
+                        Paused only
                     </Label>
                 </div>
             </section>

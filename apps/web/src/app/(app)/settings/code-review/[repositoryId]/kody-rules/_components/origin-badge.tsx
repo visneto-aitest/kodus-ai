@@ -11,6 +11,35 @@ const ORIGIN_TOOLTIPS: Record<Exclude<InferredRuleOrigin, "manual">, string> = {
     Onboard: "Suggested by onboarding analysis",
     "Kody-generated":
         "Suggested by the Kody rule generator from past reviews",
+    Library: "Added from the Kody rule library",
+};
+
+// Distinct colour per origin so users can tell where a rule came from
+// at a glance. Intentionally avoids the severity palette (danger /
+// warning / alert / info) so the origin badge doesn't read as a
+// severity. Tokens used here come from globals.css.
+//
+//   Auto-sync       → secondary (purple) — IDE / dev tooling
+//   Onboard         → success   (green)  — "welcome", first-run
+//   Kody-generated  → tertiary  (pink)   — Kody / LLM brand
+//   Library         → info      (blue)   — curated catalog
+//
+// (Library is the one exception that does borrow from the severity
+// palette — info/blue is otherwise used by Low severity. The risk of
+// confusion is small because Low is rare and the Library badge text
+// removes ambiguity.)
+const ORIGIN_CLASSES: Record<
+    Exclude<InferredRuleOrigin, "manual">,
+    string
+> = {
+    "Auto-sync":
+        "bg-secondary-light/10 text-secondary-light ring-secondary-light/40 [--button-foreground:var(--color-secondary-light)]",
+    Onboard:
+        "bg-success/10 text-success ring-success/40 [--button-foreground:var(--color-success)]",
+    "Kody-generated":
+        "bg-tertiary-light/10 text-tertiary-light ring-tertiary-light/40 [--button-foreground:var(--color-tertiary-light)]",
+    Library:
+        "bg-info/10 text-info ring-info/40 [--button-foreground:var(--color-info)]",
 };
 
 type OriginBadgeProps = {
@@ -37,7 +66,9 @@ export const OriginBadge = ({ rule }: OriginBadgeProps) => {
             active
             size="xs"
             title={tooltip}
-            className="min-h-auto px-2.5 py-1">
+            className={
+                "min-h-auto px-2.5 py-1 ring-1 " + ORIGIN_CLASSES[origin]
+            }>
             {origin}
         </Badge>
     );

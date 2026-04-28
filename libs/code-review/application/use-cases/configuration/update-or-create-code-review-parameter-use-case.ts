@@ -63,6 +63,7 @@ import { buildKodusConfigCentralizedMutationRequest } from '@libs/centralized-co
 import {
     IDE_RULES_SYNC_DISABLED_EVENT,
     IdeRulesSyncDisabledEvent,
+    IdeSyncDisableAction,
 } from '@libs/kodyRules/domain/events/ide-rules-sync.events';
 
 @Injectable()
@@ -358,13 +359,21 @@ export class UpdateOrCreateCodeReviewParameterUseCase {
                 previousIdeSyncEnabled &&
                 (configValue as any)?.ideRulesSyncEnabled === false
             ) {
-                const purgeEvent: IdeRulesSyncDisabledEvent = {
+                // The action picked in the toggle-off modal in the web UI.
+                // Defaulting to 'keep' here is deliberate: any caller that
+                // doesn't pass an explicit action gets the least destructive
+                // option, which avoids the silent-deletion regression.
+                const action: IdeSyncDisableAction =
+                    (configValue as any)?.ideSyncDisableAction ?? 'keep';
+
+                const event: IdeRulesSyncDisabledEvent = {
                     organizationAndTeamData,
                     repositoryId: repositoryId!,
+                    action,
                 };
                 this.eventEmitter.emit(
                     IDE_RULES_SYNC_DISABLED_EVENT,
-                    purgeEvent,
+                    event,
                 );
             }
 

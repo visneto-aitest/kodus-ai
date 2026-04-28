@@ -11,7 +11,10 @@ import { Page } from "@components/ui/page";
 import { PopoverTrigger } from "@components/ui/popover";
 import { Skeleton } from "@components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@components/ui/tabs";
+import { toast } from "@components/ui/toaster/use-toast";
+import { useAsyncAction } from "@hooks/use-async-action";
 import { KODY_RULES_PATHS } from "@services/kodyRules";
+import { changeStatusKodyRules } from "@services/kodyRules/fetch";
 import {
     useKodyRulesLimits,
     useSuspenseGetInheritedKodyRules,
@@ -51,6 +54,7 @@ import {
     compareRules,
     EMPTY_LIST_FILTERS,
     matchesOriginFilter,
+    matchesPausedOnlyFilter,
     matchesSeverityFilter,
     matchesSyncErrorsFilter,
     matchesTextQuery,
@@ -64,11 +68,12 @@ import {
 } from "src/core/utils/kody-rules/serialize-filters";
 
 import { ActiveFiltersChips } from "./active-filters-chips";
+import { BulkActionToolbar } from "./bulk-action-toolbar";
 import { GeneratedMemoriesApprovalSetting } from "./generated-memories-approval";
 import { KodyRulesNoMatches } from "./no-matches";
 import { SeverityHeatmap } from "./severity-heatmap";
 import { KodyRulesList } from "./list";
-import { OrphanRulesBanner } from "./orphan-rules-banner";
+import { OrphanRulesChip } from "./orphan-rules-chip";
 import { KodyRulesToolbar, type VisibleScopes } from "./toolbar";
 
 type KodyRulesTab = "review-rules" | "memories" | "configuration";
@@ -133,6 +138,13 @@ const KodyRulesPageContent = () => {
                 case KodyRulesStatus.ACTIVE:
                     result.activeRules.push(rule);
                     break;
+                // PAUSED rules stay visible in the user's list with a
+                // distinct badge so they can be reviewed and resumed —
+                // they just aren't enforced on PRs. Without this case
+                // they were silently dropped and pause looked broken.
+                case KodyRulesStatus.PAUSED:
+                    result.activeRules.push(rule);
+                    break;
                 case KodyRulesStatus.PENDING:
                     result.pendingRules.push(rule);
                     break;
@@ -170,6 +182,9 @@ const KodyRulesPageContent = () => {
         useState<ListFilters>(EMPTY_LIST_FILTERS);
     const [sortOption, setSortOption] = useState<SortOption>("recent");
     const [hasReadUrl, setHasReadUrl] = useState(false);
+    const [selection, setSelection] = useState<Set<string>>(
+        () => new Set<string>(),
+    );
 
     // Hydrate filter state from the URL after mount. Done in an effect so
     // the SSR HTML and the first client render match — otherwise React
@@ -214,29 +229,43 @@ const KodyRulesPageContent = () => {
 
     const ideRulesSyncEnabledForRepo =
         !isGlobalView &&
-        Boolean(
-            config.repositories?.find((r) => r.id === repositoryId)?.configs
-                ?.ideRulesSyncEnabled,
-        );
+        // `configs.ideRulesSyncEnabled` is a FormattedConfigProperty
+        // ({ value, level, ... }), not a raw boolean. `Boolean(<object>)`
+        // is always true, which made `ideRulesSyncEnabledForRepo` look
+        // permanently `true` and suppressed the OrphanRulesBanner from
+        // ever rendering. Read `.value` explicitly.
+        config.repositories?.find((r) => r.id === repositoryId)?.configs
+            ?.ideRulesSyncEnabled?.value === true;
 
-    // The orphan banner targets rules imported from IDE rule files
-    // (.cursorrules, .cursor/rules/**, CLAUDE.md, ...). Onboarding /
-    // AI-generated rules share the "sourcePath is set" shape but come
-    // from unrelated flows — they should not be counted here.
+    // Orphan auto-sync rules: anything imported from IDE rule files
+    // (.cursorrules, .cursor/rules/**, CLAUDE.md, …) that survived the
+    // sync-off event, regardless of whether the user kept them ACTIVE or
+    // parked them as PAUSED. PAUSED rules are still "in the user's lap" —
+    // a one-click Resume puts them back in PR review, so they belong in
+    // the count. Onboarding / Kody-generated rules share the
+    // "sourcePath is set" shape but come from unrelated flows and don't
+    // count here.
     const autoSyncedActiveCount = useMemo(
         () =>
             kodyRules.filter(
                 (rule) =>
-                    rule.status === KodyRulesStatus.ACTIVE &&
+                    (rule.status === KodyRulesStatus.ACTIVE ||
+                        rule.status === KodyRulesStatus.PAUSED) &&
                     inferRuleOrigin(rule) === "Auto-sync",
             ).length,
         [kodyRules],
     );
 
-    const shouldShowOrphanBanner =
-        !isGlobalView &&
-        !ideRulesSyncEnabledForRepo &&
-        autoSyncedActiveCount > 0;
+    // Orphan auto-sync rules: rules imported by auto-sync that survived a
+    // sync-off event and aren't being maintained anymore. Surfaced as a
+    // small chip near the filters (see OrphanRulesChip). The chip itself
+    // returns null when count is 0, so we can pass through unconditionally;
+    // the only gate worth keeping here is "we're in a repo scope and the
+    // toggle is currently off" — otherwise the chip is meaningless.
+    const orphanRulesCount =
+        !isGlobalView && !ideRulesSyncEnabledForRepo
+            ? autoSyncedActiveCount
+            : 0;
 
     const getRulesViewState = (ruleType: KodyRulesType) => {
         const activeRulesByType = kodyRules.filter(
@@ -340,7 +369,16 @@ const KodyRulesPageContent = () => {
                 rule as KodyRule,
                 listFilters,
             );
-            return passesOrigin && passesSeverity && passesSyncErrors;
+            const passesPausedOnly = matchesPausedOnlyFilter(
+                rule as KodyRule,
+                listFilters,
+            );
+            return (
+                passesOrigin &&
+                passesSeverity &&
+                passesSyncErrors &&
+                passesPausedOnly
+            );
         });
 
         const filterQueryLowercase = filterQuery.toLowerCase();
@@ -423,6 +461,164 @@ const KodyRulesPageContent = () => {
         ],
     );
 
+    // Bulk selection — only enabled in the Review Rules tab. Eligibility:
+    // the rule belongs to the current scope (not inherited) and has a uuid
+    // we can pass to `changeStatusKodyRules`. Inherited rows render
+    // without a checkbox so the user cannot accidentally try to delete a
+    // rule that lives in another scope.
+    const isBulkEligible = (rule: KodyRuleWithInheritanceDetails) =>
+        !rule.inherited && !!rule.uuid;
+
+    const eligibleSelectableIds = useMemo(() => {
+        const ids: string[] = [];
+        for (const rule of reviewRulesState.rulesToDisplay as KodyRuleWithInheritanceDetails[]) {
+            if (isBulkEligible(rule)) ids.push(rule.uuid as string);
+        }
+        return ids;
+    }, [reviewRulesState.rulesToDisplay]);
+
+    // Drop selected ids that are no longer visible/eligible (filters
+    // changed, list refreshed, …). Without this the count in the toolbar
+    // would drift away from what the user actually sees.
+    useEffect(() => {
+        setSelection((prev) => {
+            if (prev.size === 0) return prev;
+            const visible = new Set(eligibleSelectableIds);
+            let changed = false;
+            const next = new Set<string>();
+            for (const id of prev) {
+                if (visible.has(id)) {
+                    next.add(id);
+                } else {
+                    changed = true;
+                }
+            }
+            return changed ? next : prev;
+        });
+    }, [eligibleSelectableIds]);
+
+    const toggleSelection = (ruleId: string) => {
+        setSelection((prev) => {
+            const next = new Set(prev);
+            if (next.has(ruleId)) {
+                next.delete(ruleId);
+            } else {
+                next.add(ruleId);
+            }
+            return next;
+        });
+    };
+
+    const selectAllVisible = () => {
+        setSelection(new Set(eligibleSelectableIds));
+    };
+
+    const clearSelection = () => {
+        setSelection(new Set());
+    };
+
+    const [handleBulkDelete, { loading: isBulkDeleting }] = useAsyncAction(
+        async () => {
+            const ids = Array.from(selection);
+            if (ids.length === 0) return;
+            try {
+                await changeStatusKodyRules(ids, KodyRulesStatus.DELETED);
+                toast({
+                    description:
+                        ids.length === 1
+                            ? "1 rule deleted."
+                            : `${ids.length} rules deleted.`,
+                    variant: "success",
+                });
+                clearSelection();
+                await refreshRulesList();
+            } catch (error) {
+                console.error("Failed to bulk delete rules", error);
+                toast({
+                    title: "Could not delete rules",
+                    description: "Please try again in a moment.",
+                    variant: "danger",
+                });
+            }
+        },
+    );
+
+    // Split the current selection by status. The bulk Pause button only
+    // operates on ACTIVE rules and Resume only on PAUSED ones — sending the
+    // whole selection would no-op on already-paused / already-active rules
+    // and inflate the toast count. Recomputed every render off the live
+    // `rulesToDisplay` snapshot so a status flip elsewhere reflects here.
+    const { pauseableIds, resumableIds } = useMemo(() => {
+        const pauseable: string[] = [];
+        const resumable: string[] = [];
+        for (const rule of reviewRulesState.rulesToDisplay as KodyRuleWithInheritanceDetails[]) {
+            if (!rule.uuid || !selection.has(rule.uuid)) continue;
+            if (rule.inherited) continue;
+            if (rule.status === KodyRulesStatus.ACTIVE) {
+                pauseable.push(rule.uuid);
+            } else if (rule.status === KodyRulesStatus.PAUSED) {
+                resumable.push(rule.uuid);
+            }
+        }
+        return { pauseableIds: pauseable, resumableIds: resumable };
+    }, [reviewRulesState.rulesToDisplay, selection]);
+
+    const [handleBulkPause, { loading: isBulkPausing }] = useAsyncAction(
+        async () => {
+            if (pauseableIds.length === 0) return;
+            try {
+                await changeStatusKodyRules(
+                    pauseableIds,
+                    KodyRulesStatus.PAUSED,
+                );
+                toast({
+                    description:
+                        pauseableIds.length === 1
+                            ? "1 rule paused."
+                            : `${pauseableIds.length} rules paused.`,
+                    variant: "success",
+                });
+                clearSelection();
+                await refreshRulesList();
+            } catch (error) {
+                console.error("Failed to bulk pause rules", error);
+                toast({
+                    title: "Could not pause rules",
+                    description: "Please try again in a moment.",
+                    variant: "danger",
+                });
+            }
+        },
+    );
+
+    const [handleBulkResume, { loading: isBulkResuming }] = useAsyncAction(
+        async () => {
+            if (resumableIds.length === 0) return;
+            try {
+                await changeStatusKodyRules(
+                    resumableIds,
+                    KodyRulesStatus.ACTIVE,
+                );
+                toast({
+                    description:
+                        resumableIds.length === 1
+                            ? "1 rule resumed."
+                            : `${resumableIds.length} rules resumed.`,
+                    variant: "success",
+                });
+                clearSelection();
+                await refreshRulesList();
+            } catch (error) {
+                console.error("Failed to bulk resume rules", error);
+                toast({
+                    title: "Could not resume rules",
+                    description: "Please try again in a moment.",
+                    variant: "danger",
+                });
+            }
+        },
+    );
+
     const renderPendingMergeFilter = (pendingCentralizedCount: number) => {
         if (pendingCentralizedCount === 0 && statusFilter === "all") {
             return null;
@@ -500,17 +696,25 @@ const KodyRulesPageContent = () => {
     };
 
     const refreshRulesList = async () => {
-        await queryClient.resetQueries({
-            predicate: (query) =>
-                query.queryKey[0] ===
-                KODY_RULES_PATHS.FIND_BY_ORGANIZATION_ID_AND_FILTER,
-        });
-
-        await queryClient.resetQueries({
-            predicate: (query) =>
-                query.queryKey[0] ===
-                KODY_RULES_PATHS.GET_KODY_RULES_TOTAL_QUANTITY,
-        });
+        // `invalidateQueries`, NOT `resetQueries`. The list is fed by
+        // `useSuspenseFetch`, so resetting puts the query into "pending"
+        // and bubbles up to the nearest Suspense boundary — which is what
+        // was causing the page to flash to a skeleton on every delete /
+        // pause / resume. Invalidate marks the cache as stale and triggers
+        // a background refetch while the existing UI stays mounted, so the
+        // list updates in place without flicker.
+        await Promise.all([
+            queryClient.invalidateQueries({
+                predicate: (query) =>
+                    query.queryKey[0] ===
+                    KODY_RULES_PATHS.FIND_BY_ORGANIZATION_ID_AND_FILTER,
+            }),
+            queryClient.invalidateQueries({
+                predicate: (query) =>
+                    query.queryKey[0] ===
+                    KODY_RULES_PATHS.GET_KODY_RULES_TOTAL_QUANTITY,
+            }),
+        ]);
     };
 
     const addNewEmptyRule = async (ruleType: KodyRulesType) => {
@@ -701,16 +905,6 @@ const KodyRulesPageContent = () => {
                                 generate review feedback based on changed files
                                 or PR-level context.
                             </p>
-                            {shouldShowOrphanBanner && (
-                                <OrphanRulesBanner
-                                    count={autoSyncedActiveCount}
-                                    isFilteringOrphans={onlyIdeSynced}
-                                    onReviewClick={() => setOnlyIdeSynced(true)}
-                                    onDismissClick={() =>
-                                        setOnlyIdeSynced(false)
-                                    }
-                                />
-                            )}
                             <KodyRulesToolbar
                                 filterQuery={filterQuery}
                                 onFilterQueryChange={setFilterQuery}
@@ -727,6 +921,12 @@ const KodyRulesPageContent = () => {
                                 isRepoView={isRepoView}
                                 isGlobalView={isGlobalView}
                             />
+                            <OrphanRulesChip
+                                count={orphanRulesCount}
+                                isFiltering={onlyIdeSynced}
+                                onApply={() => setOnlyIdeSynced(true)}
+                                onClear={() => setOnlyIdeSynced(false)}
+                            />
                             <ActiveFiltersChips
                                 filters={listFilters}
                                 onChange={setListFilters}
@@ -739,6 +939,20 @@ const KodyRulesPageContent = () => {
                             {renderPendingMergeFilter(
                                 reviewRulesState.pendingCentralizedCount,
                             )}
+                            <BulkActionToolbar
+                                selectedCount={selection.size}
+                                eligibleCount={eligibleSelectableIds.length}
+                                pauseableCount={pauseableIds.length}
+                                resumableCount={resumableIds.length}
+                                isDeleting={isBulkDeleting}
+                                isPausing={isBulkPausing}
+                                isResuming={isBulkResuming}
+                                onSelectAll={selectAllVisible}
+                                onClear={clearSelection}
+                                onDelete={handleBulkDelete}
+                                onPause={handleBulkPause}
+                                onResume={handleBulkResume}
+                            />
                             {(() => {
                                 const empty =
                                     !reviewRulesState.rulesToDisplay.length;
@@ -750,6 +964,11 @@ const KodyRulesPageContent = () => {
                                             }
                                             tab="review-rules"
                                             onAnyChange={refreshRulesList}
+                                            bulkSelection={{
+                                                selection,
+                                                onToggle: toggleSelection,
+                                                isEligible: isBulkEligible,
+                                            }}
                                         />
                                     );
                                 }
