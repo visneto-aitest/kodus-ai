@@ -379,6 +379,22 @@ export class WorkerHealthGuardService
         const dead: string[] = [];
         const consumers: Record<string, number> = {};
 
+        // @golevelup v9: consumers live on AmqpConnection._consumers (Record
+        // keyed by consumerTag), not on each ChannelWrapper. The named channel
+        // lives at msgOptions.queueOptions.channel (same path the lib itself
+        // uses to dispatch — see selectManagedChannel call site).
+        const consumersMap =
+            (this.amqpConnection as unknown as { _consumers?: Record<string, unknown> })._consumers ?? {};
+        const consumerCountByChannel: Record<string, number> = {};
+        type ConsumerOpts = { queueOptions?: { channel?: string }; channel?: string };
+        for (const c of Object.values(consumersMap)) {
+            const opts = (c as { msgOptions?: ConsumerOpts })?.msgOptions;
+            const channelName: string =
+                opts?.queueOptions?.channel ?? opts?.channel ?? '__default__';
+            consumerCountByChannel[channelName] =
+                (consumerCountByChannel[channelName] ?? 0) + 1;
+        }
+
         for (const name of expectedChannels) {
             const wrapper = managedChannels[name] as any;
             if (!wrapper || !wrapper._channel) {
@@ -386,9 +402,7 @@ export class WorkerHealthGuardService
                 consumers[name] = 0;
             } else {
                 alive.push(name);
-                consumers[name] = Array.isArray(wrapper._consumers)
-                    ? wrapper._consumers.length
-                    : -1;
+                consumers[name] = consumerCountByChannel[name] ?? 0;
             }
         }
 

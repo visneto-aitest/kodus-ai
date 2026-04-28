@@ -52,9 +52,14 @@ interface HealthStatus {
  *      This is the "zombie" pattern we traced in prod: lib reconnected
  *      after a channel close but the @RabbitSubscribe consumer didn't
  *      re-register. Connection looks fine; messages pile up. Catching
- *      this requires inspecting managedChannels[name]._consumers, which
- *      is internal state of ChannelWrapper but stable enough across
- *      recent versions to rely on.
+ *      this requires inspecting AmqpConnection._consumers (a Record
+ *      keyed by consumerTag, populated by golevelup's
+ *      registerConsumerForQueue) and grouping by msgOptions.channel.
+ *      This is internal state of @golevelup/nestjs-rabbitmq but stable
+ *      enough across recent versions to rely on. NOTE: layout changed
+ *      in v9 — older lib versions tracked consumers on each
+ *      ChannelWrapper; if the lib is downgraded, this probe needs to
+ *      be adapted again.
  *
  *   3. Connection alive, consumers registered, but the worker is wedged
  *      (event loop pinned, all jobs stuck). That's out of scope for
@@ -114,22 +119,33 @@ export function startHealthProbe(opts: HealthProbeOptions): http.Server {
             return { ok: true, status: 'ok' };
         }
 
+        // @golevelup/nestjs-rabbitmq v9 tracks consumers on the AmqpConnection
+        // itself (amqp._consumers: Record<consumerTag, Consumer>), NOT on each
+        // ChannelWrapper. Each consumer's named channel lives at
+        // msgOptions.queueOptions.channel — that's the path the lib itself uses
+        // (selectManagedChannel(msgOptions?.queueOptions?.channel)), so it's
+        // the canonical source for "which channel was this consumer registered
+        // on". A zombie pattern shows up as a required channel with zero
+        // consumer entries here after a transient channel close.
+        const consumersMap = (amqp as any)._consumers ?? {};
+        const consumersByChannel: Record<string, number> = {};
+        for (const c of Object.values(consumersMap)) {
+            const opts = (c as any)?.msgOptions;
+            const channelName: string =
+                opts?.queueOptions?.channel ?? opts?.channel ?? '__default__';
+            consumersByChannel[channelName] =
+                (consumersByChannel[channelName] ?? 0) + 1;
+        }
+
         const managedChannels = (amqp as any).managedChannels ?? {};
         const missing: string[] = [];
         const noConsumer: string[] = [];
         for (const name of requiredChannels) {
-            const cw = managedChannels[name];
-            if (!cw) {
+            if (!managedChannels[name]) {
                 missing.push(name);
                 continue;
             }
-            // `_consumers` is internal to ChannelWrapper but is the
-            // single source of truth for "what did basic.consume register
-            // on this channel". A zombie channel has this empty.
-            const consumerCount = Array.isArray((cw as any)._consumers)
-                ? (cw as any)._consumers.length
-                : 0;
-            if (consumerCount === 0) {
+            if (!consumersByChannel[name]) {
                 noConsumer.push(name);
             }
         }
@@ -138,7 +154,7 @@ export function startHealthProbe(opts: HealthProbeOptions): http.Server {
             return {
                 ok: false,
                 status: 'consumer_missing',
-                details: { missing, noConsumer },
+                details: { missing, noConsumer, consumersByChannel },
             };
         }
 
