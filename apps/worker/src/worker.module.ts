@@ -93,6 +93,18 @@ export class WorkerModule {
                 // Postgres for cockpit warehouse queries used by the
                 // weekly-recap cron.
                 SharedPostgresModule.forRoot({ poolSize: 4 }),
+                // Wired with `enableConsumers: false` because the
+                // analytics role does NOT consume queue messages — but
+                // OrganizationModule transitively pulls in PlatformModule
+                // → WorkflowModule, which provides WorkflowJobQueueService.
+                // That service constructor-injects MESSAGE_BROKER_SERVICE_TOKEN
+                // and Nest fails to build the DI graph if the token isn't
+                // provided, even though analytics never calls enqueue().
+                // Wiring the wrapper here costs one idle AMQP connection
+                // and unblocks the boot. Refactoring the OrganizationParametersModule
+                // → PlatformModule edge is the cleaner long-term fix but
+                // is out of scope here.
+                RabbitMQWrapperModule.register({ enableConsumers: false }),
                 // Cockpit pulls in EmailModule + UserModule for the
                 // SendWeeklyRecapUseCase email rendering. OrganizationModule
                 // is imported separately because the WeeklyRecapCron itself
