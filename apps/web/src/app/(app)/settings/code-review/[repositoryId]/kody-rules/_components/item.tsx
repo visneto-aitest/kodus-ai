@@ -22,25 +22,40 @@ import {
 } from "@services/kodyRules/types";
 import { usePermission } from "@services/permissions/hooks";
 import { Action, ResourceType } from "@services/permissions/types";
-import { EditIcon, EyeIcon, TrashIcon } from "lucide-react";
+import { EditIcon, EyeIcon, PlayIcon, TrashIcon } from "lucide-react";
 import { SuggestionsModal } from "src/app/(app)/library/kody-rules/_components/suggestions-modal";
 import { useSelectedTeamId } from "src/core/providers/selected-team-context";
 import { addSearchParamsToUrl } from "src/core/utils/url";
 
+import { OriginBadge } from "./origin-badge";
+
 import { DeleteKodyRuleConfirmationModal } from "../../../_components/delete-confirmation-modal";
 import { useCodeReviewRouteParams } from "../../../../_hooks";
 import { ExternalReferencesDisplay } from "../../pr-summary/_components/external-references-display";
+import { changeStatusKodyRules } from "@services/kodyRules/fetch";
+import { KodyRulesStatus } from "@services/kodyRules/types";
+import { toast } from "@components/ui/toaster/use-toast";
+import { useAsyncAction } from "@hooks/use-async-action";
 
 export const KodyRuleItem = ({
     rule,
     tab,
     onAnyChange,
     showSuggestionsButton = false,
+    selection,
 }: {
     rule: KodyRuleWithInheritanceDetails;
     tab: "review-rules" | "memories";
     onAnyChange: () => void;
     showSuggestionsButton?: boolean;
+    /** Optional bulk-selection wiring. When omitted the row renders
+     *  without a checkbox (legacy / read-only views). When the rule
+     *  isn't eligible (inherited / no uuid), pass `eligible: false`. */
+    selection?: {
+        isSelected: boolean;
+        eligible: boolean;
+        onToggle: () => void;
+    };
 }) => {
     const { repositoryId, directoryId } = useCodeReviewRouteParams();
     const { teamId } = useSelectedTeamId();
@@ -70,25 +85,77 @@ export const KodyRuleItem = ({
                 ? "Pending edit"
                 : null;
     const entityLabel = isMemory ? "memory" : "rule";
+    const isPaused = rule.status === KodyRulesStatus.PAUSED;
+
+    const [handleResume, { loading: isResuming }] = useAsyncAction(async () => {
+        if (!rule.uuid) return;
+        try {
+            await changeStatusKodyRules([rule.uuid], KodyRulesStatus.ACTIVE);
+            toast({
+                description: "Rule resumed and is now enforced again.",
+                variant: "success",
+            });
+            onAnyChange?.();
+        } catch (error) {
+            console.error("Failed to resume rule", error);
+            toast({
+                title: "Could not resume rule",
+                description: "Please try again in a moment.",
+                variant: "danger",
+            });
+        }
+    });
 
     return (
         <Card>
             <CardHeader className="flex-row items-start justify-between gap-10">
                 <div className="-mb-2 flex flex-col gap-2">
                     <div className="flex flex-wrap items-center gap-2">
+                        {selection?.eligible && (
+                            <input
+                                type="checkbox"
+                                checked={selection.isSelected}
+                                onChange={selection.onToggle}
+                                aria-label={
+                                    "Select " +
+                                    entityLabel +
+                                    " " +
+                                    (rule.title ?? "")
+                                }
+                                className="border-card-lv3 bg-card-lv2 size-4 cursor-pointer rounded border accent-primary-light"
+                            />
+                        )}
+
                         {!isMemory && (
                             <IssueSeverityLevelBadge
                                 severity={resolveKodyRuleDisplaySeverity(rule)}
                             />
                         )}
 
-                        {rule.sourcePath && (
-                            <Badge
-                                active
-                                size="xs"
-                                className="min-h-auto px-2.5 py-1">
-                                auto-sync
-                            </Badge>
+                        <OriginBadge rule={rule} />
+
+                        {isPaused && (
+                            <Tooltip delayDuration={500}>
+                                <TooltipTrigger>
+                                    <Badge
+                                        active
+                                        size="xs"
+                                        className="bg-warning/10 text-warning ring-warning/64 pointer-events-none h-6 min-h-auto rounded-lg px-2 text-[10px] leading-px uppercase ring-1 [--button-foreground:var(--color-warning)]">
+                                        Paused
+                                    </Badge>
+                                </TooltipTrigger>
+
+                                <TooltipContent>
+                                    <p>
+                                        This {entityLabel} is paused. It stays
+                                        in your list but is skipped on every
+                                        new PR.
+                                    </p>
+                                    <p>
+                                        Click the play icon to resume it.
+                                    </p>
+                                </TooltipContent>
+                            </Tooltip>
                         )}
 
                         {centralizedPendingLabel && (
@@ -174,6 +241,18 @@ export const KodyRuleItem = ({
                         />
                     )}
 
+                    {isPaused && !isInherited && (
+                        <Button
+                            size="icon-md"
+                            variant="secondary"
+                            aria-label={"Resume " + entityLabel}
+                            className="size-9"
+                            disabled={!canEdit || isResuming}
+                            onClick={handleResume}>
+                            <PlayIcon aria-hidden />
+                        </Button>
+                    )}
+
                     <Link
                         href={addSearchParamsToUrl(
                             `/settings/code-review/${repositoryId}/kody-rules/${rule.uuid}`,
@@ -183,11 +262,16 @@ export const KodyRuleItem = ({
                             decorative
                             size="icon-md"
                             variant="secondary"
+                            aria-label={
+                                !canEdit || isInherited
+                                    ? "View " + entityLabel + " details"
+                                    : "Edit " + entityLabel
+                            }
                             className="size-9">
                             {!canEdit || isInherited ? (
-                                <EyeIcon />
+                                <EyeIcon aria-hidden />
                             ) : (
-                                <EditIcon />
+                                <EditIcon aria-hidden />
                             )}
                         </Button>
                     </Link>
@@ -195,6 +279,7 @@ export const KodyRuleItem = ({
                     <Button
                         size="icon-md"
                         variant="secondary"
+                        aria-label={"Delete " + entityLabel}
                         className="size-9 [--button-foreground:var(--color-danger)]"
                         disabled={!canDelete || isInherited}
                         onClick={() => {
@@ -205,7 +290,7 @@ export const KodyRuleItem = ({
                                 />
                             ));
                         }}>
-                        <TrashIcon />
+                        <TrashIcon aria-hidden />
                     </Button>
                 </div>
             </CardHeader>

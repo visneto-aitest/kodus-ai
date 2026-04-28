@@ -32,6 +32,8 @@ export class RunCodeReviewAutomationUseCase implements IUseCase {
                 platformType,
                 teamAutomationId,
                 organizationAndTeamData,
+                correlationId,
+                workflowJobId,
             } = params;
 
             if (!this.shouldRunAutomation(payload, platformType)) {
@@ -184,6 +186,8 @@ export class RunCodeReviewAutomationUseCase implements IUseCase {
                 //byokConfig,
                 triggerCommentId: sanitizedPayload?.triggerCommentId,
                 userGitId,
+                workflowJobId,
+                correlationId,
             };
 
             const result = await this.executeAutomation.executeStrategy(

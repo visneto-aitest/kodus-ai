@@ -72,6 +72,10 @@ export interface IngestionRunResult {
 @Injectable()
 export class PullRequestIngestionService {
     private readonly logger = new Logger(PullRequestIngestionService.name);
+    // Counter used to give each quarantine SAVEPOINT a unique name within
+    // its outer batch transaction. Mongo `_id` alone is not enough — same
+    // PR can appear in errorBuffer twice (rare) if writeOnePR retries.
+    private quarantineSeq = 0;
 
     constructor(
         @InjectDataSource(ANALYTICS_DATA_SOURCE)
@@ -609,12 +613,39 @@ export class PullRequestIngestionService {
                 return null;
             }
         })();
-        const message =
+
+        // Postgres `text` and `jsonb` both reject U+0000 (null byte). PR
+        // payloads occasionally contain them — strip before INSERT so this
+        // row can land. Without sanitisation the INSERT errored and the
+        // outer batch transaction was poisoned: every PR upserted earlier
+        // in the same batch silently ROLLBACK'd at COMMIT. That was the
+        // root cause of ~33k PRs missing from the first prod backfill
+        // (April 2026).
+        const stripNulls = (s: string): string =>
+            s.replace(/\u0000/g, '');
+        const message = stripNulls(
             input.err instanceof Error
                 ? input.err.message
-                : String(input.err);
-
+                : String(input.err),
+        );
+        let rawJson: string;
         try {
+            rawJson = stripNulls(JSON.stringify(input.pr));
+        } catch {
+            rawJson = '{}';
+        }
+
+        // Defense in depth: even after sanitisation, wrap the INSERT in a
+        // SAVEPOINT so any unforeseen failure (constraint violation, schema
+        // drift, future jsonb edge case) only rolls back this one quarantine
+        // record — not the whole batch's prior PR upserts. Savepoint name
+        // uses the PR id (Mongo ObjectId hex, always alphanumeric) plus a
+        // monotonic seq to stay unique inside the outer transaction.
+        const seq = ++this.quarantineSeq;
+        const idPart = (prId ?? 'null').replace(/[^a-zA-Z0-9]/g, '_').slice(0, 40);
+        const sp = `qrec_${idPart}_${seq}`;
+        try {
+            await manager.query(`SAVEPOINT "${sp}"`);
             await manager.query(
                 `INSERT INTO "analytics"."ingestion_errors" (
                     "source", "pull_request_id", "organizationId", "run_id",
@@ -627,12 +658,16 @@ export class PullRequestIngestionService {
                     input.runId,
                     'write_failed',
                     message,
-                    JSON.stringify(input.pr),
+                    rawJson,
                 ],
             );
+            await manager.query(`RELEASE SAVEPOINT "${sp}"`);
         } catch (recordErr) {
-            // Quarantine table missing (pre-migration) or doc unserializable.
-            // Don't let logging fail the batch — log and move on.
+            try {
+                await manager.query(`ROLLBACK TO SAVEPOINT "${sp}"`);
+            } catch {
+                // Savepoint may not have been established yet; best-effort.
+            }
             this.logger.warn(
                 `failed to record ingestion_error for pr=${prId}: ${
                     recordErr instanceof Error

@@ -1,6 +1,10 @@
 import { AmqpConnection } from '@golevelup/nestjs-rabbitmq';
 import { createLogger } from '@kodus/flow';
-import { Injectable, OnModuleInit, Optional } from '@nestjs/common';
+import {
+    Injectable,
+    OnApplicationBootstrap,
+    Optional,
+} from '@nestjs/common';
 
 type QueueBinding = {
     queue: string;
@@ -57,12 +61,17 @@ const WORKFLOW_JOB_QUEUES: QueueBinding[] = [
 ];
 
 @Injectable()
-export class RabbitMQDLQInitializer implements OnModuleInit {
+export class RabbitMQDLQInitializer implements OnApplicationBootstrap {
     private readonly logger = createLogger(RabbitMQDLQInitializer.name);
 
     constructor(@Optional() private readonly amqpConnection?: AmqpConnection) {}
 
-    async onModuleInit(): Promise<void> {
+    // Run after every module has finished onModuleInit — including the
+    // @RabbitSubscribe consumers that declare workflow.jobs.*.queue. Binding
+    // before those declarations leaves the delayed exchange unbound (silent
+    // loss of delayed retries), which is the race condition that produced
+    // the NOT_FOUND errors on first boot with a fresh RabbitMQ volume.
+    async onApplicationBootstrap(): Promise<void> {
         if (!this.amqpConnection) {
             this.logger.warn({
                 message:
@@ -85,8 +94,21 @@ export class RabbitMQDLQInitializer implements OnModuleInit {
         // Eagerly declare delayed exchanges + queue bindings on startup.
         // addSetup is lazy (only runs on next connection), so we call
         // assertExchange/bindQueue directly to ensure everything exists
-        // before any messages are published.
-        const channel = this.amqpConnection.channel;
+        // before any messages are published. The `.channel` getter throws
+        // ChannelNotAvailableError when the connection is still
+        // negotiating — treat that as "try again via addSetup below"
+        // rather than crashing the bootstrap.
+        let channel: any = null;
+        try {
+            channel = this.amqpConnection.channel;
+        } catch (err) {
+            this.logger.warn({
+                message:
+                    'RabbitMQ channel not ready at bootstrap; will set up on connect',
+                context: RabbitMQDLQInitializer.name,
+                error: err instanceof Error ? err : undefined,
+            });
+        }
         if (channel) {
             try {
                 await this.declareDelayedExchanges(channel);
@@ -107,15 +129,49 @@ export class RabbitMQDLQInitializer implements OnModuleInit {
 
         // Also register the setup callback for connection re-establishments
         managedChannel.addSetup(async (setupChannel: any) => {
-            await this.declareExchanges(setupChannel);
-            await this.declareDLQQueues(setupChannel);
-            await this.bindQueuesToDelayedExchange(setupChannel);
+            try {
+                await this.declareExchanges(setupChannel);
+                await this.declareDLQQueues(setupChannel);
+                await this.bindQueuesToDelayedExchange(setupChannel);
 
-            this.logger.log({
-                message: 'DLQ queues/bindings and delayed exchanges asserted',
-                context: RabbitMQDLQInitializer.name,
-            });
+                this.logger.log({
+                    message:
+                        'DLQ queues/bindings and delayed exchanges asserted',
+                    context: RabbitMQDLQInitializer.name,
+                });
+            } catch (err) {
+                // amqp-connection-manager silently swallows setup errors. When
+                // that happens the channel emits 'connect' but @RabbitSubscribe
+                // handlers after this setup never register their consumers —
+                // producing "channel connected, consumers=0" zombies. Root
+                // cause of the 2026-04-24 incident.
+                this.logger.error({
+                    message:
+                        'DLQ setup failed during (re)connect — consumers may NOT re-register',
+                    context: RabbitMQDLQInitializer.name,
+                    error: err instanceof Error ? err : undefined,
+                    metadata: {
+                        errorMessage:
+                            err instanceof Error ? err.message : String(err),
+                    },
+                });
+                throw err;
+            }
         });
+
+        if (typeof managedChannel.on === 'function') {
+            managedChannel.on('error', (err: any, info: any) => {
+                this.logger.error({
+                    message: 'RabbitMQ managed channel error',
+                    context: RabbitMQDLQInitializer.name,
+                    error: err instanceof Error ? err : undefined,
+                    metadata: {
+                        errorMessage: err?.message,
+                        channelName: info?.name,
+                    },
+                });
+            });
+        }
     }
 
     private async declareDelayedExchanges(channel: any): Promise<void> {

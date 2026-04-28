@@ -25,7 +25,7 @@ import { AlertCircle, Save, Upload } from "lucide-react";
 import { Controller, useForm } from "react-hook-form";
 import { useAuth } from "src/core/providers/auth.provider";
 import { publicDomainsSet } from "src/core/utils/email";
-import { pathToApiUrl } from "src/core/utils/helpers";
+import { apiProxyPath } from "src/core/utils/api-proxy";
 import { revalidateServerSidePath } from "src/core/utils/revalidate-server-side";
 import {
     buildSSOConfigFingerprint,
@@ -175,7 +175,7 @@ export const ClientSsoOrganizationSettingsPage = (props: {
             : "",
     );
 
-    const callbackUrl = pathToApiUrl(
+    const callbackUrl = apiProxyPath(
         `/auth/sso/saml/callback/${organizationId}`,
     );
 

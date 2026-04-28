@@ -17,6 +17,7 @@ import { GIT_INTEGRATIONS_KEY } from "@enums";
 import { CheckCircle2, ExternalLink } from "lucide-react";
 import integrationFactory from "src/core/integrations/integrationFactory";
 import { useAuth } from "src/core/providers/auth.provider";
+import { useConfig } from "@providers/ConfigProvider";
 import { useSelectedTeamId } from "src/core/providers/selected-team-context";
 import { ClientSideCookieHelpers } from "src/core/utils/cookie";
 import { captureSegmentEvent } from "src/core/utils/segment";
@@ -36,6 +37,7 @@ export function SetupConnectingGitToolPage(props: {
 
     const router = useRouter();
     const pathname = usePathname();
+    const cfg = useConfig();
     const { teamId } = useSelectedTeamId();
     const { userId, email } = useAuth();
     const nextStepPath = "/setup/choosing-repositories";
@@ -54,7 +56,7 @@ export function SetupConnectingGitToolPage(props: {
                 properties: { platform: key, method: "token" },
             });
 
-            await integrationFactory.getConnector(key)?.connect(false, {
+            await integrationFactory.getConnector(key, cfg)?.connect(false, {
                 push: router.push,
                 pathname,
             });

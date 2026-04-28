@@ -8,6 +8,9 @@ import { NuqsAdapter } from "nuqs/adapters/next/app";
 import QueryProvider from "src/core/providers/query.provider";
 import { cn } from "src/core/utils/components";
 
+import { ConfigProvider } from "@providers/ConfigProvider";
+import type { PublicConfig } from "@config/publicConfig";
+
 import "./globals.css";
 
 const dm_sans = DM_Sans({
@@ -37,6 +40,35 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: React.PropsWithChildren) {
+    const publicConfig: PublicConfig = {
+        githubInstallUrl: process.env.WEB_GITHUB_INSTALL_URL ?? "",
+        bitbucketInstallUrl: process.env.WEB_BITBUCKET_INSTALL_URL ?? "",
+        gitlabClientId: process.env.GLOBAL_GITLAB_CLIENT_ID ?? "",
+        gitlabRedirectUrl: process.env.GLOBAL_GITLAB_REDIRECT_URL ?? "",
+        gitlabScopes: process.env.WEB_GITLAB_SCOPES ?? "",
+        gitlabOauthUrl: process.env.WEB_GITLAB_OAUTH_URL ?? "",
+        termsAndConditions: process.env.WEB_TERMS_AND_CONDITIONS ?? "",
+        supportDocsUrl: process.env.WEB_SUPPORT_DOCS_URL ?? "",
+        supportDiscordInviteUrl: process.env.WEB_SUPPORT_DISCORD_INVITE_URL ?? "",
+        supportTalkToFounderUrl: process.env.WEB_SUPPORT_TALK_TO_FOUNDER_URL ?? "",
+        tokenDocsGithub: process.env.WEB_TOKEN_DOCS_GITHUB ?? "",
+        tokenDocsGitlab: process.env.WEB_TOKEN_DOCS_GITLAB ?? "",
+        tokenDocsBitbucket: process.env.WEB_TOKEN_DOCS_BITBUCKET ?? "",
+        tokenDocsAzureRepos: process.env.WEB_TOKEN_DOCS_AZUREREPOS ?? "",
+        ruleFilesDocs: process.env.WEB_RULE_FILES_DOCS ?? "",
+        releaseVersion: process.env.RELEASE_VERSION ?? "",
+        nodeEnv: process.env.WEB_NODE_ENV ?? "",
+    };
+
+    // Expose publicConfig as window.__KODUS_PUBLIC_CONFIG__ so module-scope
+    // client code (e.g. isSelfHosted) can read the runtime config before
+    // any React hook fires. Escaping < prevents premature </script>
+    // tag closure if a config value ever contains one.
+    const configScript =
+        "window.__KODUS_PUBLIC_CONFIG__ = " +
+        JSON.stringify(publicConfig).replace(/</g, "\\u003c") +
+        ";";
+
     return (
         <html lang="en" className="dark" style={{ colorScheme: "dark" }}>
             <GoogleTagManager gtmId="GTM-KN2J57G" />
@@ -47,14 +79,17 @@ export default function RootLayout({ children }: React.PropsWithChildren) {
                     overpass_mono.className,
                     dm_sans.className,
                 )}>
-                <TooltipProvider delayDuration={0} skipDelayDuration={0}>
-                    <QueryProvider>
-                        <NuqsAdapter>
-                            {children}
-                            <Toaster />
-                        </NuqsAdapter>
-                    </QueryProvider>
-                </TooltipProvider>
+                <script dangerouslySetInnerHTML={{ __html: configScript }} />
+                <ConfigProvider value={publicConfig}>
+                    <TooltipProvider delayDuration={0} skipDelayDuration={0}>
+                        <QueryProvider>
+                            <NuqsAdapter>
+                                {children}
+                                <Toaster />
+                            </NuqsAdapter>
+                        </QueryProvider>
+                    </TooltipProvider>
+                </ConfigProvider>
             </body>
         </html>
     );

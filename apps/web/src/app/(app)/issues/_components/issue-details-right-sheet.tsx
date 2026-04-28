@@ -45,7 +45,7 @@ import {
 import { useQueryState } from "nuqs";
 import { ClipboardHelpers } from "src/core/utils/clipboard";
 import { cn } from "src/core/utils/components";
-import { pathToApiUrl } from "src/core/utils/helpers";
+import { apiProxyPath } from "src/core/utils/api-proxy";
 import { generateQueryKey } from "src/core/utils/reactQuery";
 
 import { SeverityLevelSelect } from "./severity-level-select";
@@ -82,7 +82,7 @@ export const IssueDetailsRightSheet = ({
         if (!previousPeek || previousPeek === peek) return;
 
         queryClient.cancelQueries({
-            queryKey: generateQueryKey(pathToApiUrl(`/issues/${previousPeek}`)),
+            queryKey: generateQueryKey(apiProxyPath(`/issues/${previousPeek}`)),
         });
     }, [peek]);
 

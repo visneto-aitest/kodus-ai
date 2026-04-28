@@ -6,6 +6,11 @@ export default {
     testEnvironment: 'node',
     setupFiles: ['<rootDir>/test/jest.setup.ts'],
     moduleFileExtensions: ['ts', 'tsx', 'js', 'json'],
+    // Web app deps (e.g. tiny-invariant) live in apps/web/node_modules, not
+    // at the root. The default ['node_modules'] would miss them, so any
+    // helper under apps/web/src/ that imports a web-only package would fail
+    // to resolve when its spec runs from the root.
+    moduleDirectories: ['node_modules', 'apps/web/node_modules'],
     testMatch: ['**/*.spec.ts', '**/*.integration.spec.ts', '**/*.e2e-spec.ts'],
     transform: {
         '^.+\\.(t|j)sx?$': [
