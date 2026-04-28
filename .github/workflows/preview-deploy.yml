@@ -157,39 +157,21 @@ jobs:
                     echo "Using QA backend: https://$API_HOST"
                   fi
 
-            - name: Pull Vercel environment
-              working-directory: apps/web
-              run: vercel pull --yes --environment=preview --token=${{ secrets.VERCEL_TOKEN }}
-
-            - name: Override API host in pulled Vercel env
-              working-directory: apps/web
-              run: |
-                  ENV_FILE=".vercel/.env.preview.local"
-
-                  if [ ! -f "$ENV_FILE" ]; then
-                    echo "::error::Expected $ENV_FILE after 'vercel pull'."
-                    exit 1
-                  fi
-
-                  cp "$ENV_FILE" "$ENV_FILE.bak"
-                  grep -v '^WEB_HOSTNAME_API=' "$ENV_FILE.bak" > "$ENV_FILE" || true
-                  echo "WEB_HOSTNAME_API=${{ steps.api-url.outputs.url }}" >> "$ENV_FILE"
-
-                  echo "Injected WEB_HOSTNAME_API in $ENV_FILE"
-                  grep '^WEB_HOSTNAME_API=' "$ENV_FILE"
-
-            - name: Build project
-              working-directory: apps/web
-              run: vercel build --token=${{ secrets.VERCEL_TOKEN }}
-              env:
-                  WEB_HOSTNAME_API: ${{ steps.api-url.outputs.url }}
-
+            # Build remotely on Vercel and pass WEB_HOSTNAME_API as a
+            # per-deployment env var. Doing the build locally with
+            # `vercel build` was hitting `spawn sh ENOENT` from the
+            # CLI's installCommand spawn in our monorepo layout.
             - name: Deploy preview
               id: deploy
               working-directory: apps/web
               run: |
-                  URL=$(vercel deploy --prebuilt --token=${{ secrets.VERCEL_TOKEN }})
+                  URL=$(vercel deploy \
+                    --token=${{ secrets.VERCEL_TOKEN }} \
+                    --env "WEB_HOSTNAME_API=${{ steps.api-url.outputs.url }}" \
+                    --build-env "WEB_HOSTNAME_API=${{ steps.api-url.outputs.url }}" \
+                    --yes)
                   echo "preview_url=$URL" >> $GITHUB_OUTPUT
+                  echo "Deployed: $URL"
 
     # ------------------------------------------------------------------
     # 4. Comment on PR with preview links
