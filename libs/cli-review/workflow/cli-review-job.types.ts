@@ -13,6 +13,12 @@ export interface CliReviewJobGitContext {
      * branches that haven't been pushed yet and for uncommitted changes.
      */
     mergeBaseSha?: string;
+    /**
+     * Optional GitHub PAT (trial mode only). Sits in the job payload only
+     * for the duration of the queue run — never persisted to automation
+     * execution rows.
+     */
+    githubPat?: string;
     inferredPlatform?: PlatformType;
     cliVersion?: string;
 }

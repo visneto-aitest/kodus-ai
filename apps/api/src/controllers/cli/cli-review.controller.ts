@@ -1264,7 +1264,12 @@ export class CliReviewController {
             );
         }
 
-        // Execute review with trial defaults (no auth required)
+        // Execute review with trial defaults (no auth required).
+        // gitContext carries only what's needed to clone+apply the diff in
+        // the sandbox; mergeBaseSha lets us skip the user's branch ref
+        // (likely not pushed yet for trial users) and githubPat — if the
+        // user provided one — unlocks private repos. Neither is persisted
+        // to automation_execution.dataExecution.
         const result = await this.executeCliReviewUseCase.execute({
             organizationAndTeamData: {
                 organizationId: 'trial',
@@ -1275,6 +1280,15 @@ export class CliReviewController {
                 config: body.config,
             },
             isTrialMode: true,
+            gitContext: {
+                remote: body.gitRemote,
+                branch: body.branch,
+                commitSha: body.commitSha,
+                mergeBaseSha: body.mergeBaseSha,
+                githubPat: body.githubPat,
+                inferredPlatform: body.inferredPlatform,
+                cliVersion: body.cliVersion,
+            },
         });
 
         // Add rate limit info to response

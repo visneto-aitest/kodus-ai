@@ -244,10 +244,17 @@ export class RealReviewApi implements IReviewApi {
     async trialAnalyze(
         diff: string,
         fingerprint: string,
+        metrics?: GitMetrics,
+        githubPat?: string,
     ): Promise<TrialReviewResult> {
         return this.requester<TrialReviewResult>('/cli/trial/review', {
             method: 'POST',
-            body: JSON.stringify({ diff, fingerprint }),
+            body: JSON.stringify({
+                diff,
+                fingerprint,
+                ...metrics,
+                ...(githubPat && { githubPat }),
+            }),
         });
     }
 }

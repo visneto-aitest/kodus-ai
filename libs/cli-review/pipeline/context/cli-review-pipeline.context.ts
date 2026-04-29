@@ -13,6 +13,13 @@ export interface CliGitContext {
      * been pushed yet) and then apply the local diff on top.
      */
     mergeBaseSha?: string;
+    /**
+     * Optional GitHub personal access token. Only meaningful in trial mode
+     * (anonymous users have no stored credentials, so without this we can
+     * only clone public repos). Held in memory for the duration of the
+     * pipeline and never persisted to dataExecution / logs.
+     */
+    githubPat?: string;
     inferredPlatform?: PlatformType;
 }
 

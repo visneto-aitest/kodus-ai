@@ -156,6 +156,16 @@ export class CliReviewRequestDto {
     mergeBaseSha?: string;
 
     @IsOptional()
+    @IsString()
+    @MaxLength(255, { message: 'GitHub PAT too long' })
+    @ApiPropertyOptional({
+        description:
+            "Optional GitHub Personal Access Token. Trial users (anonymous) need this to clone private repositories — for public repos it's not required. The token is held in memory for the pipeline run only and is never persisted.",
+        example: 'ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+    })
+    githubPat?: string;
+
+    @IsOptional()
     @IsEnum(PlatformType)
     @ApiPropertyOptional({
         enum: PlatformType,

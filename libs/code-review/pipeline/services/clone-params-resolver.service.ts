@@ -123,31 +123,40 @@ export class CloneParamsResolverService {
         let authUsername: string | undefined;
         let cloneUrl = gitContext.remote;
 
-        try {
-            const cloneParams = await this.codeManagementService.getCloneParams(
-                {
-                    repository: {
-                        id: '0',
-                        defaultBranch: branch,
-                        fullName: parsed.fullName,
-                        name: parsed.name,
-                    },
-                    organizationAndTeamData: context.organizationAndTeamData,
-                },
-                platform,
-            );
-            authToken = cloneParams.auth?.token || '';
-            authUsername = cloneParams.auth?.username;
+        // Trial users (anonymous) can pass their own PAT to clone private
+        // repos. We use it directly and skip the integration lookup —
+        // there's no integration row to find for anonymous traffic.
+        if (gitContext.githubPat) {
+            authToken = gitContext.githubPat;
+        } else {
+            try {
+                const cloneParams =
+                    await this.codeManagementService.getCloneParams(
+                        {
+                            repository: {
+                                id: '0',
+                                defaultBranch: branch,
+                                fullName: parsed.fullName,
+                                name: parsed.name,
+                            },
+                            organizationAndTeamData:
+                                context.organizationAndTeamData,
+                        },
+                        platform,
+                    );
+                authToken = cloneParams.auth?.token || '';
+                authUsername = cloneParams.auth?.username;
 
-            if (cloneParams.url) {
-                cloneUrl = cloneParams.url;
+                if (cloneParams.url) {
+                    cloneUrl = cloneParams.url;
+                }
+            } catch (error) {
+                this.logger.warn({
+                    message: `Could not get auth token for CLI sandbox, trying without auth`,
+                    context: CloneParamsResolverService.name,
+                    error,
+                });
             }
-        } catch (error) {
-            this.logger.warn({
-                message: `Could not get auth token for CLI sandbox, trying without auth`,
-                context: CloneParamsResolverService.name,
-                error,
-            });
         }
 
         // Ensure HTTPS (E2B requires HTTPS for token auth)

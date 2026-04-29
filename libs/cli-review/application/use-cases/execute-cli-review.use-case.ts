@@ -53,6 +53,13 @@ interface GitContext {
      * diff on top — works when the branch isn't pushed yet.
      */
     mergeBaseSha?: string;
+    /**
+     * Optional GitHub personal access token. Only meaningful in trial mode
+     * (anonymous users have no stored credentials, so without this we can
+     * only clone public repos). Held in memory for the pipeline run only —
+     * never persisted to dataExecution / logs.
+     */
+    githubPat?: string;
     inferredPlatform?: PlatformType;
     cliVersion?: string;
 }
@@ -231,6 +238,9 @@ export class ExecuteCliReviewUseCase implements IUseCase {
                           branch: gitContext.branch,
                           commitSha: gitContext.commitSha,
                           mergeBaseSha: gitContext.mergeBaseSha,
+                          // PAT propagated to sandbox only — NEVER persisted
+                          // (see updateAutomationExecution / dataExecution.git).
+                          githubPat: gitContext.githubPat,
                           inferredPlatform: gitContext.inferredPlatform,
                       }
                     : undefined,

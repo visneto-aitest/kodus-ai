@@ -52,7 +52,24 @@ type ReviewCommandOptions = {
     context?: string;
     failOn?: string;
     fields?: string;
+    githubPat?: string;
 };
+
+/**
+ * Resolve the GitHub PAT for trial mode: explicit --github-pat flag takes
+ * precedence, then KODUS_GITHUB_PAT, then GITHUB_TOKEN/GH_TOKEN as a
+ * developer convenience. Returns undefined when none are set so the
+ * sandbox falls back to anonymous clone (works for public repos).
+ */
+function resolveTrialGithubPat(options: ReviewCommandOptions): string | undefined {
+    return (
+        options.githubPat?.trim() ||
+        process.env.KODUS_GITHUB_PAT?.trim() ||
+        process.env.GITHUB_TOKEN?.trim() ||
+        process.env.GH_TOKEN?.trim() ||
+        undefined
+    );
+}
 
 export function createReviewCommand(): Command {
     return new Command('review')
@@ -93,6 +110,10 @@ Examples:
         .option(
             '--fields <csv>',
             'Select response fields (JSON/agent mode only), e.g. summary,issues.file',
+        )
+        .option(
+            '--github-pat <token>',
+            'GitHub Personal Access Token (read:repo). Trial users only — needed to clone private repos. Can also be set via KODUS_GITHUB_PAT env var. Held in memory only, never persisted.',
         )
         .action(reviewAction);
 }
@@ -227,6 +248,7 @@ async function reviewAction(
                     spinner,
                     ctx,
                     globalOpts,
+                    githubPat: resolveTrialGithubPat(options),
                 });
 
                 if (!fallbackResult) {
@@ -288,7 +310,9 @@ async function reviewAction(
                 reviewService.setVerbose(true);
             }
 
-            const trialResult = await reviewService.trialAnalyze(diff);
+            const trialResult = await reviewService.trialAnalyze(diff, {
+                githubPat: resolveTrialGithubPat(options),
+            });
             result = trialResult;
             if (!globalOpts.quiet && !ctx.isAgent) {
                 spinner.succeed(
@@ -406,11 +430,13 @@ async function runTrialFallback({
     spinner,
     ctx,
     globalOpts,
+    githubPat,
 }: {
     diff: string;
     spinner: Ora;
     ctx: ReturnType<typeof createCommandContext>;
     globalOpts: GlobalOptions;
+    githubPat?: string;
 }): Promise<TrialReviewResult | null> {
     if (!globalOpts.quiet && !ctx.isAgent) {
         spinner.start(chalk.cyan('Checking trial limit...'));
@@ -431,7 +457,7 @@ async function runTrialFallback({
         reviewService.setVerbose(true);
     }
 
-    const trialResult = await reviewService.trialAnalyze(diff);
+    const trialResult = await reviewService.trialAnalyze(diff, { githubPat });
 
     if (!globalOpts.quiet && !ctx.isAgent) {
         spinner.succeed(

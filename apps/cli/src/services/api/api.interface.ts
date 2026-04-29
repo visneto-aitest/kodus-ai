@@ -87,7 +87,12 @@ export interface IReviewApi {
             diff?: string;
         },
     ): Promise<BusinessValidationResponse>;
-    trialAnalyze(diff: string, fingerprint: string): Promise<TrialReviewResult>;
+    trialAnalyze(
+        diff: string,
+        fingerprint: string,
+        metrics?: GitMetrics,
+        githubPat?: string,
+    ): Promise<TrialReviewResult>;
 }
 
 export interface ITrialApi {

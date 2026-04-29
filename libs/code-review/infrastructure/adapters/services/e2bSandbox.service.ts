@@ -218,11 +218,14 @@ export class E2BSandboxService implements ISandboxProvider {
                 : prNumber != null
                   ? 'pr-head'
                   : 'cli-head';
-        const authHeader = this.buildAuthHeader(
-            platform,
-            authToken,
-            authUsername,
-        );
+        // Skip auth header entirely for anonymous clones (trial users on
+        // public repos). Without this guard we'd send `x-access-token:` with
+        // an empty password — GitHub still accepts it for public reads but
+        // it's noise; for private repos we want the real 401/404 fast.
+        const hasAuth = !!authToken;
+        const authHeader = hasAuth
+            ? this.buildAuthHeader(platform, authToken, authUsername)
+            : '';
 
         this.logger.log({
             message: `[DEBUG] Git clone starting: refspec=${refspec} localRef=${localRef} cloneUrl=${cloneUrl}`,
@@ -233,6 +236,7 @@ export class E2BSandboxService implements ISandboxProvider {
                 cloneUrl,
                 platform,
                 hasProxy: this.isProxyConfigured(),
+                hasAuth,
             },
         });
 
@@ -244,12 +248,16 @@ export class E2BSandboxService implements ISandboxProvider {
         const safeRefspec = shSingleQuote(refspec);
         const safeLocalRef = shSingleQuote(localRef);
 
+        const fetchCmd = hasAuth
+            ? `git -c http.extraHeader="$GIT_AUTH_HEADER" fetch --depth=1 ${safeCloneUrl} ${safeRefspec}:${safeLocalRef}`
+            : `git fetch --depth=1 ${safeCloneUrl} ${safeRefspec}:${safeLocalRef}`;
+
         const cloneResult = await sandbox.commands.run(
             [
                 `git init ${REPO_DIR}`,
                 `cd ${REPO_DIR}`,
                 // Fetch using token from env var via git credential header (never touches disk/process args)
-                `git -c http.extraHeader="$GIT_AUTH_HEADER" fetch --depth=1 ${safeCloneUrl} ${safeRefspec}:${safeLocalRef}`,
+                fetchCmd,
                 `git checkout ${safeLocalRef}`,
                 // Set a dummy remote for any tools that expect "origin" to exist
                 `git remote add origin ${safeCloneUrl}`,
@@ -258,7 +266,7 @@ export class E2BSandboxService implements ISandboxProvider {
             ].join(' && '),
             {
                 timeoutMs: TIMEOUTS.CLONE_MS,
-                envs: { GIT_AUTH_HEADER: authHeader },
+                ...(hasAuth && { envs: { GIT_AUTH_HEADER: authHeader } }),
             },
         );
 
@@ -382,27 +390,30 @@ export class E2BSandboxService implements ISandboxProvider {
             params;
         if (!baseBranch) return undefined;
 
-        const authHeader = this.buildAuthHeader(
-            platform,
-            authToken,
-            authUsername,
-        );
+        const hasAuth = !!authToken;
+        const authHeader = hasAuth
+            ? this.buildAuthHeader(platform, authToken, authUsername)
+            : '';
 
         this.logger.log({
             message: `[DEBUG] Fetching base branch: ${baseBranch}`,
             context: E2BSandboxService.name,
-            metadata: { baseBranch },
+            metadata: { baseBranch, hasAuth },
         });
 
         const safeBaseBranch = shSingleQuote(baseBranch);
         const safeCloneUrl = shSingleQuote(cloneUrl);
 
+        const baseCmd = hasAuth
+            ? `cd ${REPO_DIR} && git -c http.extraHeader="$GIT_AUTH_HEADER" fetch --depth=1 ${safeCloneUrl} refs/heads/${safeBaseBranch}:refs/remotes/origin/${safeBaseBranch}`
+            : `cd ${REPO_DIR} && git fetch --depth=1 ${safeCloneUrl} refs/heads/${safeBaseBranch}:refs/remotes/origin/${safeBaseBranch}`;
+
         try {
             const result = await sandbox.commands.run(
-                `cd ${REPO_DIR} && git -c http.extraHeader="$GIT_AUTH_HEADER" fetch --depth=1 ${safeCloneUrl} refs/heads/${safeBaseBranch}:refs/remotes/origin/${safeBaseBranch}`,
+                baseCmd,
                 {
                     timeoutMs: TIMEOUTS.CLONE_MS,
-                    envs: { GIT_AUTH_HEADER: authHeader },
+                    ...(hasAuth && { envs: { GIT_AUTH_HEADER: authHeader } }),
                 },
             );
 

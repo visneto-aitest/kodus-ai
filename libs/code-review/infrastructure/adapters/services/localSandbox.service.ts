@@ -57,11 +57,13 @@ export class LocalSandboxService implements ISandboxProvider {
         const tempDir = await mkdtemp(join(tmpdir(), 'kodus-sandbox-'));
 
         try {
-            const authHeader = this.buildAuthHeader(
-                platform,
-                authToken,
-                authUsername,
-            );
+            // No auth token → anonymous clone (works for public repos and
+            // is what trial users without --github-pat get). Skipping the
+            // header builder also avoids Bitbucket's "username required"
+            // throw when both token and username are empty.
+            const authHeader = authToken
+                ? this.buildAuthHeader(platform, authToken, authUsername)
+                : '';
             const refspec =
                 checkoutSha != null
                     ? checkoutSha
