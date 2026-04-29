@@ -2,8 +2,32 @@ import { input, password, confirm } from '@inquirer/prompts';
 import chalk from 'chalk';
 import ora from 'ora';
 import { authService } from '../../services/auth.service.js';
+import { closeApiClient } from '../../services/api/api-core.js';
 import { exitWithCode } from '../../utils/cli-exit.js';
 import { cliError, cliInfo } from '../../utils/logger.js';
+
+/**
+ * Free the resources that would otherwise keep the CLI process alive
+ * after the login finishes:
+ *   - the long-lived undici dispatcher (60 min keep-alive on idle sockets)
+ *   - any raw-mode the previous inquirer prompt may have left on stdin
+ * Without this the user is dropped back to the shell with raw stdin,
+ * which renders keypresses as escape sequences (`^M^A^[A...`) and the
+ * process never exits on its own.
+ */
+async function releaseTerminal(): Promise<void> {
+    await closeApiClient();
+    if (process.stdin.isTTY && typeof process.stdin.setRawMode === 'function') {
+        try {
+            process.stdin.setRawMode(false);
+        } catch {
+            // ignore
+        }
+    }
+    // Stop holding the event loop via stdin even if some library left
+    // it `resume()`d. pause() is safe whether or not it was active.
+    process.stdin.pause();
+}
 
 interface LoginOptions {
     email?: string;
@@ -44,6 +68,7 @@ export async function loginAction(options: LoginOptions): Promise<void> {
             });
 
             if (!shouldRelogin) {
+                await releaseTerminal();
                 return;
             }
         }
@@ -55,18 +80,22 @@ export async function loginAction(options: LoginOptions): Promise<void> {
 
         if (useLegacy) {
             await runLegacyLogin(options, spinner);
+            await releaseTerminal();
             return;
         }
 
         if (options.deviceCode || !canOpenBrowser()) {
             await runDeviceCodeLogin(spinner);
+            await releaseTerminal();
             return;
         }
 
         await runBrowserLogin(spinner);
+        await releaseTerminal();
     } catch (error) {
         if (error instanceof Error && error.message.includes('force closed')) {
             cliInfo(chalk.yellow('\nOperation cancelled'));
+            await releaseTerminal();
             return;
         }
 
@@ -75,6 +104,7 @@ export async function loginAction(options: LoginOptions): Promise<void> {
         if (error instanceof Error) {
             cliError(chalk.red(error.message));
         }
+        await releaseTerminal();
         exitWithCode(1);
     }
 }

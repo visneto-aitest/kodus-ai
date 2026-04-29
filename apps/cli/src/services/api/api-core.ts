@@ -122,6 +122,24 @@ const longLivedDispatcher = new Agent({
 });
 
 /**
+ * Tear down the keep-alive HTTP pool used by every CLI request. Without
+ * this, the dispatcher's idle sockets keep the Node event loop alive for
+ * up to `REQUEST_TIMEOUT_MS` (60 min by default), so commands like
+ * `kodus auth login` appear to "hang" after success — the user gets
+ * dropped into raw stdin (still owned by the inquirer prompt that just
+ * ran) and the shell never returns. Terminal commands should call this
+ * once they've finished all API work.
+ */
+export async function closeApiClient(): Promise<void> {
+    try {
+        await longLivedDispatcher.close();
+    } catch {
+        // Best effort — never block shutdown on a dispatcher that's
+        // already closing.
+    }
+}
+
+/**
  * Returns Cloudflare Access headers when configured.
  * Priority: env vars > config.json
  */
