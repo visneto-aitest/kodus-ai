@@ -71,11 +71,27 @@ export class InitiateCliDeviceLoginUseCase
     }
 
     private generateUserCode(): string {
-        const bytes = randomBytes(8);
-        let code = '';
-        for (let i = 0; i < 8; i++) {
-            code += USER_CODE_ALPHABET[bytes[i] % USER_CODE_ALPHABET.length];
+        // Rejection sampling. `byte % alphabetLength` only stays uniform
+        // when alphabetLength divides 256, otherwise the lower codepoints
+        // get an extra slot and the user code is biased — flagged by
+        // CodeQL as `js/biased-cryptographic-random`. Today's alphabet
+        // (32 chars) is uniform under modulo, but we don't want this to
+        // silently regress if someone tweaks the alphabet, so we discard
+        // any byte in the upper remainder range and resample.
+        const alphabetLength = USER_CODE_ALPHABET.length;
+        const maxUnbiased =
+            Math.floor(256 / alphabetLength) * alphabetLength;
+        const out = new Array<string>(8);
+        let filled = 0;
+        while (filled < 8) {
+            const buf = randomBytes(8 - filled);
+            for (const byte of buf) {
+                if (byte >= maxUnbiased) continue; // discard biased value
+                out[filled++] = USER_CODE_ALPHABET[byte % alphabetLength];
+                if (filled === 8) break;
+            }
         }
+        const code = out.join('');
         return `${code.slice(0, 4)}-${code.slice(4)}`;
     }
 }
