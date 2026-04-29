@@ -82,6 +82,11 @@ export class CockpitController {
         return this.healthService.runsSummary(source || undefined);
     }
 
+    // Public so the web shell can resolve the backend before it has a tier
+    // verdict — and so free-tier orgs (which the tier guard would 403) can
+    // still learn they belong on `legacy-bq`. Returns no PII, just the
+    // routing decision.
+    @Public()
     @Get('/source/:organizationId')
     @ApiOperation({ summary: 'Resolve cockpit data source per org' })
     async source(@Param('organizationId') organizationId: string) {

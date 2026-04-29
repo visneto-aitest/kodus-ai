@@ -11,9 +11,19 @@ export const authCommand = new Command('auth').description(
 
 authCommand
     .command('login')
-    .description('Login with email and password')
-    .option('-e, --email <email>', 'Email address')
-    .option('-p, --password <password>', 'Password')
+    .description(
+        'Authenticate via the Kodus web app. Opens your browser by default; falls back to a device code on headless machines.',
+    )
+    .option(
+        '--device-code',
+        'Force the device-code flow (for SSH / CI / headless terminals)',
+    )
+    .option(
+        '--legacy',
+        'Use email + password (deprecated; kept for scripts and CI)',
+    )
+    .option('-e, --email <email>', '[legacy] Email address')
+    .option('-p, --password <password>', '[legacy] Password')
     .action(loginAction);
 
 authCommand

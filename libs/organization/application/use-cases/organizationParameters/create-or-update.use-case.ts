@@ -15,6 +15,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { UserRequest } from '@libs/core/infrastructure/config/types/http/user-request.type';
 import { AuditLogEvents } from '@libs/ee/codeReviewSettingsLog/events/audit-log.events';
 import { ActionType } from '@libs/core/infrastructure/config/types/general/codeReviewSettingsLog.type';
+import { TelemetryService } from '@libs/telemetry/application/services/telemetry.service';
 
 const AUDITABLE_KEYS = new Set([
     OrganizationParametersKey.AUTO_JOIN_CONFIG,
@@ -35,6 +36,7 @@ export class CreateOrUpdateOrganizationParametersUseCase implements IUseCase {
         private readonly request: UserRequest,
 
         private readonly eventEmitter: EventEmitter2,
+        private readonly telemetry: TelemetryService,
     ) {}
 
     async execute(
@@ -148,6 +150,17 @@ export class CreateOrUpdateOrganizationParametersUseCase implements IUseCase {
             previousValue: existingConfig ?? null,
             currentValue: mergedConfigValue,
         });
+
+        if (result && this.request.user?.uuid) {
+            void this.telemetry.byokConfigured({
+                userId: this.request.user.uuid,
+                organizationId: organizationAndTeamData.organizationId,
+                provider:
+                    mergedConfigValue.main?.provider ??
+                    mergedConfigValue.fallback?.provider,
+                slot: mergedConfigValue.main ? 'main' : 'fallback',
+            });
+        }
 
         return !!result;
     }

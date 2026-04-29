@@ -6,7 +6,7 @@ import { STATUS } from '@libs/core/infrastructure/config/types/database/status.t
 import { DuplicateRecordException } from '@libs/core/infrastructure/filters/duplicate-record.exception';
 import { EmailService } from '@libs/common/email/services/email.service';
 import { generateRandomOrgName } from '@libs/common/utils/helpers';
-import posthogClient from '@libs/common/utils/posthog';
+import { TelemetryService } from '@libs/telemetry/application/services/telemetry.service';
 import { Role } from '@libs/identity/domain/permissions/enums/permissions.enum';
 import {
     USER_SERVICE_TOKEN,
@@ -17,7 +17,6 @@ import {
     ORGANIZATION_SERVICE_TOKEN,
     IOrganizationService,
 } from '@libs/organization/domain/organization/contracts/organization.service.contract';
-import { IOrganization } from '@libs/organization/domain/organization/interfaces/organization.interface';
 import {
     ITeamService,
     TEAM_SERVICE_TOKEN,
@@ -48,6 +47,7 @@ export class SignUpUseCase implements IUseCase {
         private readonly createProfileUseCase: CreateProfileUseCase,
         private readonly createTeamUseCase: CreateTeamUseCase,
         private readonly emailService: EmailService,
+        private readonly telemetry: TelemetryService,
     ) {}
 
     public async execute(payload: SignUpDTO): Promise<Partial<IUser>> {
@@ -156,13 +156,15 @@ export class SignUpUseCase implements IUseCase {
                 this.logger,
             );
 
-            posthogClient.organizationIdentify(
-                user.organization as IOrganization,
-            );
-            posthogClient.userIdentify(createdUser);
-            posthogClient.teamIdentify(team);
-
-            this.sendWebhook(user, payload, user.organization.name);
+            void this.telemetry.userSignedUp({
+                userId: createdUser.uuid,
+                email,
+                name,
+                organizationId: createdUser.organization.uuid,
+                organizationName: createdUser.organization.name,
+                teamId: team.uuid,
+                teamName: team.name,
+            });
 
             return createdUser.toObject();
         } catch (error) {
@@ -179,61 +181,6 @@ export class SignUpUseCase implements IUseCase {
             });
 
             throw error;
-        }
-    }
-
-    private async sendWebhook(
-        user: Partial<IUser>,
-        payload: SignUpDTO,
-        organizationName: string,
-    ): Promise<void> {
-        const webhookUrl = process.env.API_SIGNUP_NOTIFICATION_WEBHOOK;
-
-        if (!webhookUrl) {
-            return;
-        }
-
-        try {
-            const webhookData = {
-                email: user?.email,
-                organization: organizationName,
-                name: payload.name,
-            };
-
-            if (!webhookData.email || !webhookData.organization) {
-                throw new Error('Invalid data for webhook');
-            }
-
-            let response;
-            let retries = 3;
-            while (retries > 0) {
-                response = await fetch(webhookUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify(webhookData),
-                });
-
-                if (response.ok) {
-                    break;
-                }
-                console.error(
-                    `Failed to send webhook (${retries} attempts remaining):`,
-                    response.statusText,
-                );
-                await new Promise((resolve) => setTimeout(resolve, 1000));
-                retries--;
-            }
-            if (retries === 0) {
-                throw new Error('Error calling signup notification webhook');
-            }
-        } catch (error) {
-            this.logger.error({
-                message: 'Failed to send webhook.',
-                context: SignUpUseCase.name,
-                error: error,
-            });
         }
     }
 

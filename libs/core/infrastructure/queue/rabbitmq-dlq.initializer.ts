@@ -23,6 +23,15 @@ const WORKFLOW_JOB_QUEUES: QueueBinding[] = [
         },
     },
     {
+        queue: 'workflow.jobs.cli_code_review.queue',
+        routingKey: 'workflow.jobs.*.CLI_CODE_REVIEW',
+        queueArgs: {
+            'x-queue-type': 'quorum',
+            'x-dead-letter-exchange': 'workflow.exchange.dlx',
+            'x-dead-letter-routing-key': 'workflow.job.failed',
+        },
+    },
+    {
         queue: 'workflow.jobs.webhook.queue',
         routingKey: 'workflow.jobs.*.WEBHOOK_PROCESSING',
         queueArgs: {

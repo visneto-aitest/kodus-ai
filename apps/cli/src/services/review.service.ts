@@ -53,6 +53,7 @@ class ReviewService {
             commit?: string;
             branch?: string;
             quiet?: boolean;
+            onProgress?: (status: string) => void;
         },
     ): Promise<ReviewResult> {
         const token = await authService.getValidToken();
@@ -102,9 +103,11 @@ class ReviewService {
                     gitRemote: gitInfo.remote || undefined,
                     branch: gitInfo.branch,
                     commitSha: gitInfo.commitSha,
+                    mergeBaseSha: gitInfo.mergeBaseSha,
                     inferredPlatform,
                     cliVersion: CLI_VERSION,
                 },
+                options?.onProgress,
             );
 
             createAnalyzeApiResponseVerboseMessages({
@@ -141,9 +144,11 @@ class ReviewService {
                 gitRemote: gitInfo.remote || undefined,
                 branch: gitInfo.branch,
                 commitSha: gitInfo.commitSha,
+                mergeBaseSha: gitInfo.mergeBaseSha,
                 inferredPlatform,
                 cliVersion: CLI_VERSION,
             },
+            options?.onProgress,
         );
 
         createAnalyzeApiResponseVerboseMessages({
@@ -200,14 +205,38 @@ class ReviewService {
         });
     }
 
-    async trialAnalyze(diff: string): Promise<TrialReviewResult> {
+    async trialAnalyze(
+        diff: string,
+        options?: { githubPat?: string },
+    ): Promise<TrialReviewResult> {
         const fingerprint = await getTrialIdentifier();
+
+        // Pull git context so the sandbox can clone+apply (mergeBaseSha,
+        // remote, branch, commitSha). Failures are non-fatal — getGitInfo
+        // already swallows individual lookup errors.
+        const gitInfo = await gitService.getGitInfo();
+        const inferredPlatform = gitInfo.remote
+            ? gitService.inferPlatform(gitInfo.remote)
+            : undefined;
 
         createTrialAnalyzeStartVerboseMessages(diff).forEach((message) =>
             this.logVerbose(message),
         );
 
-        const result = await api.review.trialAnalyze(diff, fingerprint);
+        const result = await api.review.trialAnalyze(
+            diff,
+            fingerprint,
+            {
+                userEmail: gitInfo.userEmail,
+                gitRemote: gitInfo.remote || undefined,
+                branch: gitInfo.branch,
+                commitSha: gitInfo.commitSha,
+                mergeBaseSha: gitInfo.mergeBaseSha,
+                inferredPlatform,
+                cliVersion: CLI_VERSION,
+            },
+            options?.githubPat,
+        );
 
         createTrialAnalyzeResponseVerboseMessages({
             summary: result.summary,

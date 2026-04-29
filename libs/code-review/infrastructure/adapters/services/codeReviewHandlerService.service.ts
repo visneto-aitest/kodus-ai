@@ -15,10 +15,25 @@ import {
     ReviewStatusReaction,
 } from '@libs/code-review/domain/codeReviewFeedback/enums/codeReviewCommentReaction.enum';
 import { CodeReviewPipelineContext } from '@libs/code-review/pipeline/context/code-review-pipeline.context';
+import { OrganizationParametersKey } from '@libs/core/domain/enums';
 import { PlatformType } from '@libs/core/domain/enums/platform-type.enum';
 import { OrganizationAndTeamData } from '@libs/core/infrastructure/config/types/general/organizationAndTeamData';
 import { PipelineFactory } from '@libs/core/infrastructure/pipeline/services/pipeline-factory.service';
+import { Role } from '@libs/identity/domain/permissions/enums/permissions.enum';
+import {
+    IUsersService,
+    USER_SERVICE_TOKEN,
+} from '@libs/identity/domain/user/contracts/user.service.contract';
+import {
+    IOrganizationService,
+    ORGANIZATION_SERVICE_TOKEN,
+} from '@libs/organization/domain/organization/contracts/organization.service.contract';
+import {
+    IOrganizationParametersService,
+    ORGANIZATION_PARAMETERS_SERVICE_TOKEN,
+} from '@libs/organization/domain/organizationParameters/contracts/organizationParameters.service.contract';
 import { CodeManagementService } from '@libs/platform/infrastructure/adapters/services/codeManagement.service';
+import { TelemetryService } from '@libs/telemetry/application/services/telemetry.service';
 
 @Injectable()
 export class CodeReviewHandlerService {
@@ -56,7 +71,84 @@ export class CodeReviewHandlerService {
         @Inject('PIPELINE_PROVIDER')
         private readonly pipelineFactory: PipelineFactory<CodeReviewPipelineContext>,
         private readonly codeManagement: CodeManagementService,
+        @Inject(ORGANIZATION_PARAMETERS_SERVICE_TOKEN)
+        private readonly organizationParametersService: IOrganizationParametersService,
+        private readonly telemetry: TelemetryService,
+        @Inject(ORGANIZATION_SERVICE_TOKEN)
+        private readonly organizationService: IOrganizationService,
+        @Inject(USER_SERVICE_TOKEN)
+        private readonly usersService: IUsersService,
     ) {}
+
+    /**
+     * Atomic-ish "first review" claim per organization. Reads the
+     * `FIRST_REVIEW_AT` parameter and only fires telemetry + writes the
+     * marker if no prior marker exists. A rare race between two concurrent
+     * first reviews could fire the event twice — acceptable for a once-per-
+     * org-lifetime milestone.
+     */
+    private async captureFirstReviewIfNeeded(
+        organizationAndTeamData: OrganizationAndTeamData,
+        repository: { id?: string; name?: string },
+        pullRequestNumber: number | undefined,
+        platformType: string,
+    ): Promise<void> {
+        const { organizationId, teamId } = organizationAndTeamData;
+        if (!organizationId) return;
+
+        try {
+            const existing =
+                await this.organizationParametersService.findByKey(
+                    OrganizationParametersKey.FIRST_REVIEW_AT,
+                    { organizationId },
+                );
+            if (existing) return;
+
+            await this.organizationParametersService.createOrUpdateConfig(
+                OrganizationParametersKey.FIRST_REVIEW_AT,
+                new Date().toISOString(),
+                { organizationId },
+            );
+
+            // Best-effort hydration: org name + owner email/name make the
+            // milestone notification actionable (Discord/email). If any
+            // lookup fails we still fire telemetry with whatever we have —
+            // the milestone marker is the source of truth, names are gravy.
+            const [org, owner] = await Promise.all([
+                this.organizationService
+                    .findOne({ uuid: organizationId })
+                    .catch(() => undefined),
+                this.usersService
+                    .findOne({
+                        organization: { uuid: organizationId },
+                        role: Role.OWNER,
+                    } as any)
+                    .catch(() => undefined),
+            ]);
+
+            await this.telemetry.firstReviewCompleted({
+                organizationId,
+                organizationName: org?.name,
+                teamId,
+                repositoryId: repository?.id,
+                repositoryName: repository?.name,
+                pullRequestNumber,
+                platform: platformType,
+                ownerEmail: owner?.email,
+                ownerId: owner?.uuid,
+            });
+        } catch (error) {
+            this.logger.warn({
+                message: 'Failed to capture first-review milestone',
+                context: CodeReviewHandlerService.name,
+                metadata: {
+                    organizationId,
+                    error:
+                        error instanceof Error ? error.message : String(error),
+                },
+            });
+        }
+    }
 
     async handlePullRequest(
         organizationAndTeamData: OrganizationAndTeamData,
@@ -193,6 +285,15 @@ export class CodeReviewHandlerService {
                     partialErrors: hasPartialError,
                 },
             });
+
+            if (classifiedStatus.status === AutomationStatus.SUCCESS) {
+                void this.captureFirstReviewIfNeeded(
+                    organizationAndTeamData,
+                    repository,
+                    pullRequest?.number,
+                    platformType,
+                );
+            }
 
             const finalStatus = classifiedStatus;
 

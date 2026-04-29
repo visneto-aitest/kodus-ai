@@ -32,6 +32,14 @@ export interface GitInfo {
     remote?: string | null;
     branch?: string;
     commitSha?: string;
+    /**
+     * SHA of the merge-base between HEAD and the upstream default branch.
+     * Sent to the backend so the sandbox can checkout this exact commit
+     * (which is guaranteed to exist on the remote) and then apply the
+     * local diff on top — works even when the user's branch has not been
+     * pushed yet, or has uncommitted changes in the working tree.
+     */
+    mergeBaseSha?: string;
 }
 
 export type PlatformType =

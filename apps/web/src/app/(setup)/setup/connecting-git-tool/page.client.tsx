@@ -20,7 +20,6 @@ import { useAuth } from "src/core/providers/auth.provider";
 import { useConfig } from "@providers/ConfigProvider";
 import { useSelectedTeamId } from "src/core/providers/selected-team-context";
 import { ClientSideCookieHelpers } from "src/core/utils/cookie";
-import { captureSegmentEvent } from "src/core/utils/segment";
 
 import { StepIndicators } from "../_components/step-indicators";
 import { useGoToStep } from "../_hooks/use-goto-step";
@@ -49,12 +48,6 @@ export function SetupConnectingGitToolPage(props: {
             ClientSideCookieHelpers("started-setup-from-new-setup-page").set(
                 "true",
             );
-
-            captureSegmentEvent({
-                userId: userId!,
-                event: "try_setup_git_integration",
-                properties: { platform: key, method: "token" },
-            });
 
             await integrationFactory.getConnector(key, cfg)?.connect(false, {
                 push: router.push,
@@ -186,15 +179,6 @@ export function SetupConnectingGitToolPage(props: {
                                 variant="helper"
                                 className="w-full"
                                 onClick={async () => {
-                                    captureSegmentEvent({
-                                        userId: userId!,
-                                        event: "try_setup_git_integration",
-                                        properties: {
-                                            platform: "github",
-                                            method: "token",
-                                        },
-                                    });
-
                                     const response =
                                         await magicModal.show<true>(() => (
                                             <GithubTokenModal
@@ -244,15 +228,6 @@ export function SetupConnectingGitToolPage(props: {
                                 variant="helper"
                                 className="w-full"
                                 onClick={async () => {
-                                    captureSegmentEvent({
-                                        userId: userId!,
-                                        event: "try_setup_git_integration",
-                                        properties: {
-                                            platform: "gitlab",
-                                            method: "token",
-                                        },
-                                    });
-
                                     const response =
                                         await magicModal.show<true>(() => (
                                             <GitlabTokenModal
@@ -278,15 +253,6 @@ export function SetupConnectingGitToolPage(props: {
                                 variant="primary"
                                 className="w-full"
                                 onClick={async () => {
-                                    captureSegmentEvent({
-                                        userId: userId!,
-                                        event: "try_setup_git_integration",
-                                        properties: {
-                                            platform: "bitbucket",
-                                            method: "token",
-                                        },
-                                    });
-
                                     const response =
                                         await magicModal.show<true>(() => (
                                             <BitbucketTokenModal
@@ -312,15 +278,6 @@ export function SetupConnectingGitToolPage(props: {
                                 variant="primary"
                                 className="w-full"
                                 onClick={async () => {
-                                    captureSegmentEvent({
-                                        userId: userId!,
-                                        event: "try_setup_git_integration",
-                                        properties: {
-                                            platform: "azure_repos",
-                                            method: "token",
-                                        },
-                                    });
-
                                     const response =
                                         await magicModal.show<true>(() => (
                                             <AzureReposTokenModal
@@ -346,15 +303,6 @@ export function SetupConnectingGitToolPage(props: {
                                 variant="primary"
                                 className="w-full"
                                 onClick={async () => {
-                                    captureSegmentEvent({
-                                        userId: userId!,
-                                        event: "try_setup_git_integration",
-                                        properties: {
-                                            platform: "forgejo",
-                                            method: "token",
-                                        },
-                                    });
-
                                     const response =
                                         await magicModal.show<true>(() => (
                                             <ForgejoTokenModal

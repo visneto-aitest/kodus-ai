@@ -25,6 +25,7 @@ import { SharedPostgresModule } from '@libs/shared/database/shared-postgres.modu
 import { SharedConfigModule } from '@libs/shared/infrastructure/shared-config.module';
 import { SharedLogModule } from '@libs/shared/infrastructure/shared-log.module';
 import { SharedObservabilityModule } from '@libs/shared/infrastructure/shared-observability.module';
+import { TelemetryModule } from '@libs/telemetry/modules/telemetry.module';
 
 import { AnalyticsClassifierCron } from './cron/analytics-classifier.cron';
 import { AnalyticsIngestionCron } from './cron/analytics-ingestion.cron';
@@ -48,6 +49,7 @@ export class WorkerModule {
             SharedConfigModule,
             SharedLogModule,
             SharedObservabilityModule,
+            TelemetryModule,
             IncidentModule,
             MetricsModule,
             // Both roles read Mongo: code-review writes PR state; analytics

@@ -8,6 +8,7 @@ import { SharedPostgresModule } from '@libs/shared/database/shared-postgres.modu
 import { SharedConfigModule } from '@libs/shared/infrastructure/shared-config.module';
 import { SharedLogModule } from '@libs/shared/infrastructure/shared-log.module';
 import { SharedObservabilityModule } from '@libs/shared/infrastructure/shared-observability.module';
+import { TelemetryModule } from '@libs/telemetry/modules/telemetry.module';
 import { LangfuseShutdownProvider } from '@libs/core/log/langfuse-shutdown.provider';
 import { WebhookEnqueueModule } from './webhook-enqueue.module';
 
@@ -16,7 +17,6 @@ import { BitbucketController } from '../controllers/bitbucket.controller';
 import { ForgejoController } from '../controllers/forgejo.controller';
 import { GithubController } from '../controllers/github.controller';
 import { GitlabController } from '../controllers/gitlab.controller';
-import { ResendWebhookController } from '../controllers/resend.controller';
 import { WebhookHealthController } from '../controllers/webhook-health.controller';
 
 @Module({
@@ -25,6 +25,7 @@ import { WebhookHealthController } from '../controllers/webhook-health.controlle
         SharedConfigModule,
         SharedLogModule,
         SharedObservabilityModule,
+        TelemetryModule,
         SharedPostgresModule.forRoot({ poolSize: 8 }),
 
         EventEmitterModule.forRoot(),
@@ -38,7 +39,6 @@ import { WebhookHealthController } from '../controllers/webhook-health.controlle
         BitbucketController,
         AzureReposController,
         ForgejoController,
-        ResendWebhookController,
         WebhookHealthController,
     ],
     providers: [LangfuseShutdownProvider],

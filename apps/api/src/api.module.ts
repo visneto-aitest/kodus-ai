@@ -2,6 +2,7 @@ import { LLMModule } from '@kodus/kodus-common/llm';
 import { AgentsModule } from '@libs/agents/modules/agents.module';
 import { AIEngineModule } from '@libs/ai-engine/modules/ai-engine.module';
 import { AnalyticsModule } from '@libs/analytics/modules/analytics.module';
+import { TelemetryModule } from '@libs/telemetry/modules/telemetry.module';
 import { AnalyticsWarehouseModule } from '@libs/ee/analytics-warehouse';
 import { CockpitModule } from '@libs/cockpit/modules/cockpit.module';
 import { AutomationModule } from '@libs/automation/modules/automation.module';
@@ -52,7 +53,9 @@ import { AuthController } from './controllers/auth.controller';
 import { CliConfigController } from './controllers/cli/cli-config.controller';
 import { CliCentralizedConfigController } from './controllers/cli/cli-centralized-config.controller';
 import { CliKodyRulesController } from './controllers/cli/cli-kody-rules.controller';
+import { CliAuthController } from './controllers/cli-auth.controller';
 import { CliReviewController } from './controllers/cli/cli-review.controller';
+import { CliReviewsController } from './controllers/cli-reviews.controller';
 import { CodeBaseController } from './controllers/codeBase.controller';
 import { CodeManagementController } from './controllers/codeManagement.controller';
 import { CodeReviewSettingLogController } from './controllers/codeReviewSettingLog.controller';
@@ -75,7 +78,6 @@ import {
 import { PullRequestController } from './controllers/pullRequest.controller';
 import { PullRequestMessagesController } from './controllers/pullRequestMessages.controller';
 import { RuleLikeController } from './controllers/ruleLike.controller';
-import { SegmentController } from './controllers/segment.controller';
 import { SkillsController } from './controllers/skills.controller';
 import { SSOConfigController } from './controllers/ssoConfig.controller';
 import { TeamCliKeyController } from './controllers/team-cli-key.controller';
@@ -123,6 +125,7 @@ import { LangfuseShutdownProvider } from '@libs/core/log/langfuse-shutdown.provi
         DryRunModule,
         AnalyticsModule,
         AnalyticsWarehouseModule.forRoot(),
+        TelemetryModule,
         CockpitModule,
         CodeReviewSettingsLogModule,
         AutomationModule,
@@ -158,14 +161,15 @@ import { LangfuseShutdownProvider } from '@libs/core/log/langfuse-shutdown.provi
         TeamMembersController,
         AgentController,
         AuthController,
-        SegmentController,
         TokenUsageController,
         PermissionsController,
         IntegrationController,
         IntegrationConfigController,
         PullRequestController,
         UsersController,
+        CliAuthController,
         CliReviewController,
+        CliReviewsController,
         CliConfigController,
         CliCentralizedConfigController,
         CliKodyRulesController,

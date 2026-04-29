@@ -143,7 +143,7 @@ export class AutomationExecutionRepository implements IAutomationExecutionReposi
                 );
 
             const automationExecutionSelected = await queryBuilder
-                .where('user.uuid = :uuid', { uuid })
+                .where('automationExecution.uuid = :uuid', { uuid })
                 .getOne();
 
             return mapSimpleModelToEntity(
@@ -249,7 +249,7 @@ export class AutomationExecutionRepository implements IAutomationExecutionReposi
                     'automation_execution.origin',
                     'automation_execution.pullRequestNumber',
                     'automation_execution.repositoryId',
-                    'automation_execution.dataExecution',
+                    '"automation_execution"."dataExecution"',
                     'teamAutomation.uuid',
                     'team.name',
                 ])
@@ -344,6 +344,136 @@ export class AutomationExecutionRepository implements IAutomationExecutionReposi
             this.logger.error({
                 message:
                     'Failed to find pull request executions by organization',
+                context: AutomationExecutionRepository.name,
+                error,
+                metadata: { params },
+            });
+            return { data: [], total: 0 };
+        }
+    }
+
+    async findCliReviewExecutionsByOrganization(params: {
+        organizationAndTeamData: OrganizationAndTeamData;
+        repositoryId?: string;
+        userEmail?: string;
+        since?: Date;
+        skip?: number;
+        take?: number;
+        order?: 'ASC' | 'DESC';
+        includeTotal?: boolean;
+    }): Promise<{ data: AutomationExecutionEntity[]; total: number }> {
+        const {
+            organizationAndTeamData,
+            repositoryId,
+            userEmail,
+            since,
+            skip = 0,
+            take = 30,
+            order = 'DESC',
+            includeTotal = true,
+        } = params;
+
+        const { organizationId, teamId } = organizationAndTeamData ?? {};
+
+        if (!organizationId) {
+            return { data: [], total: 0 };
+        }
+
+        try {
+            const queryBuilder =
+                this.automationExecutionRepository.createQueryBuilder(
+                    'automation_execution',
+                );
+
+            // LEFT JOIN: CLI reviews may be created without a teamAutomation
+            // (the use case spreads it conditionally), so an INNER JOIN would
+            // silently drop those rows. We scope by organization through
+            // dataExecution.organizationAndTeamData.organizationId for rows
+            // without a teamAutomation, and through team.organization.uuid
+            // for the joined ones.
+            queryBuilder
+                .select([
+                    'automation_execution.uuid',
+                    'automation_execution.createdAt',
+                    'automation_execution.updatedAt',
+                    'automation_execution.status',
+                    'automation_execution.errorMessage',
+                    'automation_execution.origin',
+                    'automation_execution.repositoryId',
+                    'automation_execution.dataExecution',
+                    'teamAutomation.uuid',
+                    'team.uuid',
+                    'team.name',
+                ])
+                .leftJoin(
+                    'automation_execution.teamAutomation',
+                    'teamAutomation',
+                )
+                .leftJoin('teamAutomation.team', 'team')
+                .leftJoin('team.organization', 'organization')
+                .where('automation_execution.origin = :origin', {
+                    origin: 'cli',
+                })
+                .andWhere(
+                    `(organization.uuid = :organizationId
+                     OR "automation_execution"."dataExecution"->'organizationAndTeamData'->>'organizationId' = :organizationId::text)`,
+                    { organizationId },
+                );
+
+            if (teamId) {
+                queryBuilder.andWhere(
+                    `(team.uuid = :teamId
+                     OR "automation_execution"."dataExecution"->'organizationAndTeamData'->>'teamId' = :teamId::text)`,
+                    { teamId },
+                );
+            }
+
+            if (repositoryId) {
+                queryBuilder.andWhere(
+                    'automation_execution.repositoryId = :repositoryId',
+                    { repositoryId },
+                );
+            }
+
+            if (userEmail) {
+                queryBuilder.andWhere(
+                    `"automation_execution"."dataExecution"->>'userEmail' = :userEmail`,
+                    { userEmail },
+                );
+            }
+
+            if (since) {
+                queryBuilder.andWhere(
+                    'automation_execution.createdAt >= :since',
+                    { since },
+                );
+            }
+
+            let total = 0;
+            if (includeTotal) {
+                total = await queryBuilder.getCount();
+
+                if (total === 0) {
+                    return { data: [], total: 0 };
+                }
+            }
+
+            const executions = await queryBuilder
+                .orderBy('automation_execution.createdAt', order)
+                .skip(skip)
+                .take(take)
+                .getMany();
+
+            const mapped =
+                (mapSimpleModelsToEntities(
+                    executions,
+                    AutomationExecutionEntity,
+                ) as AutomationExecutionEntity[]) ?? [];
+
+            return { data: mapped, total };
+        } catch (error) {
+            this.logger.error({
+                message: 'Failed to find CLI review executions by organization',
                 context: AutomationExecutionRepository.name,
                 error,
                 metadata: { params },

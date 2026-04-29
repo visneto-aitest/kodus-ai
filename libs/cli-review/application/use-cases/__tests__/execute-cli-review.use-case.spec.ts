@@ -68,6 +68,15 @@ function createMocks() {
         }),
     };
 
+    const pipelineObserver = {
+        onPipelineStart: jest.fn().mockResolvedValue(undefined),
+        onPipelineFinish: jest.fn().mockResolvedValue(undefined),
+        onStageStart: jest.fn().mockResolvedValue(undefined),
+        onStageFinish: jest.fn().mockResolvedValue(undefined),
+        onStageError: jest.fn().mockResolvedValue(undefined),
+        onStageSkipped: jest.fn().mockResolvedValue(undefined),
+    };
+
     const useCase = new ExecuteCliReviewUseCase(
         converter as any,
         pipelineStrategy as any,
@@ -76,6 +85,7 @@ function createMocks() {
         teamAutomationService as any,
         kodyRulesService as any,
         kodyRulesValidationService as any,
+        pipelineObserver as any,
     );
 
     return {
@@ -87,6 +97,7 @@ function createMocks() {
         teamAutomationService,
         kodyRulesService,
         kodyRulesValidationService,
+        pipelineObserver,
     };
 }
 

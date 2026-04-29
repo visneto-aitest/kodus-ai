@@ -22,6 +22,7 @@ function buildUseCase(): CreateOrUpdateOrganizationParametersUseCase {
         {} as any,
         {} as any,
         {} as any,
+        { byokConfigured: jest.fn() } as any,
     );
 }
 

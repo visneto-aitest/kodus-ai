@@ -1,8 +1,13 @@
+import { EnqueueCliReviewUseCase } from '@libs/cli-review/application/use-cases/enqueue-cli-review.use-case';
 import { ExecuteCliReviewUseCase } from '@libs/cli-review/application/use-cases/execute-cli-review.use-case';
+import { GetCliReviewJobStatusUseCase } from '@libs/cli-review/application/use-cases/get-cli-review-job-status.use-case';
 import { IngestSessionEventUseCase } from '@libs/cli-review/application/use-cases/ingest-session-event.use-case';
 import { SubmitCliSessionCaptureUseCase } from '@libs/cli-review/application/use-cases/submit-cli-session-capture.use-case';
+import { WaitForCliReviewJobUseCase } from '@libs/cli-review/application/use-cases/wait-for-cli-review-job.use-case';
 import { AuthenticatedRateLimiterService } from '@libs/cli-review/infrastructure/services/authenticated-rate-limiter.service';
 import { TrialRateLimiterService } from '@libs/cli-review/infrastructure/services/trial-rate-limiter.service';
+import { JobStatus } from '@libs/core/workflow/domain/enums/job-status.enum';
+import { CliReviewResponse } from '@libs/cli-review/domain/types/cli-review.types';
 import {
     ITeamCliKeyService,
     TEAM_CLI_KEY_SERVICE_TOKEN,
@@ -21,6 +26,8 @@ import {
     HttpException,
     HttpStatus,
     Inject,
+    NotFoundException,
+    Param,
     Post,
     Query,
     Req,
@@ -83,6 +90,9 @@ export class CliReviewController {
 
     constructor(
         private readonly executeCliReviewUseCase: ExecuteCliReviewUseCase,
+        private readonly enqueueCliReviewUseCase: EnqueueCliReviewUseCase,
+        private readonly getCliReviewJobStatusUseCase: GetCliReviewJobStatusUseCase,
+        private readonly waitForCliReviewJobUseCase: WaitForCliReviewJobUseCase,
         private readonly ingestSessionEventUseCase: IngestSessionEventUseCase,
         private readonly submitCliSessionCaptureUseCase: SubmitCliSessionCaptureUseCase,
         private readonly trialRateLimiter: TrialRateLimiterService,
@@ -526,6 +536,110 @@ export class CliReviewController {
     }
 
     /**
+     * Polls a CLI review job's status. Used by the CLI when it opted into
+     * the async path via `x-kodus-async: 1`.
+     */
+    @Get('review/jobs/:jobId')
+    @ApiOperation({
+        summary: 'Get CLI review job status',
+        description:
+            'Returns status, result (when COMPLETED) and error (when FAILED) for a CLI review job enqueued via POST /cli/review with `x-kodus-async: 1`.',
+    })
+    @ApiHeader({
+        name: 'x-team-key',
+        required: false,
+        description: 'Team CLI key (alternative to Authorization: Bearer)',
+    })
+    async getReviewJob(
+        @Param('jobId') jobId: string,
+        @Headers('x-team-key') teamKey?: string,
+        @Headers('authorization') authHeader?: string,
+        @Query('teamId') queryTeamId?: string,
+    ) {
+        // Reuse the same auth resolution path as POST /cli/review so the
+        // organization the caller belongs to is the only one allowed to
+        // read its own jobs.
+        const { organizationAndTeamData } =
+            await this.resolveOrgAndTeamForReview(
+                teamKey,
+                authHeader,
+                queryTeamId,
+            );
+
+        return this.getCliReviewJobStatusUseCase.execute({
+            jobId,
+            organizationId: organizationAndTeamData.organizationId,
+        });
+    }
+
+    /**
+     * Shared auth resolution (Team CLI key or JWT) used by both POST /cli/review
+     * and GET /cli/review/jobs/:jobId. Mirrors the inline logic in `review()`
+     * minus device tracking / rate limiting (those only apply to enqueue).
+     */
+    private async resolveOrgAndTeamForReview(
+        teamKey?: string,
+        authHeader?: string,
+        queryTeamId?: string,
+    ): Promise<{
+        organizationAndTeamData: { organizationId: string; teamId: string };
+    }> {
+        const bearerToken = authHeader?.replace(/^Bearer\s+/i, '');
+
+        if (teamKey || bearerToken?.startsWith('kodus_')) {
+            const key = teamKey || bearerToken;
+            if (!key) {
+                throw new UnauthorizedException(
+                    'Team API key required. Provide via X-Team-Key header or Authorization: Bearer header.',
+                );
+            }
+            const teamData = await this.teamCliKeyService.validateKey(key);
+            if (!teamData?.team?.uuid || !teamData?.organization?.uuid) {
+                throw new UnauthorizedException(
+                    'Invalid or revoked team API key',
+                );
+            }
+            return {
+                organizationAndTeamData: {
+                    organizationId: teamData.organization.uuid,
+                    teamId: teamData.team.uuid,
+                },
+            };
+        }
+
+        if (bearerToken) {
+            let payload: any;
+            try {
+                payload = this.jwtService.verify(bearerToken, {
+                    secret: this.jwtConfig.secret,
+                });
+            } catch {
+                throw new UnauthorizedException('Invalid or expired JWT token');
+            }
+            const team = queryTeamId
+                ? await this.teamService.findById(queryTeamId)
+                : await this.teamService.findFirstCreatedTeam(
+                      payload.organizationId,
+                  );
+            if (!team) {
+                throw new UnauthorizedException(
+                    'No active team found for the authenticated user',
+                );
+            }
+            return {
+                organizationAndTeamData: {
+                    organizationId: payload.organizationId,
+                    teamId: team.uuid,
+                },
+            };
+        }
+
+        throw new UnauthorizedException(
+            'Authentication required. Provide a team API key via X-Team-Key header, or a JWT via Authorization: Bearer header.',
+        );
+    }
+
+    /**
      * CLI code review endpoint with Team API Key authentication
      * No user authentication required - uses team key instead
      */
@@ -566,6 +680,7 @@ export class CliReviewController {
         @Headers('x-kodus-device-id') deviceId?: string,
         @Headers('x-kodus-device-token') deviceToken?: string,
         @Headers('user-agent') userAgent?: string,
+        @Headers('x-kodus-async') asyncHeader?: string,
         @Res({ passthrough: true }) res?: any,
     ) {
         const bearerToken = authHeader?.replace(/^Bearer\s+/i, '');
@@ -575,6 +690,16 @@ export class CliReviewController {
             teamId: string;
         };
         let teamForRateLimit: { uuid: string; cliConfig?: any };
+        // Provenance of the auth method that succeeded — propagated to the
+        // pipeline so the dashboard can show "Team: <name>" or "Personal"
+        // without ever holding onto the secret.
+        let cliAuth: {
+            mode: 'team-key' | 'personal';
+            teamKeyId?: string;
+            teamKeyName?: string;
+            userId?: string;
+            userEmail?: string;
+        };
 
         // Route 1: Team CLI key (via X-Team-Key header or Bearer with kodus_ prefix)
         if (teamKey || bearerToken?.startsWith('kodus_')) {
@@ -594,7 +719,7 @@ export class CliReviewController {
                 );
             }
 
-            const { team, organization } = teamData;
+            const { team, organization, keyId, keyName } = teamData;
 
             if (!team?.uuid || !organization?.uuid) {
                 throw new UnauthorizedException(
@@ -609,6 +734,11 @@ export class CliReviewController {
             teamForRateLimit = {
                 uuid: team.uuid,
                 cliConfig: team.cliConfig,
+            };
+            cliAuth = {
+                mode: 'team-key',
+                teamKeyId: keyId,
+                teamKeyName: keyName,
             };
         }
         // Route 2: JWT Bearer token
@@ -687,6 +817,11 @@ export class CliReviewController {
                 uuid: team.uuid,
                 cliConfig: team.cliConfig,
             };
+            cliAuth = {
+                mode: 'personal',
+                userId: user.uuid,
+                userEmail: user.email,
+            };
         }
         // No auth provided
         else {
@@ -748,8 +883,8 @@ export class CliReviewController {
             }
         }
 
-        // 6. Execute review
-        const reviewResult = await this.executeCliReviewUseCase.execute({
+        // 6. Enqueue the review (always — runs on the worker, not the API process)
+        const { jobId } = await this.enqueueCliReviewUseCase.execute({
             organizationAndTeamData,
             input: {
                 diff: body.diff,
@@ -761,9 +896,35 @@ export class CliReviewController {
                 remote: body.gitRemote,
                 branch: body.branch,
                 commitSha: body.commitSha,
+                mergeBaseSha: body.mergeBaseSha,
                 inferredPlatform: body.inferredPlatform,
                 cliVersion: body.cliVersion,
             },
+            cliAuth,
+        });
+
+        const wantsAsync = this.parseAsyncHeader(asyncHeader);
+
+        // 7a. Async (new CLI): return 202 immediately so the client polls.
+        if (wantsAsync) {
+            if (res) {
+                res.status(HttpStatus.ACCEPTED);
+            }
+            return {
+                jobId,
+                status: JobStatus.PENDING,
+                statusUrl: `/cli/review/jobs/${jobId}`,
+                ...(deviceResult?.deviceToken
+                    ? { deviceToken: deviceResult.deviceToken }
+                    : {}),
+            };
+        }
+
+        // 7b. Sync (legacy CLI): wait for the worker to finish and return
+        //     the same shape the old endpoint returned. The worker still
+        //     does the heavy lifting; we just block the request here.
+        const reviewResult = await this.waitForCliReviewJobUseCase.execute({
+            jobId,
         });
 
         return {
@@ -772,6 +933,12 @@ export class CliReviewController {
                 ? { deviceToken: deviceResult.deviceToken }
                 : {}),
         };
+    }
+
+    private parseAsyncHeader(value?: string): boolean {
+        if (!value) return false;
+        const normalized = value.trim().toLowerCase();
+        return normalized === '1' || normalized === 'true' || normalized === 'yes';
     }
 
     /**
@@ -1038,7 +1205,12 @@ export class CliReviewController {
             );
         }
 
-        // Execute review with trial defaults (no auth required)
+        // Execute review with trial defaults (no auth required).
+        // gitContext carries only what's needed to clone+apply the diff in
+        // the sandbox; mergeBaseSha lets us skip the user's branch ref
+        // (likely not pushed yet for trial users) and githubPat — if the
+        // user provided one — unlocks private repos. Neither is persisted
+        // to automation_execution.dataExecution.
         const result = await this.executeCliReviewUseCase.execute({
             organizationAndTeamData: {
                 organizationId: 'trial',
@@ -1049,6 +1221,15 @@ export class CliReviewController {
                 config: body.config,
             },
             isTrialMode: true,
+            gitContext: {
+                remote: body.gitRemote,
+                branch: body.branch,
+                commitSha: body.commitSha,
+                mergeBaseSha: body.mergeBaseSha,
+                githubPat: body.githubPat,
+                inferredPlatform: body.inferredPlatform,
+                cliVersion: body.cliVersion,
+            },
         });
 
         // Add rate limit info to response

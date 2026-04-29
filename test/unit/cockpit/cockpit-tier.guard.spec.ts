@@ -18,14 +18,27 @@ import {
 
 function makeContext(args: {
     jwtOrg?: string;
+    /**
+     * Shape of the org claim on `req.user`. Real `JwtStrategy.validate`
+     * returns a `UserEntity` whose org lives at `organization.uuid`, not
+     * a flat `organizationId` — both shapes are exercised here so the
+     * guard stays compatible if/when the strategy is changed.
+     */
+    jwtOrgShape?: 'flat' | 'nested';
     queryOrg?: unknown;
     isPublic?: boolean;
 }): {
     ctx: ExecutionContext;
     reflector: Reflector;
 } {
+    const shape = args.jwtOrgShape ?? 'flat';
+    const user = args.jwtOrg
+        ? shape === 'nested'
+            ? { organization: { uuid: args.jwtOrg } }
+            : { organizationId: args.jwtOrg }
+        : undefined;
     const req = {
-        user: args.jwtOrg ? { organizationId: args.jwtOrg } : undefined,
+        user,
         query:
             args.queryOrg !== undefined
                 ? { organizationId: args.queryOrg }
@@ -183,6 +196,47 @@ describe('CockpitTierGuard', () => {
         await expect(guard.canActivate(ctx)).rejects.toThrow(
             ForbiddenException,
         );
+    });
+
+    it('resolves the org from the nested UserEntity shape (organization.uuid)', async () => {
+        // Regression: the previous read of `req.user.organizationId` was
+        // always `undefined` because `JwtStrategy.validate` returns a
+        // `UserEntity` (organization: { uuid }), not a flat object. That
+        // 403'd every cockpit endpoint that didn't pass `?organizationId=`.
+        const licenseService = makeLicenseService({
+            valid: true,
+            subscriptionStatus: SubscriptionStatus.ACTIVE,
+            planType: 'enterprise_managed',
+        });
+        const { ctx, reflector } = makeContext({
+            jwtOrg: 'org-A',
+            jwtOrgShape: 'nested',
+        });
+        const guard = new CockpitTierGuard(licenseService, reflector);
+
+        await expect(guard.canActivate(ctx)).resolves.toBe(true);
+        expect(
+            licenseService.validateOrganizationLicense,
+        ).toHaveBeenCalledWith({
+            organizationId: 'org-A',
+        });
+    });
+
+    it('blocks IDOR with the nested UserEntity shape too', async () => {
+        const licenseService = makeLicenseService({ valid: true });
+        const { ctx, reflector } = makeContext({
+            jwtOrg: 'org-A',
+            jwtOrgShape: 'nested',
+            queryOrg: 'org-B',
+        });
+        const guard = new CockpitTierGuard(licenseService, reflector);
+
+        await expect(guard.canActivate(ctx)).rejects.toThrow(
+            ForbiddenException,
+        );
+        expect(
+            licenseService.validateOrganizationLicense,
+        ).not.toHaveBeenCalled();
     });
 
     it('fails closed when license lookup throws', async () => {

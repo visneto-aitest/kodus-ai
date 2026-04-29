@@ -2,7 +2,12 @@ import { describe, expect, it, vi } from 'vitest';
 import { RealReviewApi } from '../review.api.js';
 
 describe('RealReviewApi', () => {
-    it('uses bearer auth and teamId query for analyze with user token', async () => {
+    it('uses bearer auth without a teamId query for analyze with user token', async () => {
+        // Personal tokens hit /cli/review with no teamId — the backend
+        // resolves the team via findFirstCreatedTeam(orgId) from the JWT
+        // claims. Sending the JWT's organizationId as a `teamId` query
+        // param (the previous behavior) was a misuse of the parameter and
+        // only worked because of a downstream fallback.
         const requestWithRetry = vi.fn().mockResolvedValue({
             summary: 'ok',
             issues: [],
@@ -19,11 +24,12 @@ describe('RealReviewApi', () => {
         await api.analyze('diff --git a/file b/file', token);
 
         expect(requestWithRetry).toHaveBeenCalledWith(
-            '/cli/review?teamId=team-1',
+            '/cli/review',
             {
                 method: 'POST',
                 headers: {
                     Authorization: `Bearer ${token}`,
+                    'X-Kodus-Async': '1',
                 },
                 body: JSON.stringify({
                     diff: 'diff --git a/file b/file',

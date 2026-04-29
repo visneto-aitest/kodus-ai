@@ -5,6 +5,7 @@ import { fixService } from '../services/fix.service.js';
 import { copyTextToClipboard } from '../utils/clipboard.js';
 import {
     generateFixPrompt,
+    generateFixPromptAll,
     getQuickFixEmptyMessage,
     groupIssuesByFile,
 } from './interactive-helpers.js';
@@ -98,6 +99,20 @@ class InteractiveUI {
                 }),
             );
 
+            const remainingIssueCount = Array.from(
+                issuesByFile.values(),
+            ).reduce((sum, issues) => sum + issues.length, 0);
+            const remainingFileCount = issuesByFile.size;
+
+            if (remainingFileCount > 1) {
+                fileChoices.push({
+                    name: chalk.cyan(
+                        `📋 Copy ALL issues to AI agent (${remainingIssueCount} issues, ${remainingFileCount} files)`,
+                    ),
+                    value: '__COPY_ALL__',
+                });
+            }
+
             fileChoices.push({
                 name: chalk.dim('Exit review'),
                 value: '__EXIT__',
@@ -111,6 +126,11 @@ class InteractiveUI {
 
             if (selectedFile === '__EXIT__') {
                 break;
+            }
+
+            if (selectedFile === '__COPY_ALL__') {
+                await this.copyAllIssuesToClipboard(issuesByFile);
+                continue;
             }
 
             // Show issues for selected file
@@ -138,6 +158,55 @@ class InteractiveUI {
 
     private async copyToClipboard(text: string): Promise<boolean> {
         return copyTextToClipboard(text);
+    }
+
+    /**
+     * Bundle every remaining file/issue into a single prompt and copy it to
+     * the clipboard so the user can paste the whole review into an AI agent
+     * in one go. Falls back to printing the prompt to stdout when the
+     * clipboard isn't available (SSH, container without xclip, etc.).
+     */
+    private async copyAllIssuesToClipboard(
+        issuesByFile: Map<string, ReviewIssue[]>,
+    ): Promise<void> {
+        const prompt = generateFixPromptAll(issuesByFile);
+
+        // Soft warning for very large prompts: most agents accept >100KB
+        // pastes but some IDEs / chat boxes truncate, and the user should
+        // know before they paste blindly.
+        const SIZE_WARN_THRESHOLD = 50_000;
+        if (prompt.length > SIZE_WARN_THRESHOLD) {
+            console.log(
+                chalk.yellow(
+                    `\n⚠ Large prompt (${(prompt.length / 1024).toFixed(1)} KB). Some chat UIs may truncate — consider reviewing critical files individually if the agent loses context.`,
+                ),
+            );
+        }
+
+        const copied = await this.copyToClipboard(prompt);
+
+        if (copied) {
+            console.log(
+                chalk.green(
+                    `\n✓ Copied prompt for all issues to clipboard (${(prompt.length / 1024).toFixed(1)} KB).`,
+                ),
+            );
+            console.log(
+                chalk.dim(
+                    'Paste it into Claude Code, Cursor, or any AI coding assistant.\n',
+                ),
+            );
+        } else {
+            console.log(
+                chalk.yellow(
+                    "\n⚠ Could not copy to clipboard. Here's the prompt:\n",
+                ),
+            );
+            console.log(chalk.cyan('─'.repeat(60)));
+            console.log(prompt);
+            console.log(chalk.cyan('─'.repeat(60)));
+            console.log('');
+        }
     }
 
     private async reviewFileIssues(

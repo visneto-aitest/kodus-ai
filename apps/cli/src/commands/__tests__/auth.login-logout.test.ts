@@ -25,6 +25,8 @@ vi.mock('../../services/auth.service.js', () => ({
         isAuthenticated: vi.fn(),
         getCredentials: vi.fn(),
         login: vi.fn(),
+        loginViaBrowser: vi.fn(),
+        loginViaDeviceCode: vi.fn(),
         logout: vi.fn(),
     },
 }));
@@ -46,6 +48,35 @@ const mockInput = vi.mocked(prompts.input);
 const mockPassword = vi.mocked(prompts.password);
 const mockConfirm = vi.mocked(prompts.confirm);
 
+/**
+ * Helper: nudge `canOpenBrowser()` in login.ts toward "yes" so the default
+ * (no-flag) login path picks the browser flow inside tests. Without this
+ * the test runner's non-TTY stdout makes login fall back to device-code.
+ */
+function forceBrowserAvailable() {
+    const originalIsTTY = (process.stdout as { isTTY?: boolean }).isTTY;
+    const originalSsh = process.env.SSH_CONNECTION;
+    const originalSshClient = process.env.SSH_CLIENT;
+    const originalCi = process.env.CI;
+    Object.defineProperty(process.stdout, 'isTTY', {
+        configurable: true,
+        get: () => true,
+    });
+    delete process.env.SSH_CONNECTION;
+    delete process.env.SSH_CLIENT;
+    delete process.env.CI;
+    return () => {
+        Object.defineProperty(process.stdout, 'isTTY', {
+            configurable: true,
+            get: () => originalIsTTY,
+        });
+        if (originalSsh !== undefined) process.env.SSH_CONNECTION = originalSsh;
+        if (originalSshClient !== undefined)
+            process.env.SSH_CLIENT = originalSshClient;
+        if (originalCi !== undefined) process.env.CI = originalCi;
+    };
+}
+
 describe('auth login command', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -56,7 +87,7 @@ describe('auth login command', () => {
         vi.restoreAllMocks();
     });
 
-    it('logs in with provided email/password without prompts', async () => {
+    it('logs in with provided email/password using legacy flow', async () => {
         mockAuthService.isAuthenticated.mockResolvedValue(false);
         mockAuthService.login.mockResolvedValue(undefined);
 
@@ -68,19 +99,53 @@ describe('auth login command', () => {
             'test@example.com',
             'secret123',
         );
+        expect(mockAuthService.loginViaBrowser).not.toHaveBeenCalled();
+        expect(mockAuthService.loginViaDeviceCode).not.toHaveBeenCalled();
         expect(spinnerInstances[0]?.start).toHaveBeenCalled();
         expect(spinnerInstances[0]?.succeed).toHaveBeenCalled();
     });
 
-    it('prompts for email/password if not provided', async () => {
+    it('defaults to browser login when no flags are provided on a TTY', async () => {
+        const restore = forceBrowserAvailable();
+        try {
+            mockAuthService.isAuthenticated.mockResolvedValue(false);
+            mockAuthService.loginViaBrowser.mockResolvedValue({
+                email: 'browser@example.com',
+            } as any);
+
+            await loginAction({});
+
+            expect(mockAuthService.loginViaBrowser).toHaveBeenCalledTimes(1);
+            expect(mockAuthService.login).not.toHaveBeenCalled();
+            expect(mockAuthService.loginViaDeviceCode).not.toHaveBeenCalled();
+            expect(mockInput).not.toHaveBeenCalled();
+            expect(mockPassword).not.toHaveBeenCalled();
+        } finally {
+            restore();
+        }
+    });
+
+    it('uses device-code flow when --device-code is set', async () => {
+        mockAuthService.isAuthenticated.mockResolvedValue(false);
+        mockAuthService.loginViaDeviceCode.mockResolvedValue({
+            email: 'device@example.com',
+        } as any);
+
+        await loginAction({ deviceCode: true });
+
+        expect(mockAuthService.loginViaDeviceCode).toHaveBeenCalledTimes(1);
+        expect(mockAuthService.loginViaBrowser).not.toHaveBeenCalled();
+        expect(mockAuthService.login).not.toHaveBeenCalled();
+    });
+
+    it('prompts for email/password when --legacy is set', async () => {
         mockAuthService.isAuthenticated.mockResolvedValue(false);
         mockAuthService.login.mockResolvedValue(undefined);
 
-        // Mock user input
         mockInput.mockResolvedValueOnce('interactive@example.com');
         mockPassword.mockResolvedValueOnce('interactivePass');
 
-        await loginAction({});
+        await loginAction({ legacy: true });
 
         expect(mockInput).toHaveBeenCalled();
         expect(mockPassword).toHaveBeenCalled();
@@ -88,6 +153,7 @@ describe('auth login command', () => {
             'interactive@example.com',
             'interactivePass',
         );
+        expect(mockAuthService.loginViaBrowser).not.toHaveBeenCalled();
     });
 
     it('does not re-login when user cancels account switch', async () => {

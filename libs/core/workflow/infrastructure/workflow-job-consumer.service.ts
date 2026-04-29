@@ -122,6 +122,40 @@ export class WorkflowJobConsumer implements OnApplicationShutdown {
     }
 
     /**
+     * CLI code-review jobs
+     * Separate queue from PR-driven CODE_REVIEW so CLI traffic spikes
+     * don't starve PR reviews and vice versa.
+     */
+    @RabbitSubscribe({
+        exchange: 'workflow.exchange',
+        routingKey: 'workflow.jobs.*.CLI_CODE_REVIEW',
+        queue: 'workflow.jobs.cli_code_review.queue',
+        errorBehavior: MessageHandlerErrorBehavior.ACK,
+        errorHandler: createRabbitMQErrorHandlerWithFallback(
+            'workflow.job.failed',
+        ),
+        queueOptions: {
+            channel: 'channel-cli-code-review',
+            arguments: {
+                'x-queue-type': 'quorum',
+                'x-dead-letter-exchange': 'workflow.exchange.dlx',
+                'x-dead-letter-routing-key': 'workflow.job.failed',
+            },
+        },
+    })
+    async handleCliCodeReviewJob(
+        message: WorkflowJobMessage | MessagePayload<WorkflowJobMessage>,
+        amqpMsg: ConsumeMessage,
+    ): Promise<void> {
+        return this.handleWorkflowJob(
+            'workflow-job-consumer.cli_code_review',
+            'workflow.jobs.cli_code_review.queue',
+            message,
+            amqpMsg,
+        );
+    }
+
+    /**
      * Implementation Check jobs
      * Delayed exchange bindings are created by RabbitMQDLQInitializer.
      */
@@ -259,6 +293,7 @@ export class WorkflowJobConsumer implements OnApplicationShutdown {
         if (queueName === 'workflow.jobs.ast_graph_incremental.queue')
             return 15;
         if (queueName === 'workflow.jobs.webhook.queue') return 20;
+        if (queueName === 'workflow.jobs.cli_code_review.queue') return 35;
         return 150;
     }
 

@@ -5,8 +5,13 @@ import {
     clearCredentials,
 } from '../utils/credentials.js';
 import { loadConfig, clearConfig } from '../utils/config.js';
-import type { StoredCredentials, AuthResponse } from '../types/auth.js';
+import type { StoredCredentials, AuthResponse, UserInfo } from '../types/auth.js';
 import { AuthError } from '../types/errors.js';
+import { loginViaBrowser } from './browser-login.service.js';
+import {
+    loginViaDeviceCode,
+    type DeviceLoginPrompt,
+} from './device-login.service.js';
 
 const TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000;
 
@@ -37,6 +42,56 @@ class AuthService {
         } catch {
             // Best effort cleanup.
         }
+    }
+
+    async loginViaBrowser({
+        onOpenUrl,
+    }: {
+        onOpenUrl?: (url: string) => void;
+    } = {}): Promise<UserInfo> {
+        const result = await loginViaBrowser({ onOpenUrl });
+        const response = this.buildAuthResponse(result);
+        await this.storeAuthResponse(response);
+        try {
+            await clearConfig();
+        } catch {
+            // Best effort cleanup.
+        }
+        return response.user;
+    }
+
+    async loginViaDeviceCode({
+        onPrompt,
+    }: {
+        onPrompt: (prompt: DeviceLoginPrompt) => void | Promise<void>;
+    }): Promise<UserInfo> {
+        const result = await loginViaDeviceCode({ onPrompt });
+        const response = this.buildAuthResponse(result);
+        await this.storeAuthResponse(response);
+        try {
+            await clearConfig();
+        } catch {
+            // Best effort cleanup.
+        }
+        return response.user;
+    }
+
+    private buildAuthResponse(input: {
+        accessToken: string;
+        refreshToken: string;
+        userEmail?: string;
+    }): AuthResponse {
+        const decoded = decodeJwtClaims(input.accessToken);
+        return {
+            accessToken: input.accessToken,
+            refreshToken: input.refreshToken,
+            expiresIn: decoded.expiresIn ?? 3600,
+            user: {
+                id: decoded.sub ?? 'unknown',
+                email: input.userEmail ?? decoded.email ?? 'unknown',
+                orgs: decoded.organizationId ? [decoded.organizationId] : [],
+            },
+        };
     }
 
     async logout(): Promise<void> {
@@ -168,3 +223,30 @@ class AuthService {
 
 export { AuthService };
 export const authService = new AuthService();
+
+interface DecodedJwtClaims {
+    sub?: string;
+    email?: string;
+    organizationId?: string;
+    expiresIn?: number;
+}
+
+function decodeJwtClaims(token: string): DecodedJwtClaims {
+    try {
+        const parts = token.split('.');
+        if (parts.length !== 3) return {};
+        const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
+        const expiresIn =
+            typeof payload.exp === 'number'
+                ? Math.max(0, payload.exp - Math.floor(Date.now() / 1000))
+                : undefined;
+        return {
+            sub: payload.sub,
+            email: payload.email,
+            organizationId: payload.organizationId,
+            expiresIn,
+        };
+    } catch {
+        return {};
+    }
+}

@@ -14,7 +14,7 @@ import {
     PlatformConfigValue,
 } from '@libs/organization/domain/parameters/types/configValue.type';
 import { ParametersKey } from '@libs/core/domain/enums';
-import posthogClient from '@libs/common/utils/posthog';
+import { TelemetryService } from '@libs/telemetry/application/services/telemetry.service';
 
 export class CreateTeamUseCase implements IUseCase {
     constructor(
@@ -23,10 +23,11 @@ export class CreateTeamUseCase implements IUseCase {
 
         @Inject(REQUEST)
         private readonly request: Request & {
-            user: { organization: { uuid: string } };
+            user: { organization: { uuid: string; name?: string }; uuid?: string };
         },
 
         private readonly createOrUpdateParametersUseCase: CreateOrUpdateParametersUseCase,
+        private readonly telemetry: TelemetryService,
     ) {}
 
     public async execute(payload: {
@@ -61,7 +62,17 @@ export class CreateTeamUseCase implements IUseCase {
             this.savePlatormConfigsParameters(orgId, team.uuid);
         }
 
-        posthogClient.teamIdentify(team);
+        if (team?.uuid) {
+            void this.telemetry.teamCreated({
+                teamId: team.uuid,
+                name: team.name,
+                organizationId: team.organization?.uuid ?? orgId,
+                organizationName:
+                    team.organization?.name ??
+                    this.request?.user?.organization?.name,
+                actorUserId: this.request?.user?.uuid,
+            });
+        }
 
         return team;
     }

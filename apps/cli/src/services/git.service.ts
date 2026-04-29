@@ -366,6 +366,34 @@ class GitService {
         return this.git.revparse(['HEAD']);
     }
 
+    /**
+     * Best-effort merge-base between HEAD and the upstream default branch.
+     * Tries, in order: the branch's @{upstream}, origin/HEAD, origin/main,
+     * origin/master. Returns undefined if none can be resolved — the caller
+     * decides what to do (e.g. fall back to HEAD or to legacy clone-by-branch).
+     */
+    async getMergeBaseWithUpstream(): Promise<string | undefined> {
+        const candidates = [
+            '@{upstream}',
+            'origin/HEAD',
+            'origin/main',
+            'origin/master',
+        ];
+        for (const ref of candidates) {
+            try {
+                // Resolve the ref first — revparse throws if it doesn't exist.
+                await this.git.revparse([ref]);
+                const sha = (
+                    await this.git.raw(['merge-base', 'HEAD', ref])
+                ).trim();
+                if (sha) return sha;
+            } catch {
+                // Ref doesn't exist locally / no merge base — try next.
+            }
+        }
+        return undefined;
+    }
+
     async getUserEmail(): Promise<string | undefined> {
         try {
             const email = await this.git.raw(['config', 'user.email']);
@@ -405,6 +433,12 @@ class GitService {
             info.commitSha = await this.getHeadCommit();
         } catch {
             // No commits yet
+        }
+
+        try {
+            info.mergeBaseSha = await this.getMergeBaseWithUpstream();
+        } catch {
+            // No upstream configured / fresh repo
         }
 
         return info;

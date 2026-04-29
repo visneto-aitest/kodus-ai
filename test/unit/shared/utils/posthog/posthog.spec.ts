@@ -1,7 +1,3 @@
-import { IOrganization } from '@/core/domain/organization/interfaces/organization.interface';
-import { ITeam } from '@/core/domain/team/interfaces/team.interface';
-import { IUser } from '@/core/domain/user/interfaces/user.interface';
-
 jest.mock('posthog-node');
 
 const getClient = async (key: string) => {
@@ -33,100 +29,6 @@ describe('PostHogClient', () => {
         });
     });
 
-    describe('userIdentify', () => {
-        it('should call identify when PostHog is initialized', async () => {
-            const posthogClient = await getClient('test-key');
-            posthogClient.userIdentify({
-                uuid: '123',
-                email: 'test@test.com',
-                organization: { uuid: '123', name: 'test' },
-            } as IUser);
-            expect(posthogClient['posthog'].identify).toHaveBeenCalledWith({
-                distinctId: '123',
-                properties: {
-                    email: 'test@test.com',
-                    id: '123',
-                    organizationId: '123',
-                    organizationName: 'test',
-                },
-            });
-        });
-
-        it('should not call identify when PostHog is not initialized', async () => {
-            const posthogClient = await getClient('');
-            posthogClient.userIdentify({
-                uuid: '123',
-                email: 'test@test.com',
-            } as IUser);
-            expect(posthogClient['posthog']).toBeNull();
-        });
-    });
-
-    describe('organizationIdentify', () => {
-        it('should call identify when PostHog is initialized', async () => {
-            const posthogClient = await getClient('test-key');
-            posthogClient.organizationIdentify({
-                uuid: '123',
-                name: 'test',
-                tenantName: 'test',
-            } as IOrganization);
-            expect(posthogClient['posthog'].groupIdentify).toHaveBeenCalledWith(
-                {
-                    groupType: 'organization',
-                    groupKey: '123',
-                    properties: {
-                        name: 'test',
-                        tenantName: 'test',
-                        id: '123',
-                    },
-                },
-            );
-        });
-
-        it('should not call identify when PostHog is not initialized', async () => {
-            const posthogClient = await getClient('');
-            posthogClient.organizationIdentify({
-                uuid: '123',
-                name: 'test',
-                tenantName: 'test',
-            } as IOrganization);
-            expect(posthogClient['posthog']).toBeNull();
-        });
-    });
-
-    describe('teamIdentify', () => {
-        it('should call identify when PostHog is initialized', async () => {
-            const posthogClient = await getClient('test-key');
-            posthogClient.teamIdentify({
-                uuid: '123',
-                name: 'test',
-                organization: { uuid: '123', name: 'test' },
-            } as ITeam);
-            expect(posthogClient['posthog'].groupIdentify).toHaveBeenCalledWith(
-                {
-                    groupType: 'team',
-                    groupKey: '123',
-                    properties: {
-                        name: 'test',
-                        id: '123',
-                        organizationId: '123',
-                        organizationName: 'test',
-                    },
-                },
-            );
-        });
-
-        it('should not call identify when PostHog is not initialized', async () => {
-            const posthogClient = await getClient('');
-            posthogClient.teamIdentify({
-                uuid: '123',
-                name: 'test',
-                organization: { uuid: '123', name: 'test' },
-            } as ITeam);
-            expect(posthogClient['posthog']).toBeNull();
-        });
-    });
-
     describe('isFeatureEnabled', () => {
         it('should call isFeatureEnabled when PostHog is initialized', async () => {
             const posthogClient = await getClient('test-key');
@@ -145,11 +47,8 @@ describe('PostHogClient', () => {
             const isFeatureEnabled = await posthogClient.isFeatureEnabled(
                 'test-feature',
                 '123',
-                {
-                    organizationId: '456',
-                } as any,
+                { organizationId: '456' } as any,
             );
-            expect(posthogClient['posthog']).toBeNull();
             expect(isFeatureEnabled).toBe(true);
         });
     });

@@ -21,7 +21,6 @@ import {
     DialogTitle,
 } from "src/core/components/ui/dialog";
 import { AuthMode, PlatformType } from "src/core/types";
-import { captureSegmentEvent } from "src/core/utils/segment";
 import { z } from "zod";
 
 const tokenFormSchema = z.object({
@@ -71,16 +70,6 @@ export const BitbucketTokenModal = (props: {
                 },
                 username: data.username,
                 email: data.email,
-            });
-
-            captureSegmentEvent({
-                userId: props?.userId!,
-                event: "setup_git_integration_success",
-                properties: {
-                    platform: "bitbucket",
-                    method: "token",
-                    teamId: props?.teamId,
-                },
             });
 
             switch (integrationResponse.data.status) {

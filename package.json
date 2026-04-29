@@ -237,7 +237,6 @@
         "@opentelemetry/sdk-trace-node": "^2.7.0",
         "@pyroscope/nodejs": "^0.4.11",
         "@react-email/render": "^2.0.7",
-        "@segment/analytics-node": "^3.0.0",
         "@sentry/nestjs": "^10.50.0",
         "@sentry/node": "^10.50.0",
         "@sentry/opentelemetry": "^10.50.0",

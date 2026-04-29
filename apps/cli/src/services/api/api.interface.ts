@@ -43,6 +43,13 @@ export interface GitMetrics {
     gitRemote?: string;
     branch?: string;
     commitSha?: string;
+    /**
+     * Merge-base between HEAD and the upstream default branch. Sent so the
+     * sandbox can checkout this commit (always present on the remote) and
+     * apply the local diff on top — works for branches not yet pushed and
+     * for uncommitted changes.
+     */
+    mergeBaseSha?: string;
     inferredPlatform?: 'GITHUB' | 'GITLAB' | 'BITBUCKET' | 'AZURE_REPOS';
     cliVersion?: string;
 }
@@ -58,6 +65,7 @@ export interface IReviewApi {
         accessToken: string,
         config?: ReviewConfig,
         metrics?: GitMetrics,
+        onProgress?: (status: string) => void,
     ): Promise<ReviewResult>;
     getPullRequestSuggestions(
         accessToken: string,
@@ -79,7 +87,12 @@ export interface IReviewApi {
             diff?: string;
         },
     ): Promise<BusinessValidationResponse>;
-    trialAnalyze(diff: string, fingerprint: string): Promise<TrialReviewResult>;
+    trialAnalyze(
+        diff: string,
+        fingerprint: string,
+        metrics?: GitMetrics,
+        githubPat?: string,
+    ): Promise<TrialReviewResult>;
 }
 
 export interface ITrialApi {

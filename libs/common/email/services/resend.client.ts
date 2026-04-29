@@ -18,12 +18,4 @@ export class ResendClientProvider {
         }
         return this.client;
     }
-
-    getWebhookSecret(): string {
-        const secret = this.configService.get<string>('RESEND_WEBHOOK_SECRET');
-        if (!secret) {
-            throw new Error('RESEND_WEBHOOK_SECRET is not set');
-        }
-        return secret;
-    }
 }
