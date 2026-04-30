@@ -75,6 +75,7 @@ KEYS=(
     "/qa/kodus-orchestrator/API_GOOGLE_AI_API_KEY"
     "/qa/kodus-orchestrator/API_ANTHROPIC_API_KEY"
 
+    "/qa/kodus-orchestrator/N8N_WEBHOOK_URL"
     "/qa/kodus-orchestrator/API_SIGNUP_NOTIFICATION_WEBHOOK"
     "/qa/kodus-orchestrator/API_CRYPTO_KEY"
 

@@ -3571,6 +3571,10 @@ export class GitlabService implements Omit<
      * Other providers' webhooks expose the PR author directly, so license
      * validation works there. This resolves the real author by `author_id`
      * (only field GitLab gives us in the payload) and caches the result.
+     *
+     * On a Note Hook, `object_attributes.author_id` is the *commenter*, so we
+     * must prefer `merge_request.author_id` whenever a `merge_request` block
+     * is present in the payload.
      */
     async resolveMrAuthorFromWebhookPayload(params: {
         organizationAndTeamData: OrganizationAndTeamData;
@@ -3579,8 +3583,8 @@ export class GitlabService implements Omit<
         const { payload, organizationAndTeamData } = params;
 
         const authorId =
-            payload?.object_attributes?.author_id ??
-            payload?.merge_request?.author_id;
+            payload?.merge_request?.author_id ??
+            payload?.object_attributes?.author_id;
 
         if (!authorId || !organizationAndTeamData?.organizationId) {
             return null;

@@ -65,9 +65,12 @@ describe('GitlabService.resolveMrAuthorFromWebhookPayload', () => {
 
     it('resolves the author from merge_request.author_id (Note Hook)', async () => {
         const payload = {
-            object_attributes: { id: 1, note: 'hi' },
+            // On Note Hook, object_attributes.author_id is the COMMENTER —
+            // not the MR author. The resolver must ignore it when a
+            // merge_request block exists.
+            object_attributes: { id: 1, note: 'hi', author_id: 999 },
             merge_request: { author_id: 42 },
-            user: { id: 99, username: 'commenter' },
+            user: { id: 999, username: 'commenter' },
         };
 
         const result = await service.resolveMrAuthorFromWebhookPayload({
