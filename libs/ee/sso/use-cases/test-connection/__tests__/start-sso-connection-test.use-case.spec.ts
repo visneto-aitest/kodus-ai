@@ -97,4 +97,25 @@ describe('StartSSOConnectionTestUseCase', () => {
             }),
         ).rejects.toBeInstanceOf(InternalServerErrorException);
     });
+
+    it('strips trailing slash from API_URL so the redirect is not double-slashed', async () => {
+        // Regression: a trailing slash on API_URL produced
+        // "http://host//auth/sso/login/..." — Keycloak still served
+        // the login page at the doubled path so the bug looked
+        // cosmetic, but it breaks any IdP that does strict path
+        // matching.
+        process.env.API_URL = 'https://api.example.com/';
+        const { useCase } = makeSut();
+
+        const result = await useCase.execute({
+            organizationId: 'org-1',
+            protocol: SSOProtocol.SAML,
+            providerConfig: validProviderConfig,
+            domains: ['acme.com'],
+        });
+
+        expect(result.redirectUrl).toBe(
+            'https://api.example.com/auth/sso/login/org-1?RelayState=session-1',
+        );
+    });
 });
