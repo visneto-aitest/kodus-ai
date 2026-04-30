@@ -1,19 +1,25 @@
-import type { SpanProcessor } from '@opentelemetry/sdk-trace-base';
 import * as Sentry from '@sentry/nestjs';
 
 let sentryInitialized = false;
 
 /**
+ * `skipOpenTelemetrySetup` is intentional: Sentry's OTel setup installs a
+ * `BasicTracerProvider` whose `SentrySampler` returns `NOT_RECORD` whenever
+ * `tracesSampleRate` is unset (default), and that decision is made *before*
+ * any registered span processor sees the span — so injecting Langfuse via
+ * `openTelemetrySpanProcessors` resulted in the processor being attached
+ * but never invoked. With `skipOpenTelemetrySetup: true` Sentry still
+ * captures errors via its own API (`captureException`, etc. — what
+ * `reportExceptionToSentry` uses); only the OTel side is left to us, so
+ * Langfuse can register its own provider unconditionally and receive every
+ * span without going through Sentry's sampler.
+ *
  * Returns `true` when Sentry was actually initialized (DSN present and
- * `Sentry.init` succeeded). Callers use this to decide whether they still
- * need to register their own OTel TracerProvider — when Sentry initializes,
- * it sets the global TracerProvider itself and any extra
- * `openTelemetrySpanProcessors` are wired into it; when Sentry skips
- * (no DSN), the caller must install its own provider.
+ * `Sentry.init` succeeded). Callers don't need this today, but keeping the
+ * signal makes future "is error tracking on?" branches trivial.
  */
 export function setupSentry(
     componentType: 'api' | 'worker' | 'webhook',
-    openTelemetrySpanProcessors: SpanProcessor[] = [],
 ): boolean {
     if (sentryInitialized) {
         return true;
@@ -40,7 +46,7 @@ export function setupSentry(
                     component: componentType,
                 },
             },
-            openTelemetrySpanProcessors,
+            skipOpenTelemetrySetup: true,
         });
 
         sentryInitialized = true;
