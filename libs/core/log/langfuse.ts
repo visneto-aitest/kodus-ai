@@ -1,6 +1,6 @@
 import { LangfuseSpanProcessor } from '@langfuse/otel';
 import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
-import { trace, type AttributeValue } from '@opentelemetry/api';
+import type { AttributeValue } from '@opentelemetry/api';
 
 let spanProcessor: LangfuseSpanProcessor | null = null;
 let ownTracerProvider: NodeTracerProvider | null = null;
@@ -33,15 +33,23 @@ function installBeforeExitFlush(): void {
 }
 
 /**
- * Register Langfuse's OTel span processor so Vercel AI SDK
- * `experimental_telemetry` and manual `startActiveObservation` spans flow to
- * Langfuse. Safe to call from every app entrypoint; later calls are no-ops.
+ * Build (and cache) the `LangfuseSpanProcessor` without registering it on a
+ * TracerProvider. The processor must be wired into the global provider by
+ * the caller — either via `Sentry.init({ openTelemetrySpanProcessors })`
+ * when Sentry's OTel setup runs, or via `registerLangfuseStandalone()`
+ * when it doesn't.
  *
- * Coexists with Sentry (`@sentry/opentelemetry`) by attaching the processor
- * to the already-registered provider. If no provider is registered yet,
- * bootstraps a fresh `NodeTracerProvider`.
+ * Why split create from register: `@opentelemetry/sdk-trace-base@2.x`
+ * removed `addSpanProcessor` from `BasicTracerProvider`, so processors can
+ * only be passed via constructor `spanProcessors`. And once Sentry calls
+ * `trace.setGlobalTracerProvider(...)`, the OTel ProxyTracerProvider
+ * silently ignores any later `register()` — meaning a NodeTracerProvider
+ * spun up after Sentry never receives spans. This function defers that
+ * choice to the caller, where the order is known.
+ *
+ * Returns `null` when tracing is disabled (env vars unset). Idempotent.
  */
-export function setupLangfuseTracing(): LangfuseSpanProcessor | null {
+export function createLangfuseSpanProcessor(): LangfuseSpanProcessor | null {
     if (spanProcessor) return spanProcessor;
     if (!shouldTrace()) return null;
 
@@ -52,24 +60,30 @@ export function setupLangfuseTracing(): LangfuseSpanProcessor | null {
             'development',
     });
 
-    const provider = trace.getTracerProvider() as any;
-    const delegate =
-        typeof provider?.getDelegate === 'function'
-            ? provider.getDelegate()
-            : provider;
-
-    if (typeof delegate?.addSpanProcessor === 'function') {
-        delegate.addSpanProcessor(spanProcessor);
-    } else {
-        ownTracerProvider = new NodeTracerProvider({
-            spanProcessors: [spanProcessor],
-        });
-        ownTracerProvider.register();
-    }
-
     installBeforeExitFlush();
-
     return spanProcessor;
+}
+
+/**
+ * Register the Langfuse span processor on a dedicated `NodeTracerProvider`
+ * and install it as the global provider. Use only when Sentry's OTel setup
+ * did NOT run (no DSN configured) — otherwise the second
+ * `trace.setGlobalTracerProvider` call is silently rejected by the OTel
+ * ProxyTracerProvider and spans never reach Langfuse. When Sentry runs,
+ * pass the processor to `Sentry.init({ openTelemetrySpanProcessors })`
+ * instead so Sentry's own provider fans spans out to both.
+ *
+ * Idempotent.
+ */
+export function registerLangfuseStandalone(): void {
+    if (ownTracerProvider) return;
+    const processor = createLangfuseSpanProcessor();
+    if (!processor) return;
+
+    ownTracerProvider = new NodeTracerProvider({
+        spanProcessors: [processor],
+    });
+    ownTracerProvider.register();
 }
 
 export async function flushLangfuse(): Promise<void> {

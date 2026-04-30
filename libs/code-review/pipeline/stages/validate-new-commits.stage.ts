@@ -59,6 +59,7 @@ export class ValidateNewCommitsStage extends BasePipelineStage<CodeReviewPipelin
         let lastAnalyzedCommit: string | undefined;
         let lastExecutionResult: any;
         let forceFullRerun = false;
+        let orphanedBaseCommit: CodeReviewPipelineContext['orphanedBaseCommit'];
 
         if (lastExecution?.dataExecution?.lastAnalyzedCommit) {
             lastAnalyzedCommit = lastExecution.dataExecution.lastAnalyzedCommit;
@@ -116,6 +117,35 @@ export class ValidateNewCommitsStage extends BasePipelineStage<CodeReviewPipelin
             );
             if (lastCommitIndex !== -1) {
                 newCommits = allCommits.slice(lastCommitIndex + 1);
+            } else {
+                // Base commit is no longer reachable from the PR branch
+                // (rebase or force-push rewrote history). Falling back to a
+                // full review is the only safe option — using compare(orphan, head)
+                // would return diff lines that came from the target branch via
+                // rebase, and Kody would comment on code the author never wrote.
+                forceFullRerun = true;
+                if (lastExecutionResult) {
+                    lastExecutionResult.lastAnalyzedCommit = undefined;
+                }
+                orphanedBaseCommit = {
+                    previousSha: lastCommitSha,
+                    currentHeadSha: context.pullRequest.head?.sha,
+                    totalCommits: allCommits.length,
+                };
+                this.logger.warn({
+                    message: `Orphaned base commit detected for PR#${context.pullRequest.number} — falling back to full review`,
+                    context: this.stageName,
+                    metadata: {
+                        organizationAndTeamData:
+                            context.organizationAndTeamData,
+                        repository: context.repository.name,
+                        pullRequestNumber: context.pullRequest.number,
+                        orphanedSha: lastCommitSha,
+                        currentHeadSha: context.pullRequest.head?.sha,
+                        totalCommits: allCommits.length,
+                        reason: 'orphaned_base_commit',
+                    },
+                });
             }
         }
 
@@ -180,6 +210,9 @@ export class ValidateNewCommitsStage extends BasePipelineStage<CodeReviewPipelin
             draft.prAllCommits = allCommits;
             if (lastExecutionResult) {
                 draft.lastExecution = lastExecutionResult;
+            }
+            if (orphanedBaseCommit) {
+                draft.orphanedBaseCommit = orphanedBaseCommit;
             }
             draft.pipelineMetadata = {
                 ...draft.pipelineMetadata,

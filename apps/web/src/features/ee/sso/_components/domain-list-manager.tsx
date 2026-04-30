@@ -19,6 +19,11 @@ interface DomainListManagerProps {
     errorMessage?: string;
     hasDomainMismatch: boolean;
     userDomain: string;
+    onAutoVerified?: (data: {
+        domain: string;
+        contactEmail: string;
+        verifiedAt: string;
+    }) => void;
 }
 
 export const DomainListManager = ({
@@ -28,6 +33,7 @@ export const DomainListManager = ({
     errorMessage,
     hasDomainMismatch,
     userDomain,
+    onAutoVerified,
 }: DomainListManagerProps) => {
     const [newDomainValue, setNewDomainValue] = useState("");
     const [domainBeingVerified, setDomainBeingVerified] = useState("");
@@ -151,6 +157,7 @@ export const DomainListManager = ({
                 open={isDomainModalOpen}
                 onOpenChange={closeVerifyDomainModal}
                 domain={domainBeingVerified}
+                onAutoVerified={onAutoVerified}
             />
         </>
     );

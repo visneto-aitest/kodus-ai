@@ -304,6 +304,7 @@ export class CodeReviewHandlerService {
                 threadId: result?.initialCommentData?.threadId,
                 automaticReviewStatus: result?.automaticReviewStatus,
                 statusInfo: finalStatus,
+                orphanedBaseCommit: result?.orphanedBaseCommit,
             };
         } catch (error) {
             if (initialContext) {

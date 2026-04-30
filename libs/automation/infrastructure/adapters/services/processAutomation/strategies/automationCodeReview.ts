@@ -531,6 +531,12 @@ export class AutomationCodeReviewService implements Omit<
             });
         }
 
+        if (result.orphanedBaseCommit) {
+            Object.assign(baseData, {
+                orphanedBaseCommit: result.orphanedBaseCommit,
+            });
+        }
+
         if (result.businessLogicPrBodyHash) {
             Object.assign(baseData, {
                 businessLogicHash: result.businessLogicPrBodyHash,

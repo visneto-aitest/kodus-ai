@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import { createLogger } from '@kodus/flow';
 import { EmailService } from '@libs/common/email/services/email.service';
 import { CacheService } from '@libs/core/cache/cache.service';
+import { environment } from '@libs/ee/configs/environment';
 import {
     BadRequestException,
     Injectable,
@@ -51,7 +52,9 @@ export class SSODomainVerificationService {
     private assertDomainContactEmail(
         domain: string,
         contactEmail: string,
+        options: { requireDomainMatch?: boolean } = {},
     ): void {
+        const { requireDomainMatch = true } = options;
         const normalizedDomain = this.normalizeDomain(domain);
         const normalizedEmail = String(contactEmail || '')
             .trim()
@@ -68,7 +71,16 @@ export class SSODomainVerificationService {
             throw new BadRequestException('A valid contact email is required');
         }
 
-        if (!normalizedEmail.endsWith(`@${normalizedDomain}`)) {
+        // Cloud only: prove the requester controls email at the domain by
+        // requiring the contact to live at it (we'll actually send a
+        // verification link there). In self-hosted there's no email
+        // handshake, so the address is just audit metadata — admins
+        // legitimately want to use their own work email even when the
+        // SSO domain belongs to a different brand they manage.
+        if (
+            requireDomainMatch &&
+            !normalizedEmail.endsWith(`@${normalizedDomain}`)
+        ) {
             throw new BadRequestException(
                 'The contact email must belong to the domain being verified.',
             );
@@ -87,7 +99,48 @@ export class SSODomainVerificationService {
             .trim()
             .toLowerCase();
 
-        this.assertDomainContactEmail(normalizedDomain, normalizedEmail);
+        this.assertDomainContactEmail(normalizedDomain, normalizedEmail, {
+            requireDomainMatch: environment.API_CLOUD_MODE,
+        });
+
+        // Self-hosted skip: in self-hosted mode the deployment is
+        // single-tenant and the admin already controls the box (DB,
+        // secrets, SSH). Asking them to prove they control email at the
+        // domain via an out-of-band Resend/Customer.io handshake adds
+        // no real security but blocks SSO setup behind a SaaS email
+        // provider they may not want to configure. Mirrors the email-
+        // confirmation skip in join-organization.use-case.ts.
+        if (!environment.API_CLOUD_MODE) {
+            const record: SSODomainVerificationRecord = {
+                domain: normalizedDomain,
+                verifiedByEmail: normalizedEmail,
+                verifiedAt: new Date(),
+            };
+
+            await this.cacheService.addToCache(
+                this.statusKey(params.organizationId, normalizedDomain),
+                record,
+                DOMAIN_VERIFICATION_STATUS_TTL_MS,
+            );
+
+            this.logger.log({
+                message: 'SSO domain auto-verified (self-hosted mode)',
+                context: SSODomainVerificationService.name,
+                serviceName: SSODomainVerificationService.name,
+                metadata: {
+                    organizationId: params.organizationId,
+                    domain: normalizedDomain,
+                    contactEmail: normalizedEmail,
+                    requestedBy: params.requestedBy,
+                },
+            });
+
+            return {
+                domain: normalizedDomain,
+                contactEmail: normalizedEmail,
+                sent: false,
+            };
+        }
 
         const token = randomUUID();
         const payload: PendingDomainVerificationToken = {

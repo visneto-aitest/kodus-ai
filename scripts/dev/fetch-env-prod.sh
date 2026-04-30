@@ -114,6 +114,7 @@ KEYS=(
     "/prod/kodus-orchestrator/COHERE_API_KEY"
     "/prod/kodus-orchestrator/API_FIREWORKS_API_KEY"
 
+    "/prod/kodus-orchestrator/N8N_WEBHOOK_URL"
     "/prod/kodus-orchestrator/API_SIGNUP_NOTIFICATION_WEBHOOK"
     "/prod/kodus-orchestrator/API_CRYPTO_KEY"
 

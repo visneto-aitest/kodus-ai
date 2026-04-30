@@ -1066,6 +1066,25 @@ export const ClientSsoOrganizationSettingsPage = (props: {
                                                             userDomain={
                                                                 userDomain
                                                             }
+                                                            onAutoVerified={(
+                                                                record,
+                                                            ) =>
+                                                                setDomainVerificationStatusByDomain(
+                                                                    (prev) => ({
+                                                                        ...prev,
+                                                                        [record.domain]:
+                                                                            {
+                                                                                domain: record.domain,
+                                                                                verified:
+                                                                                    true,
+                                                                                verifiedAt:
+                                                                                    record.verifiedAt,
+                                                                                verifiedByEmail:
+                                                                                    record.contactEmail,
+                                                                            },
+                                                                    }),
+                                                                )
+                                                            }
                                                         />
                                                     </>
                                                 )}
