@@ -262,7 +262,7 @@ export class CockpitProductivityController {
 // -------------------------------------------------------------------------
 // /cockpit/weekly-recap  — admin-triggered weekly summary email
 // Replaces the legacy n8n flow that called Customer.io. Sends one email
-// per ACTIVE user in the org with metrics from the cockpit warehouse.
+// per ACTIVE owner of the org with metrics from the cockpit warehouse.
 // -------------------------------------------------------------------------
 
 type SendWeeklyRecapBody = {
@@ -281,7 +281,7 @@ export class CockpitWeeklyRecapController {
     @Post('/')
     @ApiOperation({
         summary:
-            'Send the weekly recap email to all ACTIVE users of an organization. Skips orgs with zero PRs in the window.',
+            'Send the weekly recap email to ACTIVE owners of an organization. Skips orgs with zero PRs in the window.',
     })
     send(@Body() body: SendWeeklyRecapBody) {
         if (!body?.organizationId || !body?.startDate || !body?.endDate) {

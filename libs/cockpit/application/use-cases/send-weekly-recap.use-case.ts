@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 
 import { EmailService } from '@libs/common/email/services/email.service';
 import { STATUS } from '@libs/core/infrastructure/config/types/database/status.type';
+import { Role } from '@libs/identity/domain/permissions/enums/permissions.enum';
 import {
     IUsersService,
     USER_SERVICE_TOKEN,
@@ -88,7 +89,7 @@ export class SendWeeklyRecapUseCase {
         }
 
         const users = await this.usersService.find(
-            { organization: { uuid: organizationId } },
+            { organization: { uuid: organizationId }, role: Role.OWNER },
             [STATUS.ACTIVE],
         );
         if (!users || users.length === 0) {
@@ -240,8 +241,12 @@ export class SendWeeklyRecapUseCase {
         const suggestionsApplied =
             dashboard.additionalMetrics.suggestionsImplementedCount ?? 0;
 
+        // currentPeriod.ratio is already a percentage (e.g. 17.51), but the
+        // template's `bugRatio` prop is contracted as 0..1 and multiplies by
+        // 100 again — pass the fraction here to honour that contract.
         const bugRatio =
-            dashboard.additionalMetrics.bugRatio?.currentPeriod.ratio ?? 0;
+            (dashboard.additionalMetrics.bugRatio?.currentPeriod.ratio ?? 0) /
+            100;
         const bugRatioTrend =
             dashboard.additionalMetrics.bugRatio?.comparison.trend ??
             'unchanged';

@@ -711,6 +711,8 @@ export class CockpitDeveloperProductivityService {
             this.codeHealth.getImplementationRate({
                 organizationId: q.organizationId,
                 repository: q.repository,
+                startDate: q.startDate,
+                endDate: q.endDate,
             }),
             this.getLeadTimeHighlight(q),
             this.getDeployFrequencyHighlight(q),

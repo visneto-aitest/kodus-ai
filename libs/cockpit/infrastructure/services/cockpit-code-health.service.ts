@@ -214,25 +214,50 @@ export class CockpitCodeHealthService {
     }
 
     async getImplementationRate(
-        q: Pick<CockpitRangeQuery, 'organizationId' | 'repository'>,
+        q: Pick<CockpitRangeQuery, 'organizationId' | 'repository'> &
+            Partial<Pick<CockpitRangeQuery, 'startDate' | 'endDate'>>,
     ): Promise<SuggestionsImplementationRate> {
         const params: unknown[] = [q.organizationId];
         const repoFilter = q.repository
             ? (params.push(q.repository), `AND pr.repo_full_name = $${params.length}`)
             : '';
 
+        // When the caller supplies a window, scope both the suggestion and PR
+        // populations to PRs closed inside it — the weekly recap needs the
+        // numerator (implemented) and denominator (sent) to share the same
+        // recap range. Otherwise fall back to the legacy "last 14 days" view
+        // used by the cockpit highlight endpoint.
+        const hasRange = Boolean(q.startDate && q.endDate);
+        let svFilter: string;
+        let prFilter: string;
+        if (hasRange) {
+            params.push(q.startDate, q.endDate);
+            const startIdx = params.length - 1;
+            const endIdx = params.length;
+            svFilter = `s."suggestionDeliveryStatus" = 'sent'`;
+            prFilter = `pr."organizationId" = $1
+                   AND pr."closedAt" IS NOT NULL AND pr."closedAt" <> ''
+                   AND pr."status" = 'closed'
+                   AND pr.parsed_closed_at >= $${startIdx}::timestamptz
+                   AND pr.parsed_closed_at <= $${endIdx}::timestamptz
+                   ${repoFilter}`;
+        } else {
+            svFilter = `s."suggestionDeliveryStatus" = 'sent'
+                   AND s."suggestionCreatedAt" >= (now() - interval '14 days')`;
+            prFilter = `pr."organizationId" = $1
+                   ${repoFilter}`;
+        }
+
         const rows = (await this.ds.query(
             `WITH sv AS (
                 SELECT s.*
                   FROM "analytics"."suggestions_mv" s
-                 WHERE s."suggestionDeliveryStatus" = 'sent'
-                   AND s."suggestionCreatedAt" >= (now() - interval '14 days')
+                 WHERE ${svFilter}
             ),
             pr AS (
                 SELECT "_id"
                   FROM "analytics"."pull_requests_opt" pr
-                 WHERE pr."organizationId" = $1
-                   ${repoFilter}
+                 WHERE ${prFilter}
             )
             SELECT
                 COUNT(*)::int AS suggestions_sent,
