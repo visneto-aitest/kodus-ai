@@ -177,6 +177,8 @@
         "email:preview": "email dev --dir libs/common/email/templates --port 3737",
         "email:export": "email export --dir libs/common/email/templates --outDir .react-email/out",
         "email:test": "ts-node --transpile-only -r tsconfig-paths/register scripts/dev/test-emails.ts",
+        "telemetry:preview": "ts-node --transpile-only -r tsconfig-paths/register scripts/dev/telemetry-cli.ts",
+        "telemetry:send": "ts-node --transpile-only -r tsconfig-paths/register scripts/dev/telemetry-cli.ts --send",
         "docker:start:web": "docker compose -f docker-compose.dev.yml up web",
         "docker:start:all": "docker compose -f docker-compose.dev.yml up"
     },
