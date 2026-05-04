@@ -8,14 +8,20 @@ name: "MCP Manager: Production EC2 Deploy"
 # Build uses `--target=mcp-manager` against the unified docker/Dockerfile
 # (shared with api/webhooks/worker).
 #
-# Triggered by GitHub Releases (matches what the standalone repo did).
-# A pre-release does NOT deploy to prod — only stable releases.
+# Triggered by GitHub Releases tagged `mcp-manager-X.Y.Z` (mirrors the
+# `web-*` / `selfhosted-*` convention used elsewhere in this monorepo).
+# A pre-release does NOT deploy. Manual `workflow_dispatch` accepts an
+# optional image_tag input, falling back to `github.sha`.
 
 on:
     release:
         types:
             - published
     workflow_dispatch:
+        inputs:
+            image_tag:
+                description: "Docker image tag to build/push (default: github.sha)"
+                required: false
 
 permissions:
     contents: read
@@ -26,11 +32,30 @@ jobs:
         name: Build and push image
         runs-on: ubuntu-latest
         environment: PRODUCTION
-        if: github.event_name == 'workflow_dispatch' || github.event.release.prerelease == false
+        if: |
+            github.event_name == 'workflow_dispatch' ||
+            (github.event_name == 'release' &&
+             github.event.release.prerelease == false &&
+             startsWith(github.event.release.tag_name, 'mcp-manager-'))
+        outputs:
+            image_tag: ${{ steps.tag.outputs.image_tag }}
 
         steps:
             - name: Checkout code
               uses: actions/checkout@v4
+
+            - name: Resolve image tag
+              id: tag
+              run: |
+                  if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+                      TAG="${{ github.event.inputs.image_tag }}"
+                      if [ -z "$TAG" ]; then
+                          TAG="${{ github.sha }}"
+                      fi
+                  else
+                      TAG="${{ github.event.release.tag_name }}"
+                  fi
+                  echo "image_tag=$TAG" >> "$GITHUB_OUTPUT"
 
             - name: Configure AWS Credentials
               uses: aws-actions/configure-aws-credentials@v4
@@ -50,7 +75,7 @@ jobs:
               env:
                   ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
                   ECR_REPOSITORY: kodus-mcp-manager-prod
-                  IMAGE_TAG: ${{ github.sha }}
+                  IMAGE_TAG: ${{ steps.tag.outputs.image_tag }}
               run: |
                   docker buildx build \
                       --file docker/Dockerfile \
@@ -96,7 +121,7 @@ jobs:
                   key: ${{ secrets.AWS_PROD_KEY_SSH }}
                   script: |
                       cd ~/kodus-mcp-manager
-                      ./start-app.sh prod ${{ github.sha }} ${{ github.ref }}
+                      ./start-app.sh prod ${{ needs.build_and_push_image.outputs.image_tag }} ${{ github.ref }}
 
             - name: Remove Github Actions IP from security group
               if: always()
