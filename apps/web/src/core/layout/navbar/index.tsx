@@ -20,6 +20,7 @@ import {
     InfoIcon,
     LibraryBig,
     SlidersHorizontalIcon,
+    TerminalIcon,
 } from "lucide-react";
 import { ErrorBoundary } from "react-error-boundary";
 import { UserNav } from "src/core/layout/navbar/_components/user-nav";
@@ -123,6 +124,13 @@ export const NavMenu = () => {
                 href: "/pull-requests",
                 visible: canReadPullRequests,
                 icon: <GitPullRequestIcon className="size-5" />,
+            });
+
+            items.push({
+                label: "CLI Reviews",
+                href: "/cli-reviews",
+                visible: canReadPullRequests,
+                icon: <TerminalIcon className="size-5" />,
             });
         }
 

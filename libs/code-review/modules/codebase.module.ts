@@ -61,7 +61,9 @@ import { NullSandboxProvider } from '../infrastructure/adapters/services/nullSan
 import { PullRequestHandlerService } from '../infrastructure/adapters/services/pullRequestManager.service';
 import { SuggestionService } from '../infrastructure/adapters/services/suggestion.service';
 
+import { OrganizationModule } from '@libs/organization/modules/organization.module';
 import { OrganizationParametersModule } from '@libs/organization/modules/organizationParameters.module';
+import { UserModule } from '@libs/identity/modules/user.module';
 
 import { codeReviewPipelineProvider } from '@libs/core/providers/code-review-pipeline.provider.ee';
 import { pipelineProvider } from '@libs/core/providers/pipeline.provider.ee';
@@ -93,6 +95,8 @@ import { DocumentationContextModule } from './documentation-context.module';
         forwardRef(() => PermissionValidationModule),
         forwardRef(() => AIEngineModule),
         forwardRef(() => OrganizationParametersModule),
+        forwardRef(() => OrganizationModule),
+        forwardRef(() => UserModule),
         forwardRef(() => DryRunModule),
         forwardRef(() => DocumentationContextModule),
         AstGraphModule,

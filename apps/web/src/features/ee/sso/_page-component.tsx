@@ -23,9 +23,9 @@ import {
 } from "@services/ssoConfig/fetch";
 import { AlertCircle, Save, Upload } from "lucide-react";
 import { Controller, useForm } from "react-hook-form";
+import { useConfig } from "@providers/ConfigProvider";
 import { useAuth } from "src/core/providers/auth.provider";
 import { publicDomainsSet } from "src/core/utils/email";
-import { pathToApiUrl } from "src/core/utils/helpers";
 import { revalidateServerSidePath } from "src/core/utils/revalidate-server-side";
 import {
     buildSSOConfigFingerprint,
@@ -156,6 +156,7 @@ export const ClientSsoOrganizationSettingsPage = (props: {
     const router = useRouter();
     const searchParams = useSearchParams();
     const { organizationId } = useAuth();
+    const { apiPublicUrl } = useConfig();
     const ssoTestSessionId = searchParams.get("ssoTestSessionId");
     const domainVerificationToken = searchParams.get("domainVerificationToken");
     const [metadataUrl, setMetadataUrl] = useState<string>("");
@@ -175,9 +176,18 @@ export const ClientSsoOrganizationSettingsPage = (props: {
             : "",
     );
 
-    const callbackUrl = pathToApiUrl(
-        `/auth/sso/saml/callback/${organizationId}`,
-    );
+    // SAML ACS URL displayed for the customer to paste into their IdP.
+    // Must be (1) absolute — the IdP is an external system and can't
+    // resolve relative paths — and (2) point at the API's public
+    // origin directly, NOT at the same-origin /api/proxy/api/*
+    // mount. The proxy is for browser fetches; SAML is a stateful
+    // server-side flow that requires session cookies on the API's
+    // own origin. See ssoLogin in lib/auth/fetchers.ts for the
+    // matching reasoning on the initiation side.
+    const callbackUrl =
+        apiPublicUrl && organizationId
+            ? `${apiPublicUrl.replace(/\/$/, "")}/auth/sso/saml/callback/${organizationId}`
+            : "";
 
     const userDomain = props.email.split("@")[1];
     const form = useForm<SsoFormData>({
@@ -1065,6 +1075,25 @@ export const ClientSsoOrganizationSettingsPage = (props: {
                                                             }
                                                             userDomain={
                                                                 userDomain
+                                                            }
+                                                            onAutoVerified={(
+                                                                record,
+                                                            ) =>
+                                                                setDomainVerificationStatusByDomain(
+                                                                    (prev) => ({
+                                                                        ...prev,
+                                                                        [record.domain]:
+                                                                        {
+                                                                            domain: record.domain,
+                                                                            verified:
+                                                                                true,
+                                                                            verifiedAt:
+                                                                                record.verifiedAt,
+                                                                            verifiedByEmail:
+                                                                                record.contactEmail,
+                                                                        },
+                                                                    }),
+                                                                )
                                                             }
                                                         />
                                                     </>

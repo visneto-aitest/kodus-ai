@@ -24,9 +24,11 @@ import { isCockpitTierAllowed } from '../../domain/tier-policy';
  * raw HTTP call.
  *
  * Resolves the orgId in this priority order:
- *   1. `req.user.organizationId` from the JWT payload (standard path).
- *   2. `req.query.organizationId` as a fallback (public-ish endpoints
- *      like `/cockpit/source/:id` read the id from the URL).
+ *   1. The JWT-backed user's org — `req.user.organization.uuid` is the
+ *      shape `UserEntity` actually exposes; `organizationId` is kept as
+ *      a fallback in case future auth flows attach it directly.
+ *   2. `req.query.organizationId` as a fallback for endpoints that
+ *      receive the id explicitly (e.g. `/cockpit/validate`).
  *
  * Endpoints declared `@Public()` (e.g. `/cockpit/health`,
  * `/cockpit/source/:id`) shouldn't be decorated with this guard —
@@ -54,11 +56,20 @@ export class CockpitTierGuard implements CanActivate {
 
         const req = context.switchToHttp().getRequest<
             Request & {
-                user?: { organizationId?: string };
+                user?: {
+                    organizationId?: string;
+                    organization?: { uuid?: string };
+                };
             }
         >();
 
-        const orgFromJwt = req.user?.organizationId;
+        // `UserEntity` (libs/identity/.../user.entity.ts) exposes the org as
+        // `organization: { uuid }` — there is no flat `organizationId` field.
+        // The previous read returned `undefined` for every authenticated
+        // request, which made the guard fall through to the query string and
+        // 403 any cockpit endpoint that didn't pass `?organizationId=...`.
+        const orgFromJwt =
+            req.user?.organizationId ?? req.user?.organization?.uuid;
 
         // Reject non-string inputs outright. Without this the
         // `typeof === 'string'` check below silently coerces arrays
@@ -98,9 +109,16 @@ export class CockpitTierGuard implements CanActivate {
         }
 
         try {
+            // Tier (Teams / Enterprise / Free) is an org-level property —
+            // it applies to the whole org regardless of which team the
+            // request is scoped to. teamId only matters for per-seat
+            // license assignment, not here. Passing an empty teamId used
+            // to break the cloud billing service, which keys subscriptions
+            // on (orgId, teamId) and returned `valid: false` for the empty
+            // tuple — making prod always fall through to legacy-bq while
+            // self-hosted (which ignores teamId in its license JWT) worked.
             const license = await this.licenseService.validateOrganizationLicense({
                 organizationId,
-                teamId: '',
             });
             if (!isCockpitTierAllowed(license)) {
                 throw new ForbiddenException(

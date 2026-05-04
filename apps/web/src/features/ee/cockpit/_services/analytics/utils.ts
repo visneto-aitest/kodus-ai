@@ -1,12 +1,12 @@
-import { authorizedFetch, typedFetch } from "@services/fetch";
-import { getOrganizationId } from "@services/organizations/fetch";
-import { createUrl, pathToApiUrl } from "src/core/utils/helpers";
-import { isServerSide } from "src/core/utils/server-side";
+import { authorizedFetch, typedFetch } from '@services/fetch';
+import { getOrganizationId } from '@services/organizations/fetch';
+import { createUrl, pathToApiUrl } from 'src/core/utils/helpers';
+import { isServerSide } from 'src/core/utils/server-side';
 
-import type { PercentageDiff } from "../../_components/percentage-diff";
-import { getSelectedRepository } from "../../_helpers/get-selected-repository";
+import type { PercentageDiff } from '../../_components/percentage-diff';
+import { getSelectedRepository } from '../../_helpers/get-selected-repository';
 
-type CockpitSource = "internal" | "legacy-bq";
+type CockpitSource = 'internal' | 'legacy-bq';
 
 /**
  * In-memory cache of which backend serves cockpit data per organization.
@@ -49,13 +49,13 @@ async function resolveCockpitSource(
                 `[cockpit] source resolver failed, defaulting to legacy-bq: ${err.message}`,
             );
         }
-        return "legacy-bq";
+        return 'legacy-bq';
     }
 }
 
 export const analyticsFetch = async <Data>(
     url: `/${string}`,
-    options: Parameters<typeof typedFetch>["1"] = {},
+    options: Parameters<typeof typedFetch>['1'] = {},
 ) => {
     const [organizationId, selectedRepository] = await Promise.all([
         getOrganizationId(),
@@ -70,7 +70,7 @@ export const analyticsFetch = async <Data>(
         ...(selectedRepository && { repository: selectedRepository }),
     };
 
-    if (source === "internal") {
+    if (source === 'internal') {
         // New path: route through apps/api (Postgres analytics warehouse).
         // `authorizedFetch` injects the JWT (cookie or session), and
         // unwraps the apps/api `{ data, statusCode, type }` envelope so
@@ -98,7 +98,7 @@ export const analyticsFetch = async <Data>(
     // hits 100% and the legacy stack is decommissioned.
     if (!process.env.WEB_ANALYTICS_SECRET) {
         console.warn(
-            "WEB_ANALYTICS_SECRET is not configured. Analytics requests will be skipped.",
+            'WEB_ANALYTICS_SECRET is not configured. Analytics requests will be skipped.',
         );
         return null as Data;
     }
@@ -107,14 +107,15 @@ export const analyticsFetch = async <Data>(
     const port = process.env.WEB_PORT_ANALYTICS;
 
     // if 'true' we are in the server and hostname is not a domain
-    if (isServerSide && hostName === "localhost") {
+    if (isServerSide && hostName === 'localhost') {
         hostName =
             process.env.GLOBAL_ANALYTICS_CONTAINER_NAME ||
-            "kodus-analytics-service";
+            'kodus-analytics-service';
     }
 
+    // Analytics service is intra-network — http + port, no heuristics.
     const finalUrl = createUrl(`${hostName}`, port, `/api${url}`, {
-        containerName: hostName,
+        internal: true,
     });
 
     try {
@@ -123,7 +124,7 @@ export const analyticsFetch = async <Data>(
             params,
             headers: {
                 ...options?.headers,
-                "x-api-key": process.env.WEB_ANALYTICS_SECRET,
+                'x-api-key': process.env.WEB_ANALYTICS_SECRET,
             },
         });
     } catch (error) {
@@ -149,18 +150,18 @@ export const getPercentageDiff = ({
     trend,
 }: {
     trend: string;
-}): React.ComponentProps<typeof PercentageDiff>["status"] => {
+}): React.ComponentProps<typeof PercentageDiff>['status'] => {
     switch (trend) {
-        case "unchanged":
-            return "neutral";
+        case 'unchanged':
+            return 'neutral';
 
-        case "improved":
-            return "good";
+        case 'improved':
+            return 'good';
 
-        case "worsened":
-            return "bad";
+        case 'worsened':
+            return 'bad';
 
         default:
-            return "neutral";
+            return 'neutral';
     }
 };

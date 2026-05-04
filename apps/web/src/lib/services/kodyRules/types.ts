@@ -140,6 +140,9 @@ export enum KodyRulesStatus {
     PENDING = "pending",
     APPLIED = "applied",
     DELETED = "deleted",
+    /** Soft-disable. Visible in the user's list but not enforced by review.
+     *  Mirror of the backend `KodyRulesStatus.PAUSED`. Reversible. */
+    PAUSED = "paused",
 }
 
 export enum KodyRuleCentralizedStatus {

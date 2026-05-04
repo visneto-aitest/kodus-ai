@@ -1,7 +1,4 @@
 import { OrganizationAndTeamData } from '@libs/core/infrastructure/config/types/general/organizationAndTeamData';
-import { IUser } from '@libs/identity/domain/user/interfaces/user.interface';
-import { IOrganization } from '@libs/organization/domain/organization/interfaces/organization.interface';
-import { ITeam } from '@libs/organization/domain/team/interfaces/team.interface';
 import { IPostHog, PostHog } from 'posthog-node';
 
 export const FEATURE_FLAGS = {
@@ -36,100 +33,6 @@ class PostHogClient {
 
     get isInitialized(): boolean {
         return this.posthog !== null;
-    }
-
-    userIdentify(user: IUser): void {
-        if (!this.posthog) {
-            return;
-        }
-
-        const properties: any = {
-            email: user.email,
-            id: user.uuid,
-        };
-
-        if (user.organization) {
-            properties.organizationId = user.organization.uuid;
-            properties.organizationName = user.organization.name;
-        }
-
-        this.posthog.identify({
-            distinctId: user.uuid,
-            properties,
-        });
-
-        this.posthog.capture({
-            distinctId: user.uuid,
-            event: 'user_added_to_organization',
-            properties,
-            groups: {
-                organization: user.organization?.uuid,
-            },
-        });
-    }
-
-    organizationIdentify(organization: IOrganization): void {
-        if (!this.posthog) {
-            return;
-        }
-
-        this.posthog.groupIdentify({
-            groupType: 'organization',
-            groupKey: organization.uuid,
-            properties: {
-                name: organization.name,
-                tenantName: organization.tenantName,
-                id: organization.uuid,
-            },
-        });
-    }
-
-    teamIdentify(team: ITeam): void {
-        if (!this.posthog) {
-            return;
-        }
-
-        const properties: any = {
-            name: team.name,
-            id: team.uuid,
-        };
-
-        if (team.organization) {
-            properties.organizationId = team.organization.uuid;
-            properties.organizationName = team.organization.name;
-        }
-
-        this.posthog.groupIdentify({
-            groupType: 'team',
-            groupKey: team.uuid,
-            properties,
-        });
-    }
-
-    repositoryIdentify(repository: {
-        repositoryId: string;
-        name: string;
-        fullName: string;
-        platform: string;
-        organizationId: string;
-        agentReviewEnabled?: boolean;
-    }): void {
-        if (!this.posthog) {
-            return;
-        }
-
-        this.posthog.groupIdentify({
-            groupType: 'repository',
-            groupKey: repository.repositoryId,
-            properties: {
-                name: repository.name,
-                fullName: repository.fullName,
-                platform: repository.platform,
-                organizationId: repository.organizationId,
-                repositoryId: repository.repositoryId,
-                agentReviewEnabled: repository.agentReviewEnabled ?? false,
-            },
-        });
     }
 
     async isFeatureEnabled(

@@ -5,9 +5,15 @@
  *   code-review  → RabbitMQ consumers, code review pipeline, outbox
  *                  relay, monitors. Does not touch the analytics
  *                  warehouse.
- *   analytics    → Analytics ingestion cron + warehouse connection
- *                  only. No RabbitMQ consumers, no LLM module, no main
- *                  OLTP Postgres pool.
+ *   analytics    → Analytics ingestion cron + warehouse connection.
+ *                  No queue consumers (`enableConsumers: false`), but
+ *                  RabbitMQWrapperModule is still imported because
+ *                  OrganizationModule transitively pulls in
+ *                  WorkflowModule, whose WorkflowJobQueueService
+ *                  injects MESSAGE_BROKER_SERVICE_TOKEN at construction.
+ *                  Cost is a single idle AMQP connection; the cleaner
+ *                  alternative is a refactor of the
+ *                  OrganizationParametersModule → PlatformModule edge.
  *
  * Both cloud and self-hosted deploy both replicas. Keeping the topology
  * identical across environments is a non-negotiable property of this

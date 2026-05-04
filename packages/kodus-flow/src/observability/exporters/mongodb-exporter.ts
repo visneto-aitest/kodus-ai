@@ -8,7 +8,7 @@ import {
     TOOL,
     GEN_AI,
 } from '../types.js';
-import { createLogger } from '../logger.js';
+import { createLogger, deepSanitize } from '../logger.js';
 import {
     LogLevel,
     MongoDBExporterConfig,
@@ -684,6 +684,13 @@ export class MongoDBExporter implements LogProcessor, ObservabilityExporter {
                 (normalizedContext?.tenantId as string) || 'unknown';
         }
 
+        // Callers frequently pass shapes with circular refs (Axios errors
+        // with config↔request↔response, Mongoose documents, Error.cause
+        // loops). Without sanitizing, BSON serialization in `insertMany`
+        // throws "Cannot convert circular structure to BSON" and the
+        // entire batch is dropped. `deepSanitize` already replaces cycles
+        // with '[Circular]' and redacts sensitive keys — same helper the
+        // logger uses for stdout serializers, so behavior is consistent.
         const logItem: MongoDBLogItem = {
             timestamp: new Date(),
             level,
@@ -693,8 +700,8 @@ export class MongoDBExporter implements LogProcessor, ObservabilityExporter {
             tenantId: metadata.tenantId,
             executionId: normalizedContext?.executionId as string | undefined,
             sessionId: normalizedContext?.sessionId as string | undefined,
-            metadata, // Clean bucket key
-            attributes, // Detailed payload (schema-less)
+            metadata: deepSanitize(metadata), // Clean bucket key
+            attributes: deepSanitize(attributes), // Detailed payload (schema-less)
             error: error
                 ? {
                       name: error.name,
@@ -757,7 +764,10 @@ export class MongoDBExporter implements LogProcessor, ObservabilityExporter {
             agentName,
             toolName,
             phase,
-            attributes: item.attributes,
+            // Same circular-ref / BSON-safety guard as exportLog — span
+            // attributes can carry rich payloads (LLM input/output, MCP
+            // tool args) that occasionally contain self-references.
+            attributes: deepSanitize(item.attributes),
             status: item.status.code as any,
             error: item.status.message
                 ? {

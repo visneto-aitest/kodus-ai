@@ -1,3 +1,6 @@
+# syntax=docker/dockerfile:1.7
+# Enables --mount=type=cache. Requires BuildKit (default in Docker 23+).
+
 ARG API_CLOUD_MODE=false
 ARG RELEASE_VERSION=local
 ARG BUN_VERSION=1.2.12
@@ -21,9 +24,12 @@ ENV NODE_OPTIONS="--max-old-space-size=4096"
 RUN corepack disable \
  && npm i -g yarn@1.22.22
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates python3 make g++ procps git ripgrep \
-    && rm -rf /var/lib/apt/lists/*
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends \
+      ca-certificates python3 make g++ procps git ripgrep
 
 # Copy the bun binary from the official image and install kodus-graph globally.
 COPY --from=bun-source /usr/local/bin/bun /usr/local/bin/bun
@@ -37,12 +43,20 @@ COPY nest-cli.json tsconfig*.json ./
 COPY packages/kodus-common ./packages/kodus-common
 COPY packages/kodus-flow ./packages/kodus-flow
 
-# Build local packages first
-RUN cd packages/kodus-common && yarn install && yarn prepack
-RUN cd packages/kodus-flow && yarn install && yarn build
+# Build local packages first. Shared yarn cache mount survives across
+# rebuilds so dependency changes don't trigger a full re-download.
+RUN --mount=type=cache,target=/yarn-cache,sharing=locked \
+    cd packages/kodus-common \
+  && YARN_CACHE_FOLDER=/yarn-cache yarn install \
+  && YARN_CACHE_FOLDER=/yarn-cache yarn prepack
+RUN --mount=type=cache,target=/yarn-cache,sharing=locked \
+    cd packages/kodus-flow \
+  && YARN_CACHE_FOLDER=/yarn-cache yarn install \
+  && YARN_CACHE_FOLDER=/yarn-cache yarn build
 
 # Install dependencies and link local packages
-RUN yarn install --frozen-lockfile
+RUN --mount=type=cache,target=/yarn-cache,sharing=locked \
+    YARN_CACHE_FOLDER=/yarn-cache yarn install --frozen-lockfile
 RUN rm -rf node_modules/@kodus/kodus-common && cp -r packages/kodus-common node_modules/@kodus/kodus-common
 RUN rm -rf node_modules/@kodus/flow && cp -r packages/kodus-flow node_modules/@kodus/flow
 

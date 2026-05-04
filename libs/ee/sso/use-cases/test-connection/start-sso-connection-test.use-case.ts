@@ -10,6 +10,7 @@ import {
     SSOProtocolConfigMap,
 } from '../../domain/interfaces/ssoConfig.interface';
 import { SSOTestSessionService } from '../../services/sso-test-session.service';
+import { buildApiUrl } from '../../utils/api-url.util';
 
 @Injectable()
 export class StartSSOConnectionTestUseCase {
@@ -56,21 +57,24 @@ export class StartSSOConnectionTestUseCase {
             createdBy: userId,
         });
 
-        const apiUrl = process.env.API_URL;
-
-        if (!apiUrl) {
+        let redirectUrl: string;
+        try {
+            redirectUrl = buildApiUrl(
+                `/auth/sso/login/${organizationId}?RelayState=${encodeURIComponent(session.sessionId)}`,
+            );
+        } catch (err) {
             this.logger.error({
-                message: 'API_URL environment variable is not set',
+                message:
+                    err instanceof Error ? err.message : String(err),
                 context: StartSSOConnectionTestUseCase.name,
             });
-
             throw new InternalServerErrorException('SSO test is unavailable');
         }
 
         return {
             sessionId: session.sessionId,
             configFingerprint: session.configFingerprint,
-            redirectUrl: `${apiUrl}/auth/sso/login/${organizationId}?RelayState=${encodeURIComponent(session.sessionId)}`,
+            redirectUrl,
         };
     }
 }

@@ -127,6 +127,19 @@ export interface CodeReviewPipelineContext extends PipelineContext {
     discardedSuggestions: Partial<CodeSuggestion>[];
     lastAnalyzedCommit?: any;
 
+    /**
+     * Set by ValidateNewCommitsStage when lastAnalyzedCommit is no longer
+     * reachable from the PR branch (rebase / force-push rewrote history).
+     * Forwarded by CodeReviewHandlerService and persisted to
+     * dataExecution.orphanedBaseCommit for observability. Absent on normal
+     * runs.
+     */
+    orphanedBaseCommit?: {
+        previousSha: string;
+        currentHeadSha?: string;
+        totalCommits: number;
+    };
+
     validSuggestionsByPR?: ISuggestionByPR[];
     validCrossFileSuggestions?: CodeSuggestion[];
 

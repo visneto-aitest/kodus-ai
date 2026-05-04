@@ -1,4 +1,9 @@
-import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+    Inject,
+    Injectable,
+    Logger,
+    UnauthorizedException,
+} from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { Request } from 'express';
 import { MultiSamlStrategy } from '@node-saml/passport-saml';
@@ -13,6 +18,7 @@ import {
     SSO_CONFIG_SERVICE_TOKEN,
 } from '../domain/contracts/ssoConfig.service.contract';
 import { SSOTestSessionService } from '../services/sso-test-session.service';
+import { buildApiUrl } from '../utils/api-url.util';
 
 @Injectable()
 export class SamlStrategy extends PassportStrategy(MultiSamlStrategy, 'saml') {
@@ -21,6 +27,20 @@ export class SamlStrategy extends PassportStrategy(MultiSamlStrategy, 'saml') {
         private readonly ssoConfigService: ISSOConfigService,
         private readonly ssoTestSessionService: SSOTestSessionService,
     ) {
+        // Boot-time heads-up. The strategy is always instantiated
+        // (the SSO module is unconditionally loaded), but API_URL is
+        // only consumed when an actual SSO login fires. Warning
+        // (not throwing) keeps installs that don't use SSO working;
+        // buildApiUrl() is the hard gate when SSO is actually
+        // attempted.
+        if (!process.env.API_URL) {
+            Logger.warn(
+                'API_URL is not set. SAML SSO callbacks will fail until ' +
+                    'this is configured. Required if any organization on ' +
+                    'this instance uses SSO.',
+                SamlStrategy.name,
+            );
+        }
         super(
             {
                 passReqToCallback: true,
@@ -60,7 +80,8 @@ export class SamlStrategy extends PassportStrategy(MultiSamlStrategy, 'saml') {
                                     issuer:
                                         samlConfig.issuer ||
                                         'kodus-orchestrator',
-                                    callbackUrl: `${process.env.API_URL}/auth/sso/saml/callback/${organizationId}`,
+                                    callbackUrl:
+                                        buildApiUrl(`/auth/sso/saml/callback/${organizationId}`),
                                     wantAssertionsSigned: false,
                                     identifierFormat:
                                         samlConfig.identifierFormat || null,
@@ -87,7 +108,7 @@ export class SamlStrategy extends PassportStrategy(MultiSamlStrategy, 'saml') {
                             issuer:
                                 ssoConfig.providerConfig.issuer ||
                                 'kodus-orchestrator',
-                            callbackUrl: `${process.env.API_URL}/auth/sso/saml/callback/${organizationId}`,
+                            callbackUrl: buildApiUrl(`/auth/sso/saml/callback/${organizationId}`),
                             wantAssertionsSigned: false,
                             identifierFormat:
                                 ssoConfig.providerConfig.identifierFormat ||

@@ -133,6 +133,13 @@ export class RabbitMQWrapperModule {
                                 ) ?? 20,
                             default: false,
                         },
+                        'channel-cli-code-review': {
+                            prefetchCount:
+                                configService.get<number>(
+                                    'workflowQueue.WORKFLOW_QUEUE_CLI_CODE_REVIEW_PREFETCH',
+                                ) ?? 20,
+                            default: false,
+                        },
                         'channel-check-implementation': {
                             prefetchCount:
                                 configService.get<number>(

@@ -344,6 +344,8 @@ export class AutomationCodeReviewService implements Omit<
                             organizationAndTeamData,
                             pullRequestNumber: pullRequest?.number,
                             repositoryId: repository?.id,
+                            workflowJobId: payload.workflowJobId,
+                            correlationId: payload.correlationId,
                         },
                         teamAutomation: { uuid: teamAutomationId },
                         origin: origin || 'System',
@@ -526,6 +528,12 @@ export class AutomationCodeReviewService implements Omit<
                 noteId: result.noteId,
                 threadId: result.threadId,
                 automaticReviewStatus: result.automaticReviewStatus,
+            });
+        }
+
+        if (result.orphanedBaseCommit) {
+            Object.assign(baseData, {
+                orphanedBaseCommit: result.orphanedBaseCommit,
             });
         }
 

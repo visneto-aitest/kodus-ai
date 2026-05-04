@@ -5,6 +5,7 @@ import { Button } from "@components/ui/button";
 import { SvgDiscord } from "@components/ui/icons/SvgDiscord";
 import { SvgFounder } from "@components/ui/icons/SvgFounder";
 import { ChevronDown, FileTextIcon, Headset } from "lucide-react";
+import { useConfig } from "@providers/ConfigProvider";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -27,6 +28,7 @@ function useShowHelpdesk() {
 }
 
 export const SupportDropdown = () => {
+    const cfg = useConfig();
     const showHelpdesk = useShowHelpdesk();
 
     return (
@@ -46,9 +48,7 @@ export const SupportDropdown = () => {
                     </NextLink>
                 )}
 
-                <NextLink
-                    target="_blank"
-                    href={process.env.WEB_SUPPORT_DOCS_URL ?? ""}>
+                <NextLink target="_blank" href={cfg.supportDocsUrl || ""}>
                     <DropdownMenuItem leftIcon={<FileTextIcon />}>
                         View docs
                     </DropdownMenuItem>
@@ -56,7 +56,7 @@ export const SupportDropdown = () => {
 
                 <NextLink
                     target="_blank"
-                    href={process.env.WEB_SUPPORT_DISCORD_INVITE_URL ?? ""}>
+                    href={cfg.supportDiscordInviteUrl || ""}>
                     <DropdownMenuItem leftIcon={<SvgDiscord />}>
                         Our Discord
                     </DropdownMenuItem>
@@ -64,7 +64,7 @@ export const SupportDropdown = () => {
 
                 <NextLink
                     target="_blank"
-                    href={process.env.WEB_SUPPORT_TALK_TO_FOUNDER_URL ?? ""}>
+                    href={cfg.supportTalkToFounderUrl || ""}>
                     <DropdownMenuItem leftIcon={<SvgFounder />}>
                         Talk to a Founder
                     </DropdownMenuItem>

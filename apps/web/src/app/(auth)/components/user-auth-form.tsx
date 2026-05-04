@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardHeader } from "@components/ui/card";
 import { FormControl } from "@components/ui/form-control";
+import { toast } from "@components/ui/toaster/use-toast";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
     AlertTriangleIcon,
@@ -137,9 +138,23 @@ export function UserAuthForm() {
     );
 
     const handleSsoLogin = useCallback(async () => {
-        if (ssoAvailable?.organizationId) {
-            setIsSubmitting(true);
+        if (!ssoAvailable?.organizationId) return;
+        setIsSubmitting(true);
+        try {
+            // ssoLogin sets window.location.href on success — control
+            // never returns. We only reach the catch when the install
+            // is misconfigured (e.g. API_URL missing) so the throw is
+            // the only path back here.
             await ssoLogin(ssoAvailable.organizationId);
+        } catch (err) {
+            toast({
+                title: "SSO unavailable",
+                description:
+                    err instanceof Error
+                        ? err.message
+                        : "Failed to start SSO login.",
+                variant: "danger",
+            });
             setIsSubmitting(false);
         }
     }, [ssoAvailable]);

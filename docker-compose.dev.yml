@@ -41,7 +41,14 @@ services:
         deploy:
             resources:
                 limits:
-                    memory: 1.5G
+                    # Dev mode with ts-node-dev + Sentry + observability
+                    # + in-memory Nest DI graph routinely climbs past
+                    # 1.5G under modest load; the 1.5G cap caused the
+                    # container to OOM repeatedly mid-session, making
+                    # every /api/proxy/* call 500 while migrations
+                    # re-ran on the restart. Bumped to 3G with matching
+                    # V8 heap ceiling so normal activity has headroom.
+                    memory: 3G
                 reservations:
                     memory: 512M
         healthcheck:
@@ -56,7 +63,7 @@ services:
             start_period: 180s
         environment:
             - API_CLOUD_MODE=${API_CLOUD_MODE:-false}
-            - NODE_OPTIONS=--max-old-space-size=1200 --max-semi-space-size=64
+            - NODE_OPTIONS=--max-old-space-size=2560 --max-semi-space-size=64
             - DEBUG_PORT=9229
             - API_LOG_PRETTY=true
             - CHOKIDAR_USEPOLLING=false

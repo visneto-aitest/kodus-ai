@@ -3,8 +3,9 @@ import { ScheduleModule } from '@nestjs/schedule';
 
 import { LLMModule } from '@kodus/kodus-common/llm';
 
-import { AnalyticsWarehouseModule } from '@libs/analytics-warehouse';
+import { AnalyticsWarehouseModule } from '@libs/ee/analytics-warehouse';
 import { AutomationModule } from '@libs/automation/modules/automation.module';
+import { CockpitModule } from '@libs/cockpit/modules/cockpit.module';
 import { CodebaseModule } from '@libs/code-review/modules/codebase.module';
 import { CodeReviewFeedbackModule } from '@libs/code-review/modules/codeReviewFeedback.module';
 import { IncidentModule } from '@libs/core/infrastructure/incident/incident.module';
@@ -17,15 +18,18 @@ import { LangfuseShutdownProvider } from '@libs/core/log/langfuse-shutdown.provi
 import { LoggerWrapperService } from '@libs/core/log/loggerWrapper.service';
 import { OutboxRelayService } from '@libs/core/workflow/infrastructure/outbox-relay.service';
 import { WorkflowModule } from '@libs/core/workflow/modules/workflow.module';
+import { OrganizationModule } from '@libs/organization/modules/organization.module';
 import { PlatformModule } from '@libs/platform/modules/platform.module';
 import { SharedMongoModule } from '@libs/shared/database/shared-mongo.module';
 import { SharedPostgresModule } from '@libs/shared/database/shared-postgres.module';
 import { SharedConfigModule } from '@libs/shared/infrastructure/shared-config.module';
 import { SharedLogModule } from '@libs/shared/infrastructure/shared-log.module';
 import { SharedObservabilityModule } from '@libs/shared/infrastructure/shared-observability.module';
+import { TelemetryModule } from '@libs/telemetry/modules/telemetry.module';
 
 import { AnalyticsClassifierCron } from './cron/analytics-classifier.cron';
 import { AnalyticsIngestionCron } from './cron/analytics-ingestion.cron';
+import { WeeklyRecapCron } from './cron/weekly-recap.cron';
 import { resolveWorkerRole, type WorkerRole } from './worker-role';
 import { WorkerDrainService } from './worker-drain.service';
 import { WorkerHealthGuardService } from './worker-health-guard.service';
@@ -45,6 +49,7 @@ export class WorkerModule {
             SharedConfigModule,
             SharedLogModule,
             SharedObservabilityModule,
+            TelemetryModule,
             IncidentModule,
             MetricsModule,
             // Both roles read Mongo: code-review writes PR state; analytics
@@ -87,12 +92,35 @@ export class WorkerModule {
                 // hot path itself doesn't call any model.
                 LLMModule.forRoot({ logger: LoggerWrapperService }),
                 AnalyticsWarehouseModule.forRoot(),
+                // Postgres for cockpit warehouse queries used by the
+                // weekly-recap cron.
+                SharedPostgresModule.forRoot({ poolSize: 4 }),
+                // Wired with `enableConsumers: false` because the
+                // analytics role does NOT consume queue messages — but
+                // OrganizationModule transitively pulls in PlatformModule
+                // → WorkflowModule, which provides WorkflowJobQueueService.
+                // That service constructor-injects MESSAGE_BROKER_SERVICE_TOKEN
+                // and Nest fails to build the DI graph if the token isn't
+                // provided, even though analytics never calls enqueue().
+                // Wiring the wrapper here costs one idle AMQP connection
+                // and unblocks the boot. Refactoring the OrganizationParametersModule
+                // → PlatformModule edge is the cleaner long-term fix but
+                // is out of scope here.
+                RabbitMQWrapperModule.register({ enableConsumers: false }),
+                // Cockpit pulls in EmailModule + UserModule for the
+                // SendWeeklyRecapUseCase email rendering. OrganizationModule
+                // is imported separately because the WeeklyRecapCron itself
+                // injects ORGANIZATION_SERVICE_TOKEN to fan out across orgs,
+                // and CockpitModule doesn't re-export that token.
+                CockpitModule,
+                OrganizationModule,
             ],
             providers: [
                 WorkerDrainService,
                 WorkerHealthGuardService,
                 AnalyticsIngestionCron,
                 AnalyticsClassifierCron,
+                WeeklyRecapCron,
                 LangfuseShutdownProvider,
             ] satisfies Provider[],
         };

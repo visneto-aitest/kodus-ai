@@ -18,6 +18,7 @@ import { GenerateKodyRulesUseCase } from '@libs/kodyRules/application/use-cases/
 import { GetInheritedRulesKodyRulesUseCase } from '@libs/kodyRules/application/use-cases/get-inherited-kody-rules.use-case';
 import { GetRulesLimitStatusUseCase } from '@libs/kodyRules/application/use-cases/get-rules-limit-status.use-case';
 import { ImportFastKodyRulesUseCase } from '@libs/kodyRules/application/use-cases/import-fast-kody-rules.use-case';
+import { ManageImportedKodyRulesUseCase } from '@libs/kodyRules/application/use-cases/manage-imported-kody-rules.use-case';
 import { ResyncRulesFromIdeUseCase } from '@libs/kodyRules/application/use-cases/resync-rules-from-ide.use-case';
 import { SyncSelectedRepositoriesKodyRulesUseCase } from '@libs/kodyRules/application/use-cases/sync-selected-repositories.use-case';
 import { ImportFastKodyRulesDto } from '@libs/kodyRules/dtos/import-fast-kody-rules.dto';
@@ -41,6 +42,7 @@ import {
 import { KodyRulesStatus } from '@libs/kodyRules/domain/interfaces/kodyRules.interface';
 import { AddLibraryKodyRulesDto } from '@libs/kodyRules/dtos/add-library-kody-rules.dto';
 import { ChangeStatusKodyRulesDTO } from '@libs/kodyRules/dtos/change-status-kody-rules.dto';
+import { ManageImportedKodyRulesDto } from '@libs/kodyRules/dtos/manage-imported-kody-rules.dto';
 import { RuleIdsDto } from '@libs/kodyRules/dtos/rule-ids.dto';
 import {
     Body,
@@ -111,6 +113,7 @@ export class KodyRulesController {
         private readonly fastSyncIdeRulesUseCase: FastSyncIdeRulesUseCase,
         private readonly importFastKodyRulesUseCase: ImportFastKodyRulesUseCase,
         private readonly convertPendingUpdatesToMemoriesUseCase: ConvertPendingUpdatesToMemoriesUseCase,
+        private readonly manageImportedKodyRulesUseCase: ManageImportedKodyRulesUseCase,
         @Inject(REQUEST)
         private readonly request: UserRequest,
     ) {}
@@ -716,6 +719,72 @@ export class KodyRulesController {
             teamId: body.teamId,
             repositoriesIds: respositories,
             path: body.path,
+        });
+    }
+
+    @ApiBearerAuth('jwt')
+    @Post('/imported/manage')
+    @UseGuards(PolicyGuard)
+    @CheckPolicies(
+        checkPermissions({
+            action: Action.Update,
+            resource: ResourceType.KodyRules,
+        }),
+    )
+    @ApiOperation({
+        summary: 'Pause / resume / delete imported (auto-synced) rules',
+        description:
+            'Acts on the IDE-synced Kody Rules of a repository in bulk. ' +
+            'Used by the toggle-off modal in the web UI and by the orphan-rules ' +
+            'banner. See ManageImportedRulesAction for action semantics.',
+    })
+    @ApiOkResponse({ type: ApiObjectResponseDto })
+    public async manageImportedRules(
+        @Body() body: ManageImportedKodyRulesDto,
+    ) {
+        const organizationId = this.request.user.organization.uuid;
+        if (!organizationId) {
+            throw new Error('Organization ID not found');
+        }
+        const teamId = (this.request.user as any).team?.uuid;
+
+        return this.manageImportedKodyRulesUseCase.execute({
+            organizationAndTeamData: { organizationId, teamId },
+            repositoryId: body.repositoryId,
+            action: body.action,
+        });
+    }
+
+    @ApiBearerAuth('jwt')
+    @Get('/imported/count')
+    @UseGuards(PolicyGuard)
+    @CheckPolicies(
+        checkPermissions({
+            action: Action.Read,
+            resource: ResourceType.KodyRules,
+        }),
+    )
+    @ApiOperation({
+        summary: 'Count imported (auto-synced) rules per status',
+        description:
+            'Returns { active, paused, deleted } counts of IDE-synced rules ' +
+            'for a repository. Drives copy on the toggle-off confirmation modal ' +
+            'and the orphan-rules banner.',
+    })
+    @ApiQuery({ name: 'repositoryId', type: String, required: true })
+    @ApiOkResponse({ type: ApiObjectResponseDto })
+    public async countImportedRules(
+        @Query('repositoryId') repositoryId: string,
+    ) {
+        const organizationId = this.request.user.organization.uuid;
+        if (!organizationId) {
+            throw new Error('Organization ID not found');
+        }
+        const teamId = (this.request.user as any).team?.uuid;
+
+        return this.manageImportedKodyRulesUseCase.count({
+            organizationAndTeamData: { organizationId, teamId },
+            repositoryId,
         });
     }
 }

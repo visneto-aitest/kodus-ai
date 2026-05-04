@@ -23,7 +23,7 @@ import {
     INBOX_MESSAGE_REPOSITORY_TOKEN,
 } from '@libs/core/workflow/domain/contracts/inbox-message.repository.contract';
 import { InboxStatus } from './repositories/schemas/inbox-message.model';
-import { RabbitMQErrorHandler } from '@libs/core/infrastructure/queue/rabbitmq-error.handler';
+import { createRabbitMQErrorHandlerWithFallback } from '@libs/core/infrastructure/queue/rabbitmq-error.handler';
 import {
     ITaskProtectionService,
     TASK_PROTECTION_SERVICE_TOKEN,
@@ -34,19 +34,6 @@ interface WorkflowJobMessage {
     correlationId?: string;
     [key: string]: unknown;
 }
-
-const createErrorHandlerWithFallback = (dlqRoutingKey: string) => {
-    return (channel: any, msg: ConsumeMessage, _err: any) => {
-        if (RabbitMQErrorHandler.instance) {
-            return RabbitMQErrorHandler.instance.handle(channel, msg, _err, {
-                dlqRoutingKey,
-            });
-        }
-        if (msg) {
-            channel.ack(msg);
-        }
-    };
-};
 
 @Injectable()
 export class WorkflowJobConsumer implements OnApplicationShutdown {
@@ -77,7 +64,9 @@ export class WorkflowJobConsumer implements OnApplicationShutdown {
         routingKey: 'workflow.jobs.*.WEBHOOK_PROCESSING',
         queue: 'workflow.jobs.webhook.queue',
         errorBehavior: MessageHandlerErrorBehavior.ACK,
-        errorHandler: createErrorHandlerWithFallback('workflow.job.failed'),
+        errorHandler: createRabbitMQErrorHandlerWithFallback(
+            'workflow.job.failed',
+        ),
         queueOptions: {
             channel: 'channel-webhook',
             arguments: {
@@ -108,7 +97,9 @@ export class WorkflowJobConsumer implements OnApplicationShutdown {
         routingKey: 'workflow.jobs.*.CODE_REVIEW',
         queue: 'workflow.jobs.code_review.queue',
         errorBehavior: MessageHandlerErrorBehavior.ACK,
-        errorHandler: createErrorHandlerWithFallback('workflow.job.failed'),
+        errorHandler: createRabbitMQErrorHandlerWithFallback(
+            'workflow.job.failed',
+        ),
         queueOptions: {
             channel: 'channel-code-review',
             arguments: {
@@ -131,6 +122,40 @@ export class WorkflowJobConsumer implements OnApplicationShutdown {
     }
 
     /**
+     * CLI code-review jobs
+     * Separate queue from PR-driven CODE_REVIEW so CLI traffic spikes
+     * don't starve PR reviews and vice versa.
+     */
+    @RabbitSubscribe({
+        exchange: 'workflow.exchange',
+        routingKey: 'workflow.jobs.*.CLI_CODE_REVIEW',
+        queue: 'workflow.jobs.cli_code_review.queue',
+        errorBehavior: MessageHandlerErrorBehavior.ACK,
+        errorHandler: createRabbitMQErrorHandlerWithFallback(
+            'workflow.job.failed',
+        ),
+        queueOptions: {
+            channel: 'channel-cli-code-review',
+            arguments: {
+                'x-queue-type': 'quorum',
+                'x-dead-letter-exchange': 'workflow.exchange.dlx',
+                'x-dead-letter-routing-key': 'workflow.job.failed',
+            },
+        },
+    })
+    async handleCliCodeReviewJob(
+        message: WorkflowJobMessage | MessagePayload<WorkflowJobMessage>,
+        amqpMsg: ConsumeMessage,
+    ): Promise<void> {
+        return this.handleWorkflowJob(
+            'workflow-job-consumer.cli_code_review',
+            'workflow.jobs.cli_code_review.queue',
+            message,
+            amqpMsg,
+        );
+    }
+
+    /**
      * Implementation Check jobs
      * Delayed exchange bindings are created by RabbitMQDLQInitializer.
      */
@@ -139,7 +164,9 @@ export class WorkflowJobConsumer implements OnApplicationShutdown {
         routingKey: 'workflow.jobs.*.CHECK_SUGGESTION_IMPLEMENTATION',
         queue: 'workflow.jobs.check_implementation.queue',
         errorBehavior: MessageHandlerErrorBehavior.ACK,
-        errorHandler: createErrorHandlerWithFallback('workflow.job.failed'),
+        errorHandler: createRabbitMQErrorHandlerWithFallback(
+            'workflow.job.failed',
+        ),
         queueOptions: {
             channel: 'channel-check-implementation',
             arguments: {
@@ -188,7 +215,9 @@ export class WorkflowJobConsumer implements OnApplicationShutdown {
         routingKey: 'workflow.jobs.*.AST_GRAPH_BUILD',
         queue: 'workflow.jobs.ast_graph_build.queue',
         errorBehavior: MessageHandlerErrorBehavior.ACK,
-        errorHandler: createErrorHandlerWithFallback('workflow.job.failed'),
+        errorHandler: createRabbitMQErrorHandlerWithFallback(
+            'workflow.job.failed',
+        ),
         queueOptions: {
             channel: 'channel-ast-graph-build',
             arguments: {
@@ -227,7 +256,9 @@ export class WorkflowJobConsumer implements OnApplicationShutdown {
         routingKey: 'workflow.jobs.*.AST_GRAPH_INCREMENTAL',
         queue: 'workflow.jobs.ast_graph_incremental.queue',
         errorBehavior: MessageHandlerErrorBehavior.ACK,
-        errorHandler: createErrorHandlerWithFallback('workflow.job.failed'),
+        errorHandler: createRabbitMQErrorHandlerWithFallback(
+            'workflow.job.failed',
+        ),
         queueOptions: {
             channel: 'channel-ast-graph-incremental',
             arguments: {
@@ -262,6 +293,7 @@ export class WorkflowJobConsumer implements OnApplicationShutdown {
         if (queueName === 'workflow.jobs.ast_graph_incremental.queue')
             return 15;
         if (queueName === 'workflow.jobs.webhook.queue') return 20;
+        if (queueName === 'workflow.jobs.cli_code_review.queue') return 35;
         return 150;
     }
 

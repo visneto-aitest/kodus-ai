@@ -41,7 +41,6 @@ import { useAuth } from "src/core/providers/auth.provider";
 import { useSelectedTeamId } from "src/core/providers/selected-team-context";
 import { generateQueryKey } from "src/core/utils/reactQuery";
 import { safeArray } from "src/core/utils/safe-array";
-import { captureSegmentEvent } from "src/core/utils/segment";
 import { pluralize } from "src/core/utils/string";
 
 import { StepIndicators } from "../_components/step-indicators";
@@ -152,18 +151,6 @@ export default function App() {
 
                 void Promise.allSettled(fastSyncPromises);
             }
-
-            captureSegmentEvent({
-                userId: userId!,
-                event: "setup_select_repositories",
-                properties: {
-                    platform: codeManagementConnections
-                        .at(0)
-                        ?.platformName.toLowerCase(),
-                    quantityOfRepositories: selectedRepositories.length,
-                    scope: reviewScope,
-                },
-            });
 
             router.replace(nextStepPath);
         } catch (error) {

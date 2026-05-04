@@ -90,6 +90,7 @@ export class CodeReviewJobProcessorService implements IJobProcessorService {
                 correlationId,
                 organizationAndTeamData,
                 teamAutomationId,
+                workflowJobId: jobId,
             });
 
             await this.markCompleted(jobId);

@@ -17,9 +17,11 @@ import { CodeReviewJobProcessorService } from '@libs/code-review/workflow/code-r
 import { ImplementationVerificationProcessor } from '@libs/code-review/workflow/implementation-verification.processor';
 import { AstGraphBuildJobProcessor } from '@libs/code-review/workflow/ast-graph-build-job.processor';
 import { AstGraphIncrementalJobProcessor } from '@libs/code-review/workflow/ast-graph-incremental-job.processor';
+import { CliReviewJobProcessorService } from '@libs/cli-review/workflow/cli-review-job-processor.service';
 
 const WEBHOOK_PROCESS_TIMEOUT_MS = 10 * 60 * 1000;
 const CODE_REVIEW_PROCESS_TIMEOUT_MS = 2 * 60 * 60 * 1000;
+const CLI_CODE_REVIEW_PROCESS_TIMEOUT_MS = 30 * 60 * 1000; // 30 min
 const CHECK_IMPLEMENTATION_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 const AST_GRAPH_BUILD_TIMEOUT_MS = 20 * 60 * 1000; // 20 min
 const AST_GRAPH_INCREMENTAL_TIMEOUT_MS = 10 * 60 * 1000; // 10 min
@@ -38,6 +40,7 @@ export class JobProcessorRouterService
         private readonly implementationVerificationProcessor: ImplementationVerificationProcessor,
         private readonly astGraphBuildProcessor: AstGraphBuildJobProcessor,
         private readonly astGraphIncrementalProcessor: AstGraphIncrementalJobProcessor,
+        private readonly cliReviewProcessor: CliReviewJobProcessorService,
     ) {}
 
     async process(jobId: string): Promise<void> {
@@ -121,6 +124,8 @@ export class JobProcessorRouterService
                 return this.webhookProcessor;
             case WorkflowType.CODE_REVIEW:
                 return this.codeReviewProcessor;
+            case WorkflowType.CLI_CODE_REVIEW:
+                return this.cliReviewProcessor;
             case WorkflowType.CHECK_SUGGESTION_IMPLEMENTATION:
                 return this.implementationVerificationProcessor;
             case WorkflowType.AST_GRAPH_BUILD:
@@ -140,6 +145,8 @@ export class JobProcessorRouterService
                 return WEBHOOK_PROCESS_TIMEOUT_MS;
             case WorkflowType.CODE_REVIEW:
                 return CODE_REVIEW_PROCESS_TIMEOUT_MS;
+            case WorkflowType.CLI_CODE_REVIEW:
+                return CLI_CODE_REVIEW_PROCESS_TIMEOUT_MS;
             case WorkflowType.CHECK_SUGGESTION_IMPLEMENTATION:
                 return CHECK_IMPLEMENTATION_TIMEOUT_MS;
             case WorkflowType.AST_GRAPH_BUILD:

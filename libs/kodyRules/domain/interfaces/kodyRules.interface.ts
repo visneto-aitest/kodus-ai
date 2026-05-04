@@ -144,6 +144,19 @@ export enum KodyRulesStatus {
     PENDING = 'pending',
     APPLIED = 'applied',
     DELETED = 'deleted',
+    /**
+     * Soft-disable: rule remains in the user's list (and in audit history)
+     * but is not enforced by the code review pipeline. Used by the IDE
+     * auto-sync toggle-off "Pause enforcement" action so users can disable
+     * imported rules without losing them, and resume them later.
+     *
+     * Filters that gate enforcement (e.g. `KodyRulesValidationService.filterKodyRules`)
+     * MUST treat `PAUSED` the same as non-`ACTIVE` and skip the rule.
+     * Filters that gate visibility (e.g. listing the user's rules) MUST
+     * keep `PAUSED` rules so the UI can surface them and let the user
+     * resume.
+     */
+    PAUSED = 'paused',
 }
 
 export enum KodyRuleCentralizedStatus {

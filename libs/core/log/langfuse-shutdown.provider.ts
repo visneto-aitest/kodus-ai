@@ -10,7 +10,7 @@ import { flushLangfuse, shutdownLangfuse } from './langfuse';
  *
  * Crash paths (`uncaughtException`, `unhandledRejection`) bypass Nest's
  * lifecycle entirely — those are handled separately by the
- * `process.on(...)` handlers installed in `setupLangfuseTracing()`.
+ * `process.on(...)` handlers installed in `createLangfuseSpanProcessor()`.
  */
 @Injectable()
 export class LangfuseShutdownProvider implements OnApplicationShutdown {

@@ -14,6 +14,12 @@ const useSSL = isProduction && !disableSSL;
 
 const connectionUrl = process.env.DATABASE_URL ?? process.env.API_PG_DB_URL;
 
+// When the URL already declares SSL behavior via ?sslmode=, defer to the
+// driver. Forcing ssl=true here breaks setups where pgbouncer / a TCP proxy
+// in front of Postgres only speaks plain TCP.
+const urlControlsSsl =
+    !!connectionUrl && /[?&]sslmode=/i.test(connectionUrl);
+
 const connectionConfig = connectionUrl
     ? { url: connectionUrl }
     : {
@@ -28,7 +34,11 @@ const optionsDataBase: DataSourceOptions = {
     type: 'postgres',
     ...connectionConfig,
     logging: false,
-    logger: 'file',
+    // Stream CLI logs (migrations, seeds) to stdout instead of writing
+    // ./ormlogs.log — that file write breaks under restricted PSA with
+    // readOnlyRootFilesystem=true, and the runtime TypeOrmFactory
+    // already uses a stdout-based TypeOrmCustomLogger anyway.
+    logger: 'advanced-console',
     synchronize: false,
     cache: false,
     migrationsRun: false,
@@ -37,14 +47,14 @@ const optionsDataBase: DataSourceOptions = {
     migrationsTransactionMode: 'each',
     entities: ENTITIES,
     migrations: [join(__dirname, './migrations/*{.ts,.js}')],
-    ssl: useSSL,
+    ...(urlControlsSsl ? {} : { ssl: useSSL }),
     extra: {
         max: 10,
         min: 1,
         idleTimeoutMillis: 60000,
         connectionTimeoutMillis: 60000,
         keepAlive: true,
-        ...(useSSL
+        ...(!urlControlsSsl && useSSL
             ? {
                   ssl: {
                       rejectUnauthorized: false,

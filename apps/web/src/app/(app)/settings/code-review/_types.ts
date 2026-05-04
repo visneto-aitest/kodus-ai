@@ -93,8 +93,11 @@ export type CodeReviewGlobalConfig = {
     llmGeneratedMemoriesRequireApproval?: boolean;
     runOnDraft: boolean;
     codeReviewVersion?: "legacy" | "v2" | "v3-agent";
-    crossFileDependenciesAnalysis?: boolean;
     ideRulesSyncEnabled: boolean;
+    /** Only consulted on a true→false transition of `ideRulesSyncEnabled`.
+     *  Picks what happens to the rules previously imported from IDE files.
+     *  Default on the backend is `keep` (least destructive) when omitted. */
+    ideSyncDisableAction?: "keep" | "pause" | "delete";
     v2PromptOverrides?: {
         categories?: {
             descriptions?: {

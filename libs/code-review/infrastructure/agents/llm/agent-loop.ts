@@ -282,7 +282,7 @@ export function buildReasoningProviderOptions(
                 return {
                     anthropic: {
                         thinking: { type: 'adaptive' },
-                        outputConfig: { effort },
+                        effort,
                     },
                 };
             }

@@ -49,6 +49,12 @@ export class TypeORMFactory implements TypeOrmOptionsFactory {
         };
         const poolConfig = poolConfigs[componentType] || poolConfigs.default;
 
+        // When the URL already declares SSL behavior via ?sslmode=, defer to
+        // the driver. Forcing ssl=true here breaks setups where pgbouncer /
+        // a TCP proxy in front of Postgres only speaks plain TCP.
+        const urlControlsSsl =
+            !!this.config.url && /[?&]sslmode=/i.test(this.config.url);
+
         const connectionConfig = this.config.url
             ? { url: this.config.url }
             : {
@@ -72,14 +78,14 @@ export class TypeORMFactory implements TypeOrmOptionsFactory {
             logging: !isProduction, // Can be overridden by logger
             logger: new TypeOrmCustomLogger(!isProduction),
             maxQueryExecutionTime: 3000, // Logs slow queries > 3000ms
-            ssl: useSSL,
+            ...(urlControlsSsl ? {} : { ssl: useSSL }),
             extra: {
                 max: poolConfig.max,
                 min: poolConfig.min,
                 idleTimeoutMillis: 30000,
                 connectionTimeoutMillis: 60000,
                 keepAlive: true,
-                ...(useSSL
+                ...(!urlControlsSsl && useSSL
                     ? {
                           ssl: {
                               rejectUnauthorized: false,

@@ -22,6 +22,8 @@
             "@utils": ["src/core/util/*"],
             "@hooks/*": ["src/core/hooks/*"],
             "@components/*": ["src/core/components/*"],
+            "@providers/*": ["src/core/providers/*"],
+            "@config/*": ["src/core/config/*"],
             "@enums": ["src/core/enums"],
             "@assets/*": ["public/assets/*"]
         },

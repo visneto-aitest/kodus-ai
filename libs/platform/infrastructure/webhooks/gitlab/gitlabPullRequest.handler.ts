@@ -112,6 +112,7 @@ export class GitLabMergeRequestHandler implements IWebhookEventHandler {
         const context = await this.webhookContextService.getContext(
             PlatformType.GITLAB,
             String(payload?.project?.id),
+            { host: extractGitlabHost(payload) },
         );
 
         // If no active automation found, complete the webhook processing immediately
@@ -399,6 +400,7 @@ export class GitLabMergeRequestHandler implements IWebhookEventHandler {
         const context = await this.webhookContextService.getContext(
             PlatformType.GITLAB,
             String(payload?.project?.id),
+            { host: extractGitlabHost(payload) },
         );
 
         try {
@@ -536,4 +538,28 @@ export class GitLabMergeRequestHandler implements IWebhookEventHandler {
 
         return !!(lastCommitId && oldRev && lastCommitId !== oldRev);
     }
+}
+
+/**
+ * Returns the lowercased host of the GitLab instance that emitted the webhook.
+ * Used to disambiguate `IntegrationConfig`s when two self-hosted GitLab
+ * instances share the same numeric `project.id`.
+ */
+export function extractGitlabHost(payload: any): string | undefined {
+    const sources = [
+        payload?.project?.git_http_url,
+        payload?.project?.web_url,
+        payload?.project?.url,
+        payload?.repository?.url,
+        payload?.repository?.homepage,
+    ];
+    for (const source of sources) {
+        if (typeof source !== 'string' || !source) continue;
+        try {
+            return new URL(source).hostname.toLowerCase();
+        } catch {
+            continue;
+        }
+    }
+    return undefined;
 }

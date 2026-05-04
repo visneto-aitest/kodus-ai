@@ -26,6 +26,7 @@ import { getTeamsWithIntegrations } from "@services/teams/fetch";
 import { deleteCookie, setCookie } from "cookies-next";
 import integrationFactory from "src/core/integrations/integrationFactory";
 import { useAllTeams } from "src/core/providers/all-teams-context";
+import { useConfig } from "@providers/ConfigProvider";
 import { AuthMode, IntegrationCategory, PlatformType } from "src/core/types";
 import { useOrganizationContext } from "src/features/organization/_providers/organization-context";
 
@@ -87,6 +88,7 @@ export default function CardsGroup({
 }) {
     const router = useRouter();
     const pathname = usePathname();
+    const cfg = useConfig();
     const { teams } = useAllTeams();
     const { organizationId } = useOrganizationContext();
     const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -201,6 +203,7 @@ export default function CardsGroup({
 
             const integrationConnector = integrationFactory.getConnector(
                 key.toLowerCase(),
+                cfg,
             );
 
             if (!integrationConnector) return;

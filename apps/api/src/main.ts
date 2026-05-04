@@ -209,7 +209,6 @@ async function bootstrap() {
                 'Pull Request Messages',
                 'Pull Requests',
                 'Rule Likes',
-                'Segment',
                 'SSO Config',
                 'Team',
                 'Team CLI Key',

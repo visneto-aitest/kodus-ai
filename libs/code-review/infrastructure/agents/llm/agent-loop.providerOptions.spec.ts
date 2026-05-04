@@ -39,7 +39,7 @@ describe('buildReasoningProviderOptions', () => {
             ).toEqual({
                 anthropic: {
                     thinking: { type: 'adaptive' },
-                    outputConfig: { effort: 'high' },
+                    effort: 'high',
                 },
             });
         });
@@ -54,7 +54,7 @@ describe('buildReasoningProviderOptions', () => {
             ).toEqual({
                 anthropic: {
                     thinking: { type: 'adaptive' },
-                    outputConfig: { effort: 'medium' },
+                    effort: 'medium',
                 },
             });
         });

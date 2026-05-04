@@ -1,6 +1,7 @@
 import { forwardRef, Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 
+import { EmailModule } from '@libs/common/email/email.module';
 import { CodebaseModule } from '@libs/code-review/modules/codebase.module';
 import { ContextReferenceModule } from '@libs/code-review/modules/contextReference.module';
 import { PromptsModule } from '@libs/code-review/modules/prompts.module';
@@ -37,6 +38,7 @@ import { GenerateKodyRulesUseCase } from '../application/use-cases/generate-kody
 import { GetInheritedRulesKodyRulesUseCase } from '../application/use-cases/get-inherited-kody-rules.use-case';
 import { GetRulesLimitStatusUseCase } from '../application/use-cases/get-rules-limit-status.use-case';
 import { ImportFastKodyRulesUseCase } from '../application/use-cases/import-fast-kody-rules.use-case';
+import { ManageImportedKodyRulesUseCase } from '../application/use-cases/manage-imported-kody-rules.use-case';
 import { ResyncRulesFromIdeUseCase } from '../application/use-cases/resync-rules-from-ide.use-case';
 import { RemoveRuleLikeUseCase } from '../application/use-cases/rule-like/remove-rule-like.use-case';
 import { SetRuleLikeUseCase } from '../application/use-cases/rule-like/set-rule-like.use-case';
@@ -85,6 +87,7 @@ import { CentralizedConfigModule } from '@libs/centralized-config/modules/centra
         forwardRef(() => McpCoreModule),
         forwardRef(() => CodeReviewConfigurationModule),
         forwardRef(() => CentralizedConfigModule),
+        EmailModule,
     ],
     providers: [
         {
@@ -124,6 +127,7 @@ import { CentralizedConfigModule } from '@libs/centralized-config/modules/centra
         KodyRulesSyncListener,
         FindRecommendedKodyRulesUseCase, // Added
         ConvertPendingUpdatesToMemoriesUseCase,
+        ManageImportedKodyRulesUseCase,
     ],
     exports: [
         KODY_RULES_REPOSITORY_TOKEN,
@@ -156,6 +160,7 @@ import { CentralizedConfigModule } from '@libs/centralized-config/modules/centra
         SetRuleLikeUseCase,
         FindRecommendedKodyRulesUseCase, // Added
         ConvertPendingUpdatesToMemoriesUseCase,
+        ManageImportedKodyRulesUseCase,
     ],
 })
 export class KodyRulesModule {}

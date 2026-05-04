@@ -133,7 +133,12 @@ export default auth(async (req) => {
 });
 
 export const config = {
+    // /api/proxy/* (web-runtime-config-migration) are same-origin forwards
+    // to the backend and must bypass this auth middleware. The upstream
+    // API validates the forwarded cookie/bearer itself. Without this
+    // exclusion, unauthenticated calls (e.g. email-existence check on
+    // sign-up) get redirected to /sign-in and the client sees a 307 loop.
     matcher: [
-        "/((?!api/webhooks|api/play|_next|assets|favicon.ico|api/health).*)",
+        "/((?!api/webhooks|api/play|api/proxy|_next|assets|favicon.ico|api/health).*)",
     ],
 };

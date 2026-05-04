@@ -50,21 +50,32 @@ export class LocalSandboxService implements ISandboxProvider {
             branch,
             prNumber,
             platform,
+            checkoutSha,
+            unifiedDiff,
         } = params;
 
         const tempDir = await mkdtemp(join(tmpdir(), 'kodus-sandbox-'));
 
         try {
-            const authHeader = this.buildAuthHeader(
-                platform,
-                authToken,
-                authUsername,
-            );
+            // No auth token → anonymous clone (works for public repos and
+            // is what trial users without --github-pat get). Skipping the
+            // header builder also avoids Bitbucket's "username required"
+            // throw when both token and username are empty.
+            const authHeader = authToken
+                ? this.buildAuthHeader(platform, authToken, authUsername)
+                : '';
             const refspec =
-                prNumber != null
-                    ? this.getPrRefspec(platform, prNumber, cloneUrl, branch)
-                    : `refs/heads/${branch}`;
-            const localRef = prNumber != null ? 'pr-head' : 'cli-head';
+                checkoutSha != null
+                    ? checkoutSha
+                    : prNumber != null
+                      ? this.getPrRefspec(platform, prNumber, cloneUrl, branch)
+                      : `refs/heads/${branch}`;
+            const localRef =
+                checkoutSha != null
+                    ? 'cli-base'
+                    : prNumber != null
+                      ? 'pr-head'
+                      : 'cli-head';
 
             await execFileAsync('git', ['init', tempDir], {
                 timeout: CLONE_TIMEOUT_MS,
@@ -106,6 +117,15 @@ export class LocalSandboxService implements ISandboxProvider {
             await execFileAsync('git', ['-C', tempDir, 'checkout', localRef], {
                 timeout: CLONE_TIMEOUT_MS,
             });
+
+            // CLI mode: replay the user's local diff on top of the
+            // merge-base SHA, so the agent reviews the same code the user
+            // sees locally — even when the branch isn't pushed and there
+            // are uncommitted changes. Failure is non-fatal; we log and
+            // proceed with the merge-base content.
+            if (checkoutSha && unifiedDiff) {
+                await this.applyLocalDiff(tempDir, unifiedDiff);
+            }
 
             const remoteCommands = this.buildRemoteCommands(tempDir);
 
@@ -512,6 +532,105 @@ export class LocalSandboxService implements ISandboxProvider {
                 });
             },
         };
+    }
+
+    /**
+     * Apply a unified diff on top of the currently-checked-out commit. Used
+     * in CLI mode so the agent sees the user's actual local working state.
+     * `--3way` falls back to a 3-way merge using the blob SHAs embedded in
+     * the diff when the line context drifts. Failures are non-fatal — we
+     * log and proceed with the merge-base content rather than aborting the
+     * review.
+     */
+    private async applyLocalDiff(
+        repoDir: string,
+        unifiedDiff: string,
+    ): Promise<void> {
+        const patchPath = join(repoDir, '.kodus-cli.patch');
+        try {
+            await writeFile(patchPath, unifiedDiff, 'utf-8');
+        } catch (error) {
+            this.logger.warn({
+                message:
+                    'Failed to write CLI diff to sandbox; agent will review merge-base only',
+                context: LocalSandboxService.name,
+                error,
+            });
+            return;
+        }
+
+        // Configure dummy identity so `--3way` can write merge commits if
+        // it needs to.
+        try {
+            await execFileAsync(
+                'git',
+                ['-C', repoDir, 'config', 'user.email', 'kodus-cli@kodus.local'],
+                { timeout: 5_000 },
+            );
+            await execFileAsync(
+                'git',
+                ['-C', repoDir, 'config', 'user.name', 'Kodus CLI'],
+                { timeout: 5_000 },
+            );
+        } catch {
+            // ignore — `git apply` may still work without identity
+        }
+
+        try {
+            await execFileAsync(
+                'git',
+                [
+                    '-C',
+                    repoDir,
+                    'apply',
+                    '--3way',
+                    '--whitespace=nowarn',
+                    patchPath,
+                ],
+                { timeout: CLONE_TIMEOUT_MS },
+            );
+            this.logger.log({
+                message:
+                    'CLI diff applied successfully on top of merge-base',
+                context: LocalSandboxService.name,
+            });
+            return;
+        } catch (error: any) {
+            this.logger.warn({
+                message: `git apply --3way failed (${error.code ?? 'unknown'}), retrying with --reject`,
+                context: LocalSandboxService.name,
+                metadata: {
+                    stderr: (error.stderr ?? '').slice(0, 500),
+                },
+            });
+        }
+
+        // Fallback: --reject leaves .rej files for hunks that didn't apply
+        // but writes the ones that did. Not great, but better than the
+        // self-contained mode.
+        try {
+            await execFileAsync(
+                'git',
+                [
+                    '-C',
+                    repoDir,
+                    'apply',
+                    '--whitespace=fix',
+                    '--reject',
+                    patchPath,
+                ],
+                { timeout: CLONE_TIMEOUT_MS },
+            );
+        } catch (error: any) {
+            this.logger.warn({
+                message:
+                    'CLI diff fallback apply also failed; agent will see merge-base content',
+                context: LocalSandboxService.name,
+                metadata: {
+                    stderr: (error.stderr ?? '').slice(0, 500),
+                },
+            });
+        }
     }
 
     private validatePath(path: string): void {

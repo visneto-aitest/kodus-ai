@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
-import { ANALYTICS_DATA_SOURCE } from '@libs/analytics-warehouse';
+import { ANALYTICS_DATA_SOURCE } from '@libs/ee/analytics-warehouse';
 
 import {
     assertIsoDate,
@@ -711,6 +711,8 @@ export class CockpitDeveloperProductivityService {
             this.codeHealth.getImplementationRate({
                 organizationId: q.organizationId,
                 repository: q.repository,
+                startDate: q.startDate,
+                endDate: q.endDate,
             }),
             this.getLeadTimeHighlight(q),
             this.getDeployFrequencyHighlight(q),

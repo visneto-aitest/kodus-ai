@@ -40,13 +40,36 @@ import {
     KODY_RULES_SERVICE_TOKEN,
 } from '@libs/kodyRules/domain/contracts/kodyRules.service.contract';
 import { KodyRulesValidationService } from '@libs/ee/kodyRules/service/kody-rules-validation.service';
+import { CodeReviewPipelineObserver } from '@libs/code-review/infrastructure/observers/code-review-pipeline.observer';
 
 interface GitContext {
     remote?: string;
     branch?: string;
     commitSha?: string;
+    /**
+     * Merge-base between HEAD and the upstream default branch on the user's
+     * machine (git merge-base HEAD origin/main). Used by the sandbox stage
+     * to checkout a commit that exists on the remote and apply the local
+     * diff on top — works when the branch isn't pushed yet.
+     */
+    mergeBaseSha?: string;
+    /**
+     * Optional GitHub personal access token. Only meaningful in trial mode
+     * (anonymous users have no stored credentials, so without this we can
+     * only clone public repos). Held in memory for the pipeline run only —
+     * never persisted to dataExecution / logs.
+     */
+    githubPat?: string;
     inferredPlatform?: PlatformType;
     cliVersion?: string;
+}
+
+interface ExecuteCliReviewAuthContext {
+    mode: 'team-key' | 'personal';
+    teamKeyId?: string;
+    teamKeyName?: string;
+    userId?: string;
+    userEmail?: string;
 }
 
 interface ExecuteCliReviewInput {
@@ -55,6 +78,7 @@ interface ExecuteCliReviewInput {
     isTrialMode?: boolean;
     userEmail?: string;
     gitContext?: GitContext;
+    cliAuth?: ExecuteCliReviewAuthContext;
 }
 
 /**
@@ -77,6 +101,7 @@ export class ExecuteCliReviewUseCase implements IUseCase {
         @Inject(KODY_RULES_SERVICE_TOKEN)
         private readonly kodyRulesService: IKodyRulesService,
         private readonly kodyRulesValidationService: KodyRulesValidationService,
+        private readonly pipelineObserver: CodeReviewPipelineObserver,
     ) {}
 
     async execute(params: ExecuteCliReviewInput): Promise<CliReviewResponse> {
@@ -86,6 +111,7 @@ export class ExecuteCliReviewUseCase implements IUseCase {
             isTrialMode = false,
             userEmail,
             gitContext,
+            cliAuth,
         } = params;
         const correlationId = IdGenerator.correlationId();
         const startTime = Date.now();
@@ -118,6 +144,7 @@ export class ExecuteCliReviewUseCase implements IUseCase {
                       correlationId,
                       userEmail,
                       gitContext,
+                      cliAuth,
                   );
 
             // 2. Convert CLI input to FileChange[]
@@ -221,9 +248,18 @@ export class ExecuteCliReviewUseCase implements IUseCase {
                           remote: gitContext.remote,
                           branch: gitContext.branch,
                           commitSha: gitContext.commitSha,
+                          mergeBaseSha: gitContext.mergeBaseSha,
+                          // PAT propagated to sandbox only — NEVER persisted
+                          // (see updateAutomationExecution / dataExecution.git).
+                          githubPat: gitContext.githubPat,
                           inferredPlatform: gitContext.inferredPlatform,
                       }
                     : undefined,
+
+                // Raw diff for the sandbox stage to `git apply` on top of the
+                // merge-base SHA — recreates branches not yet pushed and
+                // uncommitted working-tree changes inside the sandbox.
+                cliRawDiff: input.diff,
 
                 // Pipeline metadata — populate lastExecution with the real
                 // AutomationExecution uuid so the pipeline observer uses
@@ -255,6 +291,9 @@ export class ExecuteCliReviewUseCase implements IUseCase {
                 context,
                 stages,
                 pipelineName,
+                undefined,
+                undefined,
+                [this.pipelineObserver],
             );
 
             // 6. Return formatted response
@@ -570,6 +609,7 @@ export class ExecuteCliReviewUseCase implements IUseCase {
         correlationId: string,
         userEmail?: string,
         gitContext?: GitContext,
+        cliAuth?: ExecuteCliReviewAuthContext,
     ): Promise<IAutomationExecution | null> {
         try {
             const teamAutomations = await this.teamAutomationService.find({
@@ -593,10 +633,23 @@ export class ExecuteCliReviewUseCase implements IUseCase {
                               remote: gitContext.remote,
                               branch: gitContext.branch,
                               commitSha: gitContext.commitSha,
+                              mergeBaseSha: gitContext.mergeBaseSha,
                               inferredPlatform: gitContext.inferredPlatform,
                           }
                         : undefined,
                     cliVersion: gitContext?.cliVersion,
+                    // Auth provenance: identifies the CLI key (by id+name) or
+                    // the logged-in user. Never includes the secret material —
+                    // the team key/JWT itself is gone by the time we get here.
+                    cliAuth: cliAuth
+                        ? {
+                              mode: cliAuth.mode,
+                              teamKeyId: cliAuth.teamKeyId,
+                              teamKeyName: cliAuth.teamKeyName,
+                              userId: cliAuth.userId,
+                              userEmail: cliAuth.userEmail,
+                          }
+                        : undefined,
                 },
             });
         } catch (error) {

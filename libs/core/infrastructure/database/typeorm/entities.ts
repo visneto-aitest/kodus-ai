@@ -9,6 +9,7 @@ import { DryRunModel } from '../../../../dryRun/infrastructure/adapters/reposito
 import { CodeReviewSettingsLogModel } from '../../../../ee/codeReviewSettingsLog/infrastructure/adapters/repository/schemas/codeReviewSettingsLog.model';
 import { SSOConfigModel } from '../../../../ee/sso/repositories/ssoConfig.model';
 import { AuthModel } from '../../../../identity/infrastructure/adapters/repositories/schemas/auth.model';
+import { CliAuthSessionModel } from '../../../../identity/infrastructure/adapters/repositories/schemas/cli-auth-session.model';
 import { PermissionsModel } from '../../../../identity/infrastructure/adapters/repositories/schemas/permissions.model';
 import { ProfileModel } from '../../../../identity/infrastructure/adapters/repositories/schemas/profile.model';
 import { ProfileConfigModel } from '../../../../identity/infrastructure/adapters/repositories/schemas/profileConfig.model';
@@ -49,6 +50,7 @@ export const ENTITIES = [
     ParametersModel,
     ObservabilityTelemetryModel,
     AuthModel,
+    CliAuthSessionModel,
     TeamMemberModel,
     TeamCliKeyModel,
     IntegrationConfigModel,

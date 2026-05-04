@@ -54,17 +54,13 @@ export class CreateSandboxStage extends BasePipelineStage<CodeReviewPipelineCont
             ? `branch ${cliContext?.gitContext?.branch ?? 'unknown'}`
             : `PR#${context?.pullRequest?.number}`;
 
-        // Guard: skip in trial mode — trial users are anonymous, have no
-        // stored git credentials, and the review runs in "self-contained"
-        // mode where the agent analyzes the diff + inlined file contents
-        // without any sandbox exploration.
-        if (cliContext?.isTrialMode) {
-            this.logger.log({
-                message: `Skipping sandbox creation: trial mode for ${label}`,
-                context: this.stageName,
-            });
-            return context;
-        }
+        // Trial mode: we still try to spin a sandbox so the agent can use
+        // tools instead of falling back to single-shot self-contained mode.
+        // For public repos this works with no auth at all; for private
+        // repos the user can pass a personal access token via
+        // `--github-pat`. If the clone fails (no auth + private), the
+        // catch block below logs and falls through to self-contained
+        // mode — same UX as before, just opt-in upgraded for public repos.
 
         // Guard: skip if no changed files
         if (!context?.changedFiles?.length) {
@@ -128,6 +124,8 @@ export class CreateSandboxStage extends BasePipelineStage<CodeReviewPipelineCont
                 baseBranch: cloneInfo.baseBranch,
                 prNumber: cloneInfo.prNumber,
                 platform: cloneInfo.platform,
+                checkoutSha: cloneInfo.checkoutSha,
+                unifiedDiff: cliContext?.cliRawDiff,
                 sandboxMetadata: { stage: 'agent-review' },
             });
 
@@ -163,6 +161,8 @@ export class CreateSandboxStage extends BasePipelineStage<CodeReviewPipelineCont
                         baseBranch: freshCloneInfo.baseBranch,
                         prNumber: freshCloneInfo.prNumber,
                         platform: freshCloneInfo.platform,
+                        checkoutSha: freshCloneInfo.checkoutSha,
+                        unifiedDiff: cliContext?.cliRawDiff,
                         sandboxMetadata: { stage: 'agent-review-renewed' },
                     };
                 };
@@ -207,6 +207,8 @@ export class CreateSandboxStage extends BasePipelineStage<CodeReviewPipelineCont
                         baseBranch: cloneInfoRetry.baseBranch,
                         prNumber: cloneInfoRetry.prNumber,
                         platform: cloneInfoRetry.platform,
+                        checkoutSha: cloneInfoRetry.checkoutSha,
+                        unifiedDiff: cliCtxRetry?.cliRawDiff,
                         sandboxMetadata: { stage: 'agent-review' },
                     });
                 cleanup = retryResult.cleanup;

@@ -32,7 +32,7 @@ import {
 } from '@libs/organization/domain/team/contracts/team.service.contract';
 import { CodeManagementService } from '@libs/platform/infrastructure/adapters/services/codeManagement.service';
 import { BackfillHistoricalPRsUseCase } from '@libs/platformData/application/use-cases/pullRequests/backfill-historical-prs.use-case';
-import posthog from '@libs/common/utils/posthog';
+import { TelemetryService } from '@libs/telemetry/application/services/telemetry.service';
 
 @Injectable()
 export class CreateRepositoriesUseCase implements IUseCase {
@@ -53,8 +53,9 @@ export class CreateRepositoriesUseCase implements IUseCase {
         private readonly repositoryService: IRepositoryService,
         @Inject(REQUEST)
         private readonly request: Request & {
-            user: { organization: { uuid: string } };
+            user: { organization: { uuid: string }; uuid?: string };
         },
+        private readonly telemetry: TelemetryService,
     ) {}
 
     public async execute(params: any) {
@@ -229,13 +230,14 @@ export class CreateRepositoriesUseCase implements IUseCase {
                     defaultBranch: repo.default_branch,
                 });
 
-                posthog.repositoryIdentify({
+                void this.telemetry.repositoryConnected({
                     repositoryId: repoRecord.externalId,
                     name: repoRecord.name,
                     fullName: repoRecord.fullName,
                     platform: repoRecord.platform,
                     organizationId: orgTeam.organizationId,
                     agentReviewEnabled: true,
+                    actorUserId: this.request?.user?.uuid,
                 });
 
                 // Only enqueue if graph not already ready or building

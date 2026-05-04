@@ -53,7 +53,9 @@ describe('KodyRulesPrLevelAnalysisService — Kody Rule link generation', () => 
         const content = `This violates rule ${ruleId} in your file.`;
         const result = await buildLinks([ruleId], content);
 
-        const expectedLink = `[Avoid console log](https://app.kodus.io/settings/code-review/global/kody-rules/${ruleId})`;
+        // teamId is appended so directory-scoped rules resolve correctly
+        // on the settings page (was the David B / quintoandar bug).
+        const expectedLink = `[Avoid console log](https://app.kodus.io/settings/code-review/global/kody-rules/${ruleId}?teamId=team-1)`;
         expect(result).toBe(`This violates rule ${expectedLink} in your file.`);
     });
 
@@ -87,7 +89,7 @@ describe('KodyRulesPrLevelAnalysisService — Kody Rule link generation', () => 
         const result = await buildLinks([ruleId], content);
 
         expect(result).toContain(
-            `(https://app.kodus.io/settings/code-review/repo-uuid-xyz/kody-rules/${ruleId})`,
+            `(https://app.kodus.io/settings/code-review/repo-uuid-xyz/kody-rules/${ruleId}?teamId=team-1)`,
         );
         expect(result).toContain('[No magic numbers]');
     });
@@ -109,7 +111,7 @@ describe('KodyRulesPrLevelAnalysisService — Kody Rule link generation', () => 
 
         for (const id of ids) {
             expect(result).toContain(
-                `/settings/code-review/global/kody-rules/${id})`,
+                `/settings/code-review/global/kody-rules/${id}?teamId=team-1)`,
             );
         }
         // Three distinct markdown links — count occurrences of "](https"
@@ -130,7 +132,7 @@ describe('KodyRulesPrLevelAnalysisService — Kody Rule link generation', () => 
 
         // Backticks gone, replaced by the markdown link
         expect(result).toBe(
-            `See [Backtick rule](https://app.kodus.io/settings/code-review/global/kody-rules/${ruleId}) for details.`,
+            `See [Backtick rule](https://app.kodus.io/settings/code-review/global/kody-rules/${ruleId}?teamId=team-1) for details.`,
         );
         expect(result).not.toContain(`\`${ruleId}\``);
     });

@@ -3,6 +3,7 @@ import {
     IsArray,
     IsBoolean,
     IsEnum,
+    IsIn,
     IsNumber,
     IsObject,
     IsOptional,
@@ -383,6 +384,17 @@ class CodeReviewConfigWithoutLLMProviderDto {
     @IsOptional()
     @IsBoolean()
     ideRulesSyncEnabled?: boolean;
+
+    /**
+     * Only consulted when `ideRulesSyncEnabled` transitions from `true` to
+     * `false`. Picks what happens to imported rules. See
+     * `IdeSyncDisableAction` for semantics. Defaults to `'keep'` (least
+     * destructive) when callers omit it — historically this transition
+     * silently deleted rules, which surprised users.
+     */
+    @IsOptional()
+    @IsIn(['keep', 'pause', 'delete'])
+    ideSyncDisableAction?: 'keep' | 'pause' | 'delete';
 
     @IsOptional()
     @IsBoolean()
