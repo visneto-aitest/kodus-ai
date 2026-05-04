@@ -68,7 +68,7 @@ export class ComposioProvider extends BaseProvider {
     }
 
     private getMCPUrl(serverId: string, authConfigId: string): string {
-        return `https://mcp.composio.dev/composio/server/${serverId}/mcp?connected_account_id=${authConfigId}`;
+        return `https://backend.composio.dev/v3/mcp/${serverId}?connected_account_id=${authConfigId}`;
     }
 
     private validateRequiredParams(
@@ -168,8 +168,20 @@ export class ComposioProvider extends BaseProvider {
             tools: integration.restrict_to_following_tools,
         });
 
+        const allowedToolsSet = activeMCPServer?.allowed_tools
+            ? new Set(activeMCPServer.allowed_tools)
+            : null;
+
         return items
-            .filter((tool) => activeMCPServer.allowed_tools.includes(tool.slug))
+            .filter((tool) => {
+                if (!activeMCPServer) {
+                    return true;
+                }
+                if (!allowedToolsSet) {
+                    return false;
+                }
+                return allowedToolsSet.has(tool.slug);
+            })
             .map((tool) => ({
                 slug: tool.slug,
                 name: tool.name,

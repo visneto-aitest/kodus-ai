@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
 import { CustomClient } from '../../../clients/custom';
@@ -8,7 +9,6 @@ import {
     MCPIntegrationProtocol,
 } from '../../integrations/enums/integration.enum';
 import { IntegrationOAuthService } from '../../integrations/integration-oauth.service';
-import { IntegrationsService } from '../../integrations/integrations.service';
 import { MCPIntegrationAllUniqueFields } from '../../integrations/interfaces/mcp-integration.interface';
 import { MCPConnectionStatus } from '../../mcp/entities/mcp-connection.entity';
 import { BaseProvider } from '../base.provider';
@@ -21,7 +21,6 @@ import {
     MCPTool,
 } from '../interfaces/provider.interface';
 import { IntegrationDescriptionService } from '../services/integration-description.service';
-import { Logger } from '@nestjs/common';
 
 interface ManagedIntegrationConfig {
     id: string;
@@ -62,10 +61,21 @@ export class KodusMCPProvider extends BaseProvider {
 
     private loadManagedIntegrationsFromConfig() {
         try {
-            const configPath = path.resolve(
+            // Try loading from src/config first (development)
+            let configPath = path.resolve(
                 __dirname,
                 '../../../config/managed-mcp-servers.json',
             );
+
+            // If not found, try loading from a common production config path
+            if (!fs.existsSync(configPath)) {
+                // In production, the config might be at the root of the dist folder,
+                // not inside a nested 'src' directory.
+                configPath = path.resolve(
+                    process.cwd(),
+                    'dist/config/managed-mcp-servers.json',
+                );
+            }
 
             if (!fs.existsSync(configPath)) {
                 return;
@@ -77,6 +87,7 @@ export class KodusMCPProvider extends BaseProvider {
             ) as ManagedIntegrationConfig[];
 
             for (const entry of managedConfigs) {
+                entry.baseUrl = this.resolveManagedBaseUrl(entry.baseUrl);
                 this.managedIntegrations.set(entry.id, {
                     config: entry,
                 });
@@ -87,6 +98,21 @@ export class KodusMCPProvider extends BaseProvider {
                 { error },
             );
         }
+    }
+
+    private resolveManagedBaseUrl(baseUrl: string): string {
+        if (!baseUrl.startsWith('/')) {
+            return baseUrl;
+        }
+
+        const backendUrl = process.env.API_MCP_MANAGER_BACKEND_URL;
+        if (!backendUrl) {
+            throw new Error(
+                'API_MCP_MANAGER_BACKEND_URL environment variable is required for relative base URLs',
+            );
+        }
+
+        return `${backendUrl.replace(/\/$/, '')}${baseUrl}`;
     }
 
     private transformManagedIntegration(
