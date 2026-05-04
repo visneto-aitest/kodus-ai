@@ -1077,10 +1077,11 @@ export class BitbucketDataCenterService implements Omit<
 
             const axiosClient = this.getAxiosInstance(authDetails);
 
-            // In DC, approving is usually a POST to /approve, depending on API version.
-            // Alternatively, it's adding the current user to reviewers with status APPROVED.
-            await axiosClient.post(
-                `/projects/${repoConfig.workspaceId}/repos/${repoConfig.name}/pull-requests/${prNumber}/approve`,
+            await axiosClient.put(
+                `/projects/${repoConfig.workspaceId}/repos/${repoConfig.name}/pull-requests/${prNumber}/participants/${authDetails.username}`,
+                {
+                    status: 'APPROVED',
+                },
             );
         } catch (error) {
             this.logger.error({
@@ -1118,31 +1119,127 @@ export class BitbucketDataCenterService implements Omit<
 
             const axiosClient = this.getAxiosInstance(authDetails);
 
-            // DC uses /changes to get files altered in a PR
-            const response = await axiosClient.get(
+            // 1. Fetch the PR to get the latest source commit hash (fromRef)
+            const prResponse = await axiosClient.get(
+                `/projects/${repoConfig.workspaceId}/repos/${repoConfig.name}/pull-requests/${prNumber}`,
+            );
+            const sourceCommit =
+                prResponse.data?.fromRef?.latestCommit ||
+                prResponse.data?.fromRef?.id;
+
+            // 2. Fetch the list of changed files
+            const changesResponse = await axiosClient.get(
                 `/projects/${repoConfig.workspaceId}/repos/${repoConfig.name}/pull-requests/${prNumber}/changes`,
                 { params: { limit: 1000 } },
             );
 
-            const files = response.data.values || [];
+            const files = changesResponse.data.values || [];
 
-            return files.map((file: any) => ({
-                filename: file.path.toString,
-                status:
-                    file.type === 'MODIFY'
-                        ? 'modified'
-                        : file.type === 'ADD'
-                          ? 'added'
-                          : 'removed',
-                additions: 0, // DC doesn't return additions/deletions inline here without hitting the diff endpoint per file
-                deletions: 0,
-                changes: 0,
-                content: null,
-                patch: null, // You would need to hit `/diff` endpoint to get the patch in DC
-            }));
+            // 3. Map through files in parallel to fetch raw content and reconstruct the diff patch
+            const prFilesWithDiffAndContents = await Promise.all(
+                files.map(async (file: any) => {
+                    const filePath = file.path.toString;
+                    const isRemoved =
+                        file.type === 'DELETE' || file.type === 'REMOVED';
+
+                    let content = null;
+                    let patch = '';
+                    let additions = 0;
+                    let deletions = 0;
+
+                    // Fetch Raw Content (Skip if the file was deleted)
+                    if (!isRemoved && sourceCommit) {
+                        try {
+                            const rawRes = await axiosClient.get(
+                                `/projects/${repoConfig.workspaceId}/repos/${repoConfig.name}/raw/${filePath}`,
+                                {
+                                    params: { at: sourceCommit },
+                                    responseType: 'text',
+                                },
+                            );
+                            content = rawRes.data;
+                        } catch (err) {
+                            this.logger.error({
+                                message: `Could not fetch raw content for ${filePath} at commit ${sourceCommit}`,
+                                context: BitbucketDataCenterService.name,
+                                metadata: { filePath, sourceCommit },
+                                error: err,
+                            });
+                        }
+                    }
+
+                    // Fetch JSON Diff and Reconstruct Unified Patch String
+                    try {
+                        const diffRes = await axiosClient.get(
+                            `/projects/${repoConfig.workspaceId}/repos/${repoConfig.name}/pull-requests/${prNumber}/diff`,
+                            {
+                                params: { path: filePath, limit: 1000 },
+                            },
+                        );
+
+                        const diffs = diffRes.data.diffs || [];
+
+                        for (const diff of diffs) {
+                            const hunks = diff.hunks || [];
+
+                            for (const hunk of hunks) {
+                                // Construct standard Unified Diff hunk header
+                                patch += `@@ -${hunk.sourceLine || 0},${hunk.sourceSpan || 0} +${hunk.destinationLine || 0},${hunk.destinationSpan || 0} @@\n`;
+
+                                const segments = hunk.segments || [];
+                                for (const segment of segments) {
+                                    const prefix =
+                                        segment.type === 'ADDED'
+                                            ? '+'
+                                            : segment.type === 'REMOVED'
+                                              ? '-'
+                                              : ' ';
+
+                                    if (segment.type === 'ADDED')
+                                        additions += segment.lines?.length || 0;
+                                    if (segment.type === 'REMOVED')
+                                        deletions += segment.lines?.length || 0;
+
+                                    for (const line of segment.lines || []) {
+                                        patch += `${prefix}${line.line}\n`;
+                                    }
+                                }
+                            }
+                        }
+                    } catch (err) {
+                        this.logger.error({
+                            message: `Could not fetch diff for ${filePath}`,
+                            context: BitbucketDataCenterService.name,
+                            metadata: { filePath, prNumber },
+                            error: err,
+                        });
+                    }
+
+                    return {
+                        filename: filePath,
+                        sha: sourceCommit,
+                        status:
+                            file.type === 'MODIFY'
+                                ? 'modified'
+                                : file.type === 'ADD'
+                                  ? 'added'
+                                  : 'removed',
+                        additions,
+                        deletions,
+                        changes: additions + deletions,
+                        patch: patch || null,
+                        content: content,
+                        blob_url: null,
+                        contents_url: null,
+                        raw_url: null,
+                    };
+                }),
+            );
+
+            return prFilesWithDiffAndContents;
         } catch (error) {
             this.logger.error({
-                message: `Error getting files for DC PR #${params.prNumber}`,
+                message: `Error getting fully populated files for DC PR #${params.prNumber}`,
                 context: BitbucketDataCenterService.name,
                 error,
             });
