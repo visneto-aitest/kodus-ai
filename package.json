@@ -181,7 +181,7 @@
         "dev:with-tunnel": "yarn tunnel & yarn docker:start",
         "dev:with-tunnel:watch": "yarn tunnel & yarn docker:start && yarn docker:logs",
         "openapi:export": "ts-node -r tsconfig-paths/register scripts/openapi/export-openapi.ts",
-        "openapi:lint": "spectral lint docs/openapi.json",
+        "openapi:lint": "spectral lint docs-internal/openapi.json",
         "openapi:lint:local": "spectral lint http://localhost:3001/openapi.json",
         "openapi:postman": "scripts/openapi/generate-postman.sh",
         "openapi:newman": "scripts/openapi/run-newman.sh",

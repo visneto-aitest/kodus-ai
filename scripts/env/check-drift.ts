@@ -21,6 +21,9 @@ execSync(`ts-node ${join(__dirname, 'generate.ts')}`, {
     stdio: 'inherit',
 });
 
+// Local drift check — only repos that live inside kodus-ai are checked here.
+// The kodus-installer drift check runs in CI (env-sync-release.yml) against
+// the actual kodus-installer repo state.
 const targets: Target[] = [
     {
         name: 'kodus-ai/.env.example',
@@ -28,9 +31,14 @@ const targets: Target[] = [
         committed: join(REPO_ROOT, '.env.example'),
     },
     {
-        name: 'kodus-installer/.env.example',
-        generated: join(REPO_ROOT, 'poc-env', 'kodus-installer.env.example'),
-        committed: join(REPO_ROOT, '..', 'kodus-installer', '.env.example'),
+        name: 'docs/_snippets/env-vars-generated.mdx',
+        generated: join(REPO_ROOT, 'poc-env', 'env-vars-generated.mdx'),
+        committed: join(
+            REPO_ROOT,
+            'docs',
+            '_snippets',
+            'env-vars-generated.mdx',
+        ),
     },
 ];
 
