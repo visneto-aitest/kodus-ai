@@ -40,6 +40,7 @@ const tokenFormSchema = z.object({
         .email({
             error: "Enter a valid email",
         })
+        .or(z.literal(""))
         .optional(),
     selfHostedUrl: z.string().optional(),
     dataCenterPassword: z.string().optional(),
