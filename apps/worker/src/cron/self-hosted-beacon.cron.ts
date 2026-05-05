@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 
 import { environment } from '@libs/ee/configs/environment';
@@ -15,12 +15,34 @@ import { SelfHostedBeaconService } from '@libs/telemetry/application/services/se
  * Scope: self-hosted only. Cloud already has rich product telemetry via
  * PostHog/Resend/n8n; the cloud control plane has no use for its own
  * heartbeat. Skip on cloud entirely.
+ *
+ * Boot transparency: on first init in self-hosted mode, log a single line
+ * announcing the telemetry state and how to inspect / disable it. This is
+ * the highest-leverage trust signal — operators see it the first time they
+ * boot the worker, without having to read docs.
  */
 @Injectable()
-export class SelfHostedBeaconCron {
+export class SelfHostedBeaconCron implements OnModuleInit {
     private readonly logger = new Logger(SelfHostedBeaconCron.name);
 
     constructor(private readonly beacon: SelfHostedBeaconService) {}
+
+    onModuleInit(): void {
+        if (environment.API_CLOUD_MODE) {
+            return;
+        }
+
+        if (this.beacon.isDisabled()) {
+            this.logger.log(
+                'Anonymous usage telemetry is DISABLED (KODUS_TELEMETRY_DISABLED is set). No heartbeat will be sent.',
+            );
+            return;
+        }
+
+        this.logger.log(
+            'Anonymous usage telemetry is enabled. One heartbeat per UTC day to telemetry.kodus.io with aggregated counters only — no code, names, or identifiers. Inspect with `yarn telemetry:preview`. Disable with KODUS_TELEMETRY_DISABLED=true. Schema: https://github.com/kodustech/kodus-beacon/blob/main/docs/api.md',
+        );
+    }
 
     @Cron('17 3 * * *', {
         name: 'self-hosted-beacon',

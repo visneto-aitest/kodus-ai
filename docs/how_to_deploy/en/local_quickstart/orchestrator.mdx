@@ -10,6 +10,15 @@ icon: "laptop"
   guide.
 </Note>
 
+<Note>
+  Local dev runs with `API_CLOUD_MODE=false`, which is the same mode as a
+  self-hosted instance — and which means the daily anonymous heartbeat to
+  `telemetry.kodus.io` is enabled by default. If you don't want your local
+  experiments showing up in the fleet, set `KODUS_TELEMETRY_DISABLED=true`
+  in your `.env`. See [Anonymous Telemetry](/how_to_deploy/en/deploy_kodus/telemetry)
+  for what is sent and how to inspect it.
+</Note>
+
 ## Prerequisites
 
 - Node.js (LTS version)

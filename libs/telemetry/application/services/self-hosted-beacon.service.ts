@@ -39,6 +39,15 @@ export class SelfHostedBeaconService {
         private readonly transport: BeaconHttpProvider,
     ) {}
 
+    /**
+     * Whether telemetry is currently opted out via env. Pass-through to the
+     * transport so the cron can log the state at boot without depending on
+     * the provider directly.
+     */
+    isDisabled(): boolean {
+        return this.transport.isDisabled();
+    }
+
     /** Daily entrypoint. Idempotent within the same UTC day. */
     async run(): Promise<void> {
         try {

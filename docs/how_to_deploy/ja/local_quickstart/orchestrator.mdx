@@ -9,6 +9,16 @@ icon: "laptop"
   [Kodusのデプロイ](/how_to_deploy/ja/deploy_kodus/generic_vm)ガイドを参照してください。
 </Note>
 
+<Note>
+  ローカル開発は `API_CLOUD_MODE=false` で動作します — これはセルフホスト
+  インスタンスと同じモードで、`telemetry.kodus.io` への匿名の日次
+  ハートビートがデフォルトで有効になっていることを意味します。ローカルでの
+  実験をフリートに表示させたくない場合は、`.env` で
+  `KODUS_TELEMETRY_DISABLED=true` を設定してください。送信される内容と
+  確認方法は [匿名テレメトリ](/how_to_deploy/ja/deploy_kodus/telemetry)
+  を参照してください。
+</Note>
+
 ## 前提条件
 
 - Node.js（LTSバージョン）

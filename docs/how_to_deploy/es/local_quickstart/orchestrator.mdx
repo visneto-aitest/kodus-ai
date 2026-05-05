@@ -9,6 +9,16 @@ icon: "laptop"
   consulta la guía [Desplegar Kodus](/how_to_deploy/es/deploy_kodus/generic_vm).
 </Note>
 
+<Note>
+  El dev local se ejecuta con `API_CLOUD_MODE=false`, el mismo modo que una
+  instancia self-hosted — lo que significa que el heartbeat anónimo diario
+  a `telemetry.kodus.io` está habilitado por defecto. Si no quieres que
+  tus experimentos locales aparezcan en la flota, define
+  `KODUS_TELEMETRY_DISABLED=true` en tu `.env`. Consulta
+  [Telemetría Anónima](/how_to_deploy/es/deploy_kodus/telemetry) para ver
+  qué se envía y cómo inspeccionarlo.
+</Note>
+
 ## Requisitos previos
 
 - Node.js (versión LTS)

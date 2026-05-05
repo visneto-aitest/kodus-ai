@@ -8,6 +8,14 @@ icon: "laptop"
   本指南用于本地开发目的。对于生产部署，请参阅[部署 Kodus](/how_to_deploy/zh/deploy_kodus/generic_vm) 指南。
 </Note>
 
+<Note>
+  本地开发使用 `API_CLOUD_MODE=false` 运行 — 与自托管实例相同的模式 —
+  这意味着到 `telemetry.kodus.io` 的每日匿名心跳默认启用。如果您不希望
+  本地实验出现在集群中,请在 `.env` 中设置 `KODUS_TELEMETRY_DISABLED=true`。
+  请参阅 [匿名遥测](/how_to_deploy/zh/deploy_kodus/telemetry) 了解发送
+  内容和检查方式。
+</Note>
+
 ## 先决条件
 
 - Node.js（LTS 版本）
