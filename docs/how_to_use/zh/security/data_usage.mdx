@@ -33,4 +33,12 @@ Kodus 使用以下语言模型进行代码分析:
 - **定期审计**:定期安全审计以确保合规性
 - **安全更新**:定期补丁和更新
 
+## 自托管遥测
+
+如果您运行 Kodus 自托管,每个实例每天向 `telemetry.kodus.io` 发送一次
+匿名心跳,包含聚合计数器和运行时元数据 — 永远不包含代码、身份信息或
+任何可以追溯到您用户的内容。您可以使用 `yarn telemetry:preview` 检查
+确切的负载,或使用 `KODUS_TELEMETRY_DISABLED=true` 禁用。完整的
+schema、保留策略和源代码链接已在 [匿名遥测](/how_to_deploy/zh/deploy_kodus/telemetry) 中记录。
+
 有问题?联系我们的支持团队或加入 [Discord](https://discord.gg/TFZBRk9fT6)。

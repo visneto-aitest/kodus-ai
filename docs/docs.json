@@ -445,6 +445,7 @@
                                     "how_to_deploy/es/deploy_kodus/generic_vm",
                                     "how_to_deploy/es/deploy_kodus/mcp_manager",
                                     "how_to_deploy/es/deploy_kodus/reverse_proxy",
+                                    "how_to_deploy/es/deploy_kodus/telemetry",
                                     "how_to_deploy/es/deploy_kodus/troubleshooting",
                                     "how_to_deploy/es/deploy_kodus/updating"
                                 ]
@@ -729,6 +730,7 @@
                                     "how_to_deploy/pt-br/deploy_kodus/generic_vm",
                                     "how_to_deploy/pt-br/deploy_kodus/mcp_manager",
                                     "how_to_deploy/pt-br/deploy_kodus/reverse_proxy",
+                                    "how_to_deploy/pt-br/deploy_kodus/telemetry",
                                     "how_to_deploy/pt-br/deploy_kodus/troubleshooting",
                                     "how_to_deploy/pt-br/deploy_kodus/updating"
                                 ]
@@ -1013,6 +1015,7 @@
                                     "how_to_deploy/ja/deploy_kodus/generic_vm",
                                     "how_to_deploy/ja/deploy_kodus/mcp_manager",
                                     "how_to_deploy/ja/deploy_kodus/reverse_proxy",
+                                    "how_to_deploy/ja/deploy_kodus/telemetry",
                                     "how_to_deploy/ja/deploy_kodus/troubleshooting",
                                     "how_to_deploy/ja/deploy_kodus/updating"
                                 ]
@@ -1297,6 +1300,7 @@
                                     "how_to_deploy/zh/deploy_kodus/generic_vm",
                                     "how_to_deploy/zh/deploy_kodus/mcp_manager",
                                     "how_to_deploy/zh/deploy_kodus/reverse_proxy",
+                                    "how_to_deploy/zh/deploy_kodus/telemetry",
                                     "how_to_deploy/zh/deploy_kodus/troubleshooting",
                                     "how_to_deploy/zh/deploy_kodus/updating"
                                 ]
