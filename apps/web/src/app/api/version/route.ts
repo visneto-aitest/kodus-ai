@@ -44,10 +44,6 @@ export async function GET() {
         return Response.json(empty(current));
     }
 
-    if (process.env.KODUS_UPDATE_CHECK_DISABLED === "true") {
-        return Response.json(empty(current));
-    }
-
     const currentTuple = parseSemver(current);
     if (!currentTuple) {
         return Response.json(empty(current));

@@ -1,19 +1,16 @@
 describe("version route", () => {
     const originalFetch = global.fetch;
     const originalReleaseVersion = process.env.RELEASE_VERSION;
-    const originalDisable = process.env.KODUS_UPDATE_CHECK_DISABLED;
     const originalNodeEnv = process.env.WEB_NODE_ENV;
 
     beforeEach(() => {
         process.env.RELEASE_VERSION = "1.2.3";
         process.env.WEB_NODE_ENV = "self-hosted";
-        delete process.env.KODUS_UPDATE_CHECK_DISABLED;
     });
 
     afterEach(() => {
         global.fetch = originalFetch;
         process.env.RELEASE_VERSION = originalReleaseVersion;
-        process.env.KODUS_UPDATE_CHECK_DISABLED = originalDisable;
         process.env.WEB_NODE_ENV = originalNodeEnv;
         jest.restoreAllMocks();
         jest.resetModules();
@@ -110,22 +107,6 @@ describe("version route", () => {
         expect(payload).toEqual({
             current: "1.2.3",
             latest: "1.2.3",
-            hasUpdate: false,
-        });
-    });
-
-    it("skips the GitHub fetch entirely when KODUS_UPDATE_CHECK_DISABLED=true", async () => {
-        process.env.KODUS_UPDATE_CHECK_DISABLED = "true";
-        const fetchSpy = jest.fn();
-        global.fetch = fetchSpy as any;
-
-        const { GET } = await import("./route");
-        const payload = await (await GET()).json();
-
-        expect(fetchSpy).not.toHaveBeenCalled();
-        expect(payload).toEqual({
-            current: "1.2.3",
-            latest: null,
             hasUpdate: false,
         });
     });

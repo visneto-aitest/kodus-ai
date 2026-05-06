@@ -351,7 +351,6 @@
 | Variable | Required | Type | Scope | Description |
 | --- | --- | --- | --- | --- |
 | `KODUS_TELEMETRY_DISABLED` | – | boolean | ⚙️ Both | Opt out of the daily anonymous heartbeat sent to telemetry.kodus.io. Cloud is unaffected — the cron skips when API_CLOUD_MODE=true regardless. Self-hosted operators flip this to "true" to disable. The payload is aggregated counters (active users, PRs reviewed, repos connected, etc.) plus runtime metadata (Node version, OS, deployment). It never includes emails, repo/branch/PR names, code, or any identifying data. Full schema published at https://github.com/kodustech/kodus-beacon/blob/main/docs/api.md |
-| `KODUS_UPDATE_CHECK_DISABLED` | – | boolean | 🏠 Self-hosted | Opt out of the self-hosted update banner. When false (default), the API fetches the latest `selfhosted-*` release tag from api.github.com/repos/kodustech/kodus-ai/releases (cached 24h in-memory) and the web UI shows a top banner to organization owners when RELEASE_VERSION is older. Set to "true" if your instance has no egress to GitHub or you don't want the check. Cloud always skips this regardless. |
 
 ## MCP — additional client config
 

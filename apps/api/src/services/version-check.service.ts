@@ -11,7 +11,6 @@ import { Injectable, Logger } from '@nestjs/common';
  *
  * Behavior:
  *   - Cloud (`API_CLOUD_MODE=true`)              → always `unknown=true`
- *   - Opt-out (`KODUS_UPDATE_CHECK_DISABLED=true`) → `unknown=true`
  *   - `RELEASE_VERSION` not in semver shape      → `unknown=true`
  *   - GitHub fetch fails / no matching tag       → `unknown=true`
  *   - Otherwise: compares and returns `updateAvailable` accordingly.
@@ -42,9 +41,6 @@ export class VersionCheckService {
     async getStatus(): Promise<VersionStatus> {
         if (process.env.API_CLOUD_MODE === 'true') {
             return { unknown: true, reason: 'cloud' };
-        }
-        if (process.env.KODUS_UPDATE_CHECK_DISABLED === 'true') {
-            return { unknown: true, reason: 'disabled' };
         }
 
         const current = (process.env.RELEASE_VERSION || '').trim();
@@ -158,7 +154,7 @@ export class VersionCheckService {
 export type VersionStatus =
     | {
           unknown: true;
-          reason: 'cloud' | 'disabled' | 'no-version' | 'fetch-failed';
+          reason: 'cloud' | 'no-version' | 'fetch-failed';
           current?: string;
       }
     | {
