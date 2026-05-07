@@ -3,7 +3,6 @@ import {
     AcquireResult,
     assertValidPrKey,
     ISandboxLeaseManager,
-    SANDBOX_LEASE_MANAGER_TOKEN,
 } from '@libs/sandbox/domain/contracts/sandbox-lease-manager.contract';
 import {
     CreateSandboxParams,
@@ -105,18 +104,14 @@ export class SandboxLeaseManager implements ISandboxLeaseManager {
 
     /**
      * In-memory map from leaseId → prKey.
-     * Acceptable for single-worker Phase 1. Multi-worker support (Redis/Mongo)
-     * will replace this in a later plan when distributed release is needed.
+     *
+     * Multi-worker note: leaseId is generated and consumed inside the same
+     * worker process — the pipeline that calls acquire() is the same one
+     * that runs cleanup() at the end. So this Map does not need to be
+     * shared across workers; it scopes correctly to the local lifetime
+     * of a single review/conversation flow.
      */
     private readonly leaseIdToPrKey = new Map<string, string>();
-
-    /**
-     * Pending kill timers keyed by prKey. Set when release() is called with a
-     * leaseCount=0; cleared when a new acquire reuses the lease before idle
-     * expires. NodeJS.Timeout type is intentionally loose (any) to keep the
-     * file portable across runtime targets.
-     */
-    private readonly pendingKills = new Map<string, ReturnType<typeof setTimeout>>();
 
     constructor(
         @Inject(SANDBOX_PROVIDER_TOKEN)
@@ -162,9 +157,11 @@ export class SandboxLeaseManager implements ISandboxLeaseManager {
         const doc = await this.leaseRepo.upsertAcquire(prKey, leaseTtlMs, consumer);
         const leaseId = randomUUID();
 
-        // A new acquire arrived — cancel any pending idle-kill so the warm
-        // sandbox isn't killed under us between this call and connect().
-        this.cancelPendingKill(prKey);
+        // A new acquire arrived — atomically clear any pending idle-kill so
+        // the warm sandbox isn't killed under us between this call and
+        // connect(). Multi-worker safe: any worker that reads the doc next
+        // will see killAt=null and skip.
+        await this.leaseRepo.clearKillAt(prKey);
 
         // --- Path A: We are the creator (we just inserted the doc) ---
         // Both conditions are required:
@@ -202,13 +199,22 @@ export class SandboxLeaseManager implements ISandboxLeaseManager {
 
     /**
      * Release a lease. Decrements leaseCount atomically.
-     * When leaseCount reaches 0, sets the E2B sandbox idle timeout to
-     * `opts.idleMs` (defaults to IDLE_TIMEOUT_MS = 5 min) so it pauses after
-     * that window of inactivity. The sandbox is never killed by release —
-     * kill happens via invalidate() (PR-close) or the reaper cron.
      *
-     * Callers should choose `idleMs` based on the flow: review uses 30s
-     * because @kody arrives quickly or much later; conversation uses the
+     * When leaseCount reaches 0, schedules an idle-kill by writing
+     * `killAt = now + idleMs` on the lease doc (via leaseRepo.setKillAt).
+     * The `killIdleSandboxes` cron (any worker, coordinated via Postgres
+     * advisory lock) picks up the doc once the timestamp elapses and
+     * issues Sandbox.kill + delete. This makes idle-kill multi-worker safe
+     * — no in-memory state required.
+     *
+     * `Sandbox.setTimeout(idleMs)` is also called as defence-in-depth: the
+     * provider keeps `lifecycle: { onTimeout: 'pause' }`, so even if Mongo
+     * is briefly unavailable for the cron, E2B itself pauses the sandbox
+     * at the same idleMs window — billing stops; the reaper TTL pass picks
+     * up the orphaned doc later.
+     *
+     * Callers choose `idleMs` based on the flow: review uses 30s because
+     * @kody arrives within seconds or much later; conversation uses the
      * 5min default because the user is interactive.
      */
     async release(
@@ -234,92 +240,29 @@ export class SandboxLeaseManager implements ISandboxLeaseManager {
             metadata: { leaseId, prKey, leaseCount: updated?.leaseCount },
         });
 
-        // When last lease released: schedule an explicit kill after `idleMs`.
-        // The in-memory timer is the primary kill path (frees the E2B slot
-        // promptly). If a new acquire arrives before idleMs, the timer is
-        // cancelled and the sandbox stays warm.
-        //
-        // We also call Sandbox.setTimeout(idleMs) as defence-in-depth: the
-        // provider keeps `lifecycle: { onTimeout: 'pause' }`, so if our
-        // in-memory timer is lost (process crash), the E2B-side timer will
-        // pause the sandbox at the same idleMs window — billing stops, and
-        // the reaper picks up the orphaned lease doc on its next tick.
         if (updated && updated.leaseCount <= 0 && updated.sandboxId) {
             const idleMs = opts?.idleMs ?? IDLE_TIMEOUT_MS;
-            this.schedulePendingKill(prKey, updated.sandboxId, idleMs);
+            const killAt = new Date(Date.now() + idleMs);
+            await this.leaseRepo.setKillAt(prKey, killAt);
+
+            this.logger.log({
+                message: `SandboxLeaseManager: scheduled idle-kill at ${killAt.toISOString()} for sandboxId="${updated.sandboxId}"`,
+                context: SandboxLeaseManager.name,
+                metadata: { prKey, sandboxId: updated.sandboxId, idleTimeoutMs: idleMs, killAt },
+            });
 
             const apiKey = this.configService.get<string>('API_E2B_KEY');
             if (apiKey) {
                 try {
                     await Sandbox.setTimeout(updated.sandboxId, idleMs, { apiKey });
-                    this.logger.log({
-                        message: `SandboxLeaseManager: scheduled kill in ${idleMs}ms on sandboxId="${updated.sandboxId}"`,
-                        context: SandboxLeaseManager.name,
-                        metadata: { prKey, sandboxId: updated.sandboxId, idleTimeoutMs: idleMs },
-                    });
                 } catch (err) {
                     this.logger.warn({
-                        message: `SandboxLeaseManager: failed to set E2B-side idle timeout on sandboxId="${updated.sandboxId}" (in-memory timer still active)`,
+                        message: `SandboxLeaseManager: failed to set E2B-side idle timeout on sandboxId="${updated.sandboxId}" (kill cron is the primary path)`,
                         context: SandboxLeaseManager.name,
                         error: err,
                     });
                 }
             }
-        }
-    }
-
-    /**
-     * Schedule an in-memory kill of the sandbox + lease doc deletion after
-     * `idleMs`. Cancels any previous pending kill for the same prKey so
-     * back-to-back releases don't trigger duplicate kills.
-     */
-    private schedulePendingKill(
-        prKey: string,
-        sandboxId: string,
-        idleMs: number,
-    ): void {
-        // Cancel any earlier pending kill on the same prKey (defensive — should
-        // not happen in normal flow because release is keyed by leaseId)
-        this.cancelPendingKill(prKey);
-
-        const timer = setTimeout(async () => {
-            this.pendingKills.delete(prKey);
-            const apiKey = this.configService.get<string>('API_E2B_KEY');
-            if (apiKey) {
-                try {
-                    await Sandbox.kill(sandboxId, { apiKey });
-                    this.logger.log({
-                        message: `SandboxLeaseManager: idle window expired — killed sandboxId="${sandboxId}" prKey="${prKey}"`,
-                        context: SandboxLeaseManager.name,
-                        metadata: { prKey, sandboxId },
-                    });
-                } catch (err) {
-                    this.logger.warn({
-                        message: `SandboxLeaseManager: idle-kill failed for sandboxId="${sandboxId}" — reaper will retry`,
-                        context: SandboxLeaseManager.name,
-                        error: err,
-                    });
-                }
-            }
-            await this.leaseRepo.delete(prKey).catch(() => {});
-        }, idleMs);
-
-        // Don't keep the Node event loop alive solely for this timer
-        if (typeof timer.unref === 'function') {
-            timer.unref();
-        }
-        this.pendingKills.set(prKey, timer);
-    }
-
-    /**
-     * Cancel a pending kill for `prKey` if one exists. Called by acquire()
-     * when a new caller joins before idle expires — keeps the sandbox warm.
-     */
-    private cancelPendingKill(prKey: string): void {
-        const existing = this.pendingKills.get(prKey);
-        if (existing) {
-            clearTimeout(existing);
-            this.pendingKills.delete(prKey);
         }
     }
 
@@ -338,9 +281,9 @@ export class SandboxLeaseManager implements ISandboxLeaseManager {
             metadata: { prKey },
         });
 
-        // Cancel any pending idle-kill so we don't run the kill twice
-        // (invalidate already does its own kill via soft-drain + delete).
-        this.cancelPendingKill(prKey);
+        // Clear any pending idle-kill so the cron doesn't double-kill —
+        // invalidate already does its own kill via soft-drain + delete.
+        await this.leaseRepo.clearKillAt(prKey);
 
         const doc = await this.leaseRepo.findByPrKey(prKey);
         if (!doc) {
@@ -452,7 +395,6 @@ export class SandboxLeaseManager implements ISandboxLeaseManager {
             this.leaseIdToPrKey.set(leaseId, prKey);
 
             // Wrap cleanup so callers use leaseManager.release() not sandbox.kill()
-            const originalCleanup = sandbox.cleanup;
             sandbox = {
                 ...sandbox,
                 cleanup: async () => {
