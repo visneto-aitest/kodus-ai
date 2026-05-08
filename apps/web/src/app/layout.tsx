@@ -13,6 +13,8 @@ import type { PublicConfig } from "@config/publicConfig";
 
 import "./globals.css";
 
+export const dynamic = "force-dynamic";
+
 const dm_sans = DM_Sans({
     subsets: ["latin"],
     preload: true,

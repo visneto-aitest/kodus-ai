@@ -12,6 +12,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 import { Reaction } from '@libs/code-review/domain/codeReviewFeedback/enums/codeReviewCommentReaction.enum';
 import { decrypt, encrypt } from '@libs/common/utils/crypto';
+import { fitPRDescription } from '@libs/code-review/utils/fit-pr-description';
 import { IntegrationServiceDecorator } from '@libs/common/utils/decorators/integration-service.decorator';
 import { CacheService } from '@libs/core/cache/cache.service';
 import {
@@ -2713,7 +2714,9 @@ export class GitlabService implements Omit<
             const gitlabAPI = this.instanceGitlabApi(gitlabAuthDetail);
 
             await gitlabAPI.MergeRequests.edit(repository.id, prNumber, {
-                description: summary, // Set the new description here
+                // Truncate at the adapter boundary so the per-platform limit
+                // is enforced consistently — see fit-pr-description.ts.
+                description: fitPRDescription(summary, PlatformType.GITLAB),
             });
         } catch (error) {
             this.logger.error({

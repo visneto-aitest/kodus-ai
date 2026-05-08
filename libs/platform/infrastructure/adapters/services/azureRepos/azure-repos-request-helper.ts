@@ -1,7 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import axios, { AxiosInstance } from 'axios';
 
+import { fitPRDescription } from '@libs/code-review/utils/fit-pr-description';
 import { decrypt } from '@libs/common/utils/crypto';
+import { PlatformType } from '@libs/core/domain/enums/platform-type.enum';
 import { INTEGRATION_REQUEST_TIMEOUT_MS } from '@libs/core/infrastructure/http/integration-timeouts';
 import { FileChange } from '@libs/core/infrastructure/config/types/general/codeReview.type';
 import {
@@ -841,7 +843,14 @@ export class AzureReposRequestHelper {
         const { data } = await instance.patch(
             `/${params.projectId}/_apis/git/repositories/${params.repositoryId}/pullRequests/${params.prId}?api-version=7.1`,
             {
-                description: params.description,
+                // Azure rejects PR descriptions > 4000 chars with HTTP 400
+                // (`InvalidArgumentValueException`). Truncate at the
+                // adapter boundary so callers don't have to know about
+                // platform-specific limits.
+                description: fitPRDescription(
+                    params.description,
+                    PlatformType.AZURE_REPOS,
+                ),
             },
         );
 
@@ -1349,7 +1358,10 @@ export class AzureReposRequestHelper {
             sourceRefName: `refs/heads/${normalizedSourceBranch}`,
             targetRefName: `refs/heads/${normalizedTargetBranch}`,
             title: params.title,
-            description: params.description || '',
+            description: fitPRDescription(
+                params.description || '',
+                PlatformType.AZURE_REPOS,
+            ),
         };
 
         const { data } = await instance.post(url, payload);
