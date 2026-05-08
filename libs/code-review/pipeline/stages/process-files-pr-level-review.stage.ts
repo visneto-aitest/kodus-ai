@@ -1,6 +1,5 @@
 import { createLogger, createThreadId } from '@kodus/flow';
 import { BusinessRulesValidationAgentProvider } from '@libs/agents/infrastructure/services/kodus-flow/business-rules-validation/businessRulesValidationAgent';
-import posthog, { FEATURE_FLAGS } from '@libs/common/utils/posthog';
 import { LabelType } from '@libs/common/utils/codeManagement/labels';
 import { SeverityLevel } from '@libs/common/utils/enums/severityLevel.enum';
 import { BasePipelineStage } from '@libs/core/infrastructure/pipeline/abstracts/base-stage.abstract';
@@ -427,20 +426,6 @@ export class ProcessFilesPrLevelReviewStage extends BasePipelineStage<CodeReview
     private async shouldRunBusinessLogicValidation(
         context: CodeReviewPipelineContext,
     ): Promise<boolean> {
-        const featureIdentifier =
-            context.organizationAndTeamData?.organizationId ||
-            context.organizationAndTeamData?.teamId ||
-            'unknown';
-        const isBusinessLogicFeatureEnabled = await posthog.isFeatureEnabled(
-            FEATURE_FLAGS.businessLogic,
-            featureIdentifier,
-            context.organizationAndTeamData,
-        );
-
-        if (!isBusinessLogicFeatureEnabled) {
-            return false;
-        }
-
         if (!context.codeReviewConfig?.reviewOptions?.business_logic) {
             return false;
         }

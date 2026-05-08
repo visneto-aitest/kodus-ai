@@ -3,7 +3,6 @@ import {
     SUPPORTED_LANGUAGES,
     ValidationCandidate,
 } from '@libs/code-review/domain/types/astValidate.type';
-import posthog, { FEATURE_FLAGS } from '@libs/common/utils/posthog';
 import { PlatformType } from '@libs/core/domain/enums';
 import {
     CodeSuggestion,
@@ -133,21 +132,6 @@ export class ValidateSuggestionsStage extends BasePipelineStage<CodeReviewPipeli
         } = context;
 
         const prNumber = pullRequest.number;
-
-        const featureFlag = await posthog.isFeatureEnabled(
-            FEATURE_FLAGS.committableSuggestions,
-            organizationAndTeamData.organizationId,
-            organizationAndTeamData,
-        );
-
-        if (!featureFlag) {
-            this.logGeneral('Committable suggestions feature is disabled', {
-                organizationAndTeamData,
-                prNumber,
-            });
-
-            return false;
-        }
 
         if (!codeReviewConfig?.enableCommittableSuggestions) {
             this.logGeneral(

@@ -137,11 +137,7 @@ export default async function Layout({ children }: React.PropsWithChildren) {
 
                 {children}
 
-                <AppRightSidebar
-                    showTestReview={
-                        !!featureFlags?.codeReviewDryRun && canManageCodeReview
-                    }
-                />
+                <AppRightSidebar showTestReview={canManageCodeReview} />
             </SubscriptionProvider>
         </Providers>
     );

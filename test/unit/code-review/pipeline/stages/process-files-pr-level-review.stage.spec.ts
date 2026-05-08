@@ -40,38 +40,7 @@ describe('ProcessFilesPrLevelReviewStage', () => {
         jest.clearAllMocks();
     });
 
-    it('should skip business logic validation when feature flag is disabled', async () => {
-        (posthog.isFeatureEnabled as jest.Mock).mockResolvedValue(false);
-
-        const context = {
-            organizationAndTeamData: {
-                organizationId: 'org-1',
-                teamId: 'team-1',
-            },
-            codeReviewConfig: {
-                reviewOptions: {
-                    business_logic: true,
-                },
-            },
-            pullRequest: {
-                number: 42,
-                body: 'Implements ACME-123 with acceptance criteria updates',
-            },
-        } as any;
-
-        const shouldRun = await (stage as any).shouldRunBusinessLogicValidation(
-            context,
-        );
-
-        expect(shouldRun).toBe(false);
-        expect(posthog.isFeatureEnabled).toHaveBeenCalledWith(
-            FEATURE_FLAGS.businessLogic,
-            'org-1',
-            context.organizationAndTeamData,
-        );
-    });
-
-    it('should run business logic validation when feature flag is enabled and a ticket key exists', async () => {
+    it('should run business logic validation when a ticket key exists', async () => {
         (posthog.isFeatureEnabled as jest.Mock).mockResolvedValue(true);
 
         const context = {

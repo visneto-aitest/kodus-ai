@@ -13,6 +13,12 @@ on:
             - "apps/web/**"
             - "docker/Dockerfile.web"
             - "docker/Dockerfile.web.dev"
+            # The web build context is the monorepo root and pulls in
+            # `libs/feature-gate` + the snapshot. Changes there must
+            # rebuild the QA image too, otherwise the web ships stale
+            # gate logic.
+            - "libs/feature-gate/**"
+            - "release/features-snapshot.json"
 
 jobs:
     build_and_push_image:
@@ -99,7 +105,7 @@ jobs:
                   ECR_REPOSITORY: kodus-web-qa
                   IMAGE_TAG: ${{ github.sha }}
               run: |
-                  docker build -f docker/Dockerfile.web -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG apps/web
+                  docker build -f docker/Dockerfile.web -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
                   docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
             - name: Log out of Amazon ECR

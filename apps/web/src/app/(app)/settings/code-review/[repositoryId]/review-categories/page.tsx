@@ -18,10 +18,7 @@ import { CodeReviewSaveButton } from "../../_components/save-button";
 import { useCodeReviewSettingsMutation } from "../../_hooks/use-code-review-settings-mutation";
 import { type CodeReviewFormType } from "../../_types";
 import { getCentralizedPrToastPayload } from "../../_utils/centralized-pr-feedback";
-import {
-    useFeatureFlags,
-    usePlatformConfig,
-} from "../../../_components/context";
+import { usePlatformConfig } from "../../../_components/context";
 import { useCodeReviewRouteParams } from "../../../_hooks";
 import { AnalysisTypes } from "../general/_components/analysis-types";
 import {
@@ -31,7 +28,6 @@ import {
 
 export default function ReviewCategories() {
     const platformConfig = usePlatformConfig();
-    const { businessLogic } = useFeatureFlags();
     const form = useFormContext<CodeReviewFormType>();
     const { teamId } = useSelectedTeamId();
     const { repositoryId, directoryId } = useCodeReviewRouteParams();
@@ -44,10 +40,8 @@ export default function ReviewCategories() {
     });
     const visibleLabelTypes = useMemo(
         () =>
-            filterVisibleReviewLabels(labels, businessLogic === true).map(
-                (label) => label.type,
-            ),
-        [businessLogic, labels],
+            filterVisibleReviewLabels(labels, true).map((label) => label.type),
+        [labels],
     );
 
     const handleSubmit = form.handleSubmit(async (formData) => {

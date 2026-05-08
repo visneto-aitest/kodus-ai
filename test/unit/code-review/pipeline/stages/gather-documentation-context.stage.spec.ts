@@ -7,9 +7,18 @@ import {
     ISandboxProvider,
     SANDBOX_PROVIDER_TOKEN,
 } from '@libs/sandbox/domain/contracts/sandbox.provider';
-import { DocumentationLLMPlannerService } from '@libs/code-review/infrastructure/adapters/services/documentation-llm-planner.service';
-import { DocumentationPackageDiscoveryService } from '@libs/code-review/infrastructure/adapters/services/documentation-package-discovery.service';
-import { DocumentationSearchExaService } from '@libs/code-review/infrastructure/adapters/services/documentation-search-exa.service';
+import {
+    DOCUMENTATION_LLM_PLANNER_SERVICE_TOKEN,
+    DocumentationLLMPlannerService,
+} from '@libs/code-review/infrastructure/adapters/services/documentation-llm-planner.service';
+import {
+    DOCUMENTATION_PACKAGE_DISCOVERY_SERVICE_TOKEN,
+    DocumentationPackageDiscoveryService,
+} from '@libs/code-review/infrastructure/adapters/services/documentation-package-discovery.service';
+import {
+    DOCUMENTATION_SEARCH_EXA_SERVICE_TOKEN,
+    DocumentationSearchExaService,
+} from '@libs/code-review/infrastructure/adapters/services/documentation-search-exa.service';
 import { CodeReviewPipelineContext } from '@libs/code-review/pipeline/context/code-review-pipeline.context';
 import { GatherDocumentationContextStage } from '@libs/code-review/pipeline/stages/gather-documentation-context.stage';
 import posthog from '@libs/common/utils/posthog';
@@ -224,7 +233,7 @@ describe('GatherDocumentationContextStage', () => {
             providers: [
                 GatherDocumentationContextStage,
                 {
-                    provide: DocumentationPackageDiscoveryService,
+                    provide: DOCUMENTATION_PACKAGE_DISCOVERY_SERVICE_TOKEN,
                     useValue: discoveryService,
                 },
                 {
@@ -232,11 +241,11 @@ describe('GatherDocumentationContextStage', () => {
                     useValue: configService,
                 },
                 {
-                    provide: DocumentationLLMPlannerService,
+                    provide: DOCUMENTATION_LLM_PLANNER_SERVICE_TOKEN,
                     useValue: plannerService,
                 },
                 {
-                    provide: DocumentationSearchExaService,
+                    provide: DOCUMENTATION_SEARCH_EXA_SERVICE_TOKEN,
                     useValue: searchService,
                 },
                 {
@@ -269,19 +278,6 @@ describe('GatherDocumentationContextStage', () => {
 
         expect(result).toBe(context);
         expect(discoveryService.discoverPackages).not.toHaveBeenCalled();
-    });
-
-    it('should skip when documentation feature flag is disabled', async () => {
-        (posthog.isFeatureEnabled as jest.Mock).mockResolvedValueOnce(false);
-
-        const result = await stage.execute(baseContext);
-
-        expect(result.discoveredPackages).toEqual([]);
-        expect(result.documentationQueryPlanByFile).toEqual({});
-        expect(result.documentationByFile).toEqual({});
-        expect(discoveryService.discoverPackages).not.toHaveBeenCalled();
-        expect(plannerService.planDocumentationByFile).not.toHaveBeenCalled();
-        expect(searchService.searchByFilePlan).not.toHaveBeenCalled();
     });
 
     it('should skip when API_EXA_KEY is not configured', async () => {

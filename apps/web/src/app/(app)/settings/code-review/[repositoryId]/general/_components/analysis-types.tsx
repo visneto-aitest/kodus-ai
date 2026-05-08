@@ -12,7 +12,6 @@ import { getMCPPlugins } from "@services/mcp-manager/fetch";
 import { MCPServiceUnavailableError } from "@services/mcp-manager/utils";
 import { useQuery } from "@tanstack/react-query";
 import { Controller, useFormContext, useWatch } from "react-hook-form";
-import { useFeatureFlags } from "src/app/(app)/settings/_components/context";
 import { useCurrentConfigLevel } from "src/app/(app)/settings/_hooks";
 
 import {
@@ -59,18 +58,19 @@ interface CheckboxCardOption {
 
 export const AnalysisTypes = () => {
     const currentLevel = useCurrentConfigLevel();
-    const { businessLogic } = useFeatureFlags();
     const form = useFormContext<CodeReviewFormType>();
     const reviewOptions = useWatch({
         control: form.control,
         name: "reviewOptions",
     });
     const { data: labels = [], isLoading } = useGetCodeReviewLabels("v2");
-    const isBusinessLogicEnabled = businessLogic === true;
 
+    // Business-logic review used to be gated by a `businessLogic`
+    // client-side feature flag. The flag was promoted to GA in the
+    // feature-gate PR, so the MCP plugin lookup it guarded now runs for
+    // every org.
     const { data: mcpPlugins, isFetched: isMCPFetched } = useQuery({
         queryKey: ["mcp-plugins-task-management"],
-        enabled: isBusinessLogicEnabled,
         staleTime: 5 * 60 * 1000,
         retry: false,
         queryFn: async () => {
@@ -90,8 +90,8 @@ export const AnalysisTypes = () => {
         return hasTaskManagementConnection(connected);
     }, [mcpPlugins]);
     const visibleLabels = useMemo(
-        () => filterVisibleReviewLabels(labels, isBusinessLogicEnabled),
-        [isBusinessLogicEnabled, labels],
+        () => filterVisibleReviewLabels(labels, true),
+        [labels],
     );
     const visibleLabelTypes = useMemo(
         () => visibleLabels.map((label) => label.type),

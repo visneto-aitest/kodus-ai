@@ -9,6 +9,7 @@ import { SharedConfigModule } from '@libs/shared/infrastructure/shared-config.mo
 import { SharedLogModule } from '@libs/shared/infrastructure/shared-log.module';
 import { SharedObservabilityModule } from '@libs/shared/infrastructure/shared-observability.module';
 import { TelemetryModule } from '@libs/telemetry/modules/telemetry.module';
+import { FeatureGateModule } from '@libs/feature-gate/modules/feature-gate.module';
 import { LangfuseShutdownProvider } from '@libs/core/log/langfuse-shutdown.provider';
 import { WebhookEnqueueModule } from './webhook-enqueue.module';
 
@@ -26,6 +27,7 @@ import { WebhookHealthController } from '../controllers/webhook-health.controlle
         SharedLogModule,
         SharedObservabilityModule,
         TelemetryModule,
+        FeatureGateModule,
         SharedPostgresModule.forRoot({ poolSize: 8 }),
 
         EventEmitterModule.forRoot(),

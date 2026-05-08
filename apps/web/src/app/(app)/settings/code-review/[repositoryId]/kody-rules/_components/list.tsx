@@ -4,7 +4,6 @@ import {
     type KodyRule,
     type KodyRuleWithInheritanceDetails,
 } from "@services/kodyRules/types";
-import { useFeatureFlags } from "src/app/(app)/settings/_components/context";
 
 import { KodyRuleItem } from "./item";
 
@@ -28,7 +27,6 @@ export const KodyRulesList = ({
     onAnyChange,
     bulkSelection,
 }: KodyRulesListProps) => {
-    const { kodyRuleSuggestions } = useFeatureFlags();
     const entityLabel = tab === "memories" ? "memories" : "rules";
 
     if (rules.length === 0) {
@@ -62,9 +60,7 @@ export const KodyRulesList = ({
                         rule={rule}
                         tab={tab}
                         onAnyChange={onAnyChange}
-                        showSuggestionsButton={
-                            tab === "review-rules" && kodyRuleSuggestions
-                        }
+                        showSuggestionsButton={tab === "review-rules"}
                         selection={selection}
                     />
                 );

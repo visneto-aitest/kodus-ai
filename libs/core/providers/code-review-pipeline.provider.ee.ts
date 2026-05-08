@@ -10,7 +10,10 @@ import { Provider } from '@nestjs/common';
 import { CodeReviewPipelineStrategyEE } from '@libs/ee/codeReview/strategies/code-review-pipeline.strategy.ee';
 import { createLogger } from '@kodus/flow';
 import { CodeReviewPipelineObserver } from '@libs/code-review/infrastructure/observers/code-review-pipeline.observer';
-import posthog, { FEATURE_FLAGS } from '@libs/common/utils/posthog';
+import { FeatureGateService } from '@libs/feature-gate/application/feature-gate.service';
+import { FEATURE_KEYS } from '@libs/feature-gate/domain/feature-keys';
+import { ORGANIZATION_SERVICE_TOKEN } from '@libs/organization/domain/organization/contracts/organization.service.contract';
+import type { IOrganizationService } from '@libs/organization/domain/organization/contracts/organization.service.contract';
 
 export const CODE_REVIEW_PIPELINE_TOKEN = 'CODE_REVIEW_PIPELINE';
 
@@ -22,6 +25,8 @@ export const codeReviewPipelineProvider: Provider = {
         eeStrategy: CodeReviewPipelineStrategyEE,
         agentStrategy: CodeReviewAgentPipelineStrategy,
         observer: CodeReviewPipelineObserver,
+        featureGate: FeatureGateService,
+        organizationService: IOrganizationService,
     ): IPipeline<CodeReviewPipelineContext> => {
         logger.log({
             message: `Pipeline provider initialized with EE (v4) and Agent strategies`,
@@ -41,7 +46,7 @@ export const codeReviewPipelineProvider: Provider = {
                 const repositoryId = context.repository?.id;
 
                 logger.log({
-                    message: `[FEATURE-FLAG] Evaluating agent-review flag`,
+                    message: `[FEATURE-GATE] Evaluating agent-review`,
                     context: 'CodeReviewPipelineProvider',
                     metadata: {
                         featureIdentifier,
@@ -51,42 +56,48 @@ export const codeReviewPipelineProvider: Provider = {
                         organizationId:
                             context.organizationAndTeamData?.organizationId,
                         teamId: context.organizationAndTeamData?.teamId,
-                        posthogInitialized: posthog.isInitialized,
                     },
                 });
 
                 let useAgentPipeline = false;
 
-                // Self-hosted override: instance admin can force the new
-                // agent engine on without PostHog. When set, bypasses the
-                // feature-flag check entirely (all orgs on this instance
-                // use the agent pipeline).
+                // Per-instance kill-switch / force-on for agent-review,
+                // independent of the broader BETA_FEATURES toggle. Set when
+                // an admin wants to pin behavior for this specific feature.
                 const envOverride =
                     process.env.API_AGENT_REVIEW_ENABLED?.toLowerCase();
                 if (envOverride === 'true' || envOverride === '1') {
                     useAgentPipeline = true;
                     logger.log({
-                        message: `[FEATURE-FLAG] agent-review forced by API_AGENT_REVIEW_ENABLED env var`,
+                        message: `[FEATURE-GATE] agent-review forced by API_AGENT_REVIEW_ENABLED env var`,
                         context: 'CodeReviewPipelineProvider',
                         metadata: {
                             repositoryId,
                             featureIdentifier,
                         },
                     });
-                } else if (posthog.isInitialized) {
-                    const flagResult = await posthog.isFeatureEnabled(
-                        FEATURE_FLAGS.agentReview,
-                        featureIdentifier,
-                        context.organizationAndTeamData,
-                        repositoryId,
+                } else {
+                    const orgId =
+                        context.organizationAndTeamData?.organizationId;
+                    const releaseTrack = orgId
+                        ? await organizationService.getReleaseTrack(orgId)
+                        : undefined;
+                    useAgentPipeline = await featureGate.isEnabled(
+                        FEATURE_KEYS.agentReview,
+                        {
+                            identifier: featureIdentifier,
+                            organizationAndTeamData:
+                                context.organizationAndTeamData,
+                            repositoryId,
+                            releaseTrack,
+                        },
                     );
-                    useAgentPipeline = flagResult === true;
 
                     logger.log({
-                        message: `[FEATURE-FLAG] agent-review result: ${flagResult} (repositoryId=${repositoryId})`,
+                        message: `[FEATURE-GATE] agent-review result: ${useAgentPipeline} (repositoryId=${repositoryId})`,
                         context: 'CodeReviewPipelineProvider',
                         metadata: {
-                            flagResult,
+                            flagResult: useAgentPipeline,
                             repositoryId,
                             featureIdentifier,
                         },
@@ -96,7 +107,7 @@ export const codeReviewPipelineProvider: Provider = {
                 const strategy = useAgentPipeline ? agentStrategy : eeStrategy;
 
                 logger.log({
-                    message: `Pipeline strategy selected: ${strategy.getPipelineName()} (agentFlag=${useAgentPipeline}, posthogInitialized=${posthog.isInitialized}, identifier=${featureIdentifier}, repositoryId=${repositoryId})`,
+                    message: `Pipeline strategy selected: ${strategy.getPipelineName()} (useAgentPipeline=${useAgentPipeline}, identifier=${featureIdentifier}, repositoryId=${repositoryId})`,
                     context: 'CodeReviewPipelineProvider',
                 });
 
@@ -124,5 +135,7 @@ export const codeReviewPipelineProvider: Provider = {
         CodeReviewPipelineStrategyEE,
         CodeReviewAgentPipelineStrategy,
         CodeReviewPipelineObserver,
+        FeatureGateService,
+        ORGANIZATION_SERVICE_TOKEN,
     ],
 };

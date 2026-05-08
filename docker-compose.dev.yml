@@ -275,6 +275,14 @@ services:
             - ${ENV_FILE:-.env}
         volumes:
             - ./apps/web:/usr/src/app:delegated
+            # Mount shared monorepo libs at the location apps/web's
+            # tsconfig path `@libs/*` (= "../../libs/*" relative to
+            # apps/web baseUrl) resolves to inside the container —
+            # `/usr/src/app/../../libs/` = `/usr/libs/`. Without this,
+            # web server components that import from `@libs/feature-gate`
+            # fail with "module not found" because the libs/ directory
+            # only lives on the host bind-mount of `apps/web`.
+            - ./libs:/usr/libs:delegated
             - web_node_modules_cache:/usr/src/app/node_modules
             - web_next_cache:/usr/src/app/.next
             - yalc_store:/root/.yalc

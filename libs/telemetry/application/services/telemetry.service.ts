@@ -1,8 +1,11 @@
 import { createLogger } from '@kodus/flow';
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 
 import { N8nProvider } from '../../infrastructure/providers/n8n.provider';
-import { PostHogProvider } from '../../infrastructure/providers/posthog.provider';
+import {
+    IPostHogProvider,
+    POSTHOG_PROVIDER_TOKEN,
+} from '../../infrastructure/providers/posthog.provider';
 import { ResendEventsProvider } from '../../infrastructure/providers/resend-events.provider';
 
 /**
@@ -17,7 +20,8 @@ export class TelemetryService {
     private readonly logger = createLogger(TelemetryService.name);
 
     constructor(
-        private readonly posthog: PostHogProvider,
+        @Inject(POSTHOG_PROVIDER_TOKEN)
+        private readonly posthog: IPostHogProvider,
         private readonly resend: ResendEventsProvider,
         private readonly n8n: N8nProvider,
     ) {}

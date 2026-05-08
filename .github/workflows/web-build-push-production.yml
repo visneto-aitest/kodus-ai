@@ -121,7 +121,7 @@ jobs:
                     -f docker/Dockerfile.web \
                     -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG_SHA \
                     -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG_VERSION \
-                    apps/web
+                    .
 
                   docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG_SHA
                   docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG_VERSION

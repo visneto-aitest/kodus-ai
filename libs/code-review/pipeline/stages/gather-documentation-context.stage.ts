@@ -1,12 +1,20 @@
 import { createLogger } from '@kodus/flow';
 import { SUPPORTED_LANGUAGES } from '@libs/code-review/domain/contracts/SupportedLanguages';
-import { DocumentationLLMPlannerService } from '@libs/code-review/infrastructure/adapters/services/documentation-llm-planner.service';
-import { DocumentationPackageDiscoveryService } from '@libs/code-review/infrastructure/adapters/services/documentation-package-discovery.service';
-import { DocumentationSearchExaService } from '@libs/code-review/infrastructure/adapters/services/documentation-search-exa.service';
-import posthog, { FEATURE_FLAGS } from '@libs/common/utils/posthog';
+import {
+    DOCUMENTATION_LLM_PLANNER_SERVICE_TOKEN,
+    DocumentationLLMPlannerService,
+} from '@libs/code-review/infrastructure/adapters/services/documentation-llm-planner.service';
+import {
+    DOCUMENTATION_PACKAGE_DISCOVERY_SERVICE_TOKEN,
+    DocumentationPackageDiscoveryService,
+} from '@libs/code-review/infrastructure/adapters/services/documentation-package-discovery.service';
+import {
+    DOCUMENTATION_SEARCH_EXA_SERVICE_TOKEN,
+    DocumentationSearchExaService,
+} from '@libs/code-review/infrastructure/adapters/services/documentation-search-exa.service';
 import { BasePipelineStage } from '@libs/core/infrastructure/pipeline/abstracts/base-stage.abstract';
 import { StageVisibility } from '@libs/core/infrastructure/pipeline/enums/stage-visibility.enum';
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import path from 'path';
 import { CodeReviewPipelineContext } from '../context/code-review-pipeline.context';
@@ -23,8 +31,11 @@ export class GatherDocumentationContextStage extends BasePipelineStage<CodeRevie
 
     constructor(
         private readonly configService: ConfigService,
+        @Inject(DOCUMENTATION_PACKAGE_DISCOVERY_SERVICE_TOKEN)
         private readonly packageDiscoveryService: DocumentationPackageDiscoveryService,
+        @Inject(DOCUMENTATION_LLM_PLANNER_SERVICE_TOKEN)
         private readonly llmPlannerService: DocumentationLLMPlannerService,
+        @Inject(DOCUMENTATION_SEARCH_EXA_SERVICE_TOKEN)
         private readonly documentationSearchService: DocumentationSearchExaService,
     ) {
         super();
@@ -212,21 +223,9 @@ export class GatherDocumentationContextStage extends BasePipelineStage<CodeRevie
     }
 
     private async shouldRunDocumentationContext(
-        context: CodeReviewPipelineContext,
+        _context: CodeReviewPipelineContext,
     ): Promise<boolean> {
-        const featureIdentifier =
-            context.organizationAndTeamData?.organizationId ||
-            context.organizationAndTeamData?.teamId ||
-            'unknown';
-
-        const isFeatureEnabled = await posthog.isFeatureEnabled(
-            FEATURE_FLAGS.documentationContext,
-            featureIdentifier,
-            context.organizationAndTeamData,
-        );
-
         const hasAPIKey = this.configService.get<string>('API_EXA_KEY');
-
-        return !!hasAPIKey && isFeatureEnabled;
+        return !!hasAPIKey;
     }
 }

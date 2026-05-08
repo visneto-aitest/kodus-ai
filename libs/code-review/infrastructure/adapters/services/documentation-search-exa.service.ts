@@ -1,3 +1,7 @@
+export const DOCUMENTATION_SEARCH_EXA_SERVICE_TOKEN = Symbol.for(
+    'DocumentationSearchExaService',
+);
+
 import { createLogger } from '@kodus/flow';
 import {
     BYOKConfig,

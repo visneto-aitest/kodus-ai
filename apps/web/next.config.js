@@ -1,3 +1,5 @@
+const path = require('path');
+
 let withBundleAnalyzer = (config) => config;
 
 if (process.env.ANALYZE === 'true') {
@@ -7,6 +9,24 @@ if (process.env.ANALYZE === 'true') {
     });
 }
 
+// Pin the project root to the monorepo root so Next/Turbopack can resolve
+// `@libs/*` imports (which traverse to `../../libs/*`). Pinning this
+// explicitly — instead of letting Next auto-detect via lockfile — keeps
+// the protective behavior the previous `outputFileTracingRoot: __dirname`
+// gave us: auto-detect walks upward until it finds a yarn.lock /
+// package.json and was picking up stray files above the repo (e.g. a
+// global ~/package.json with language servers), which caused standalone
+// to emit `.next/standalone/<full-absolute-path>/` instead of a clean
+// `.next/standalone/server.js`. The monorepo root has its own yarn.lock
+// so this resolves to the same place auto-detect would, but bounded.
+//
+// Inside the dev docker container, __dirname = /usr/src/app (the
+// apps/web bind-mount); '../..' = /usr/, which contains both `src/app/`
+// and the new `libs/` mount declared in docker-compose.dev.yml. On the
+// host during `next build`, __dirname = <repo>/apps/web; '../..' =
+// monorepo root, which contains both apps/web and libs.
+const projectRoot = path.resolve(__dirname, '..', '..');
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
     // Emit a self-contained server bundle at .next/standalone so the
@@ -14,13 +34,7 @@ const nextConfig = {
     // (no full node_modules, no devDependencies). Shrinks the web image
     // from ~1GB to ~200MB and reduces supply-chain surface.
     output: 'standalone',
-    // Pin the file-tracing root to this package instead of letting Next
-    // auto-detect via lockfile. Auto-detect walks upward until it finds a
-    // yarn.lock / package.json and was picking up stray files above the
-    // repo (e.g. a global ~/package.json with language servers), which
-    // caused standalone to emit `.next/standalone/<full-absolute-path>/`
-    // instead of a clean `.next/standalone/server.js` at the root.
-    outputFileTracingRoot: __dirname,
+    outputFileTracingRoot: projectRoot,
     // Suppress the default `X-Powered-By: Next.js` response header so
     // self-hosted deployments without an upstream proxy that strips it
     // don't fingerprint the framework version.
@@ -43,12 +57,22 @@ const nextConfig = {
     eslint: {
         ignoreDuringBuilds: true,
     },
+    // Turbopack-specific project root. Must match `outputFileTracingRoot`
+    // — Next warns and falls back to the latter otherwise.
+    turbopack: {
+        root: projectRoot,
+    },
     experimental: {
         authInterrupts: true,
         staleTimes: {
             dynamic: 300,
             static: 600,
         },
+        // Webpack equivalent of the turbopack.root above. Used when
+        // `next dev` runs without `--turbopack` (e.g. for production
+        // builds via `next build`). Allows imports to traverse outside
+        // `apps/web` to the `libs/` sibling.
+        externalDir: true,
     },
 
     // Headers de segurança

@@ -10,6 +10,7 @@
 | `API_LOG_LEVEL` | – | enum(error,warn,info,debug) | ⚙️ Both | Log verbosity. Cloud runs at info; self-hosted defaults to error to keep disk usage and noise low for users without log aggregation. |
 | `API_LOG_PRETTY` | – | boolean | ⚙️ Both | Pretty-print logs (dev) vs JSON (prod). |
 | `API_CLOUD_MODE` | – | boolean | ☁️ Cloud | Cloud-only — billing + analytics. Self-hosted MUST keep false. |
+| `BETA_FEATURES` | – | boolean | 🏠 Self-hosted | Self-hosted opt-in for `beta`-stage features in the catalog (release/features.yaml). Default (unset / false) keeps the operator on generally-available features only. Set to `true` to receive features Kodus has shipped to cloud customers but not yet promoted to GA. Cloud uses the per-org `release_track` column instead and ignores this flag. |
 | `RELEASE_VERSION` | – | string | ☁️ Cloud | Released version tag, set by CI on prod builds. |
 | `KODUS_LICENSE_KEY` | – | secret | 🏢 Self-hosted Enterprise | Self-hosted license key. Unlocks enterprise features. EE-only — documented in the docs reference; does not appear in either default .env.example. |
 | `API_DEVELOPMENT_MODE` | – | boolean | ☁️ Cloud | Dev-only bypass of permission validation. Cloud devs only. |

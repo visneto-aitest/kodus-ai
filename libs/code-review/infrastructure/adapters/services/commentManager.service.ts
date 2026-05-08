@@ -198,9 +198,14 @@ export class CommentManagerService implements ICommentManagerService {
                     );
                     if (azureLimit) {
                         const target = Math.floor(azureLimit * 0.8);
+                        // Pin formatting to en-US so the prompt stays
+                        // deterministic regardless of the server's locale
+                        // (default `toLocaleString()` would render `4.000`
+                        // on pt-BR machines and `4,000` on en-US, which
+                        // also broke the unit test on non-en-US dev boxes).
                         promptBase += `\n\n**Length Constraint (Azure DevOps)**:
-                    - Azure DevOps rejects pull request descriptions longer than ${azureLimit.toLocaleString()} characters with HTTP 400.
-                    - Aim for AT MOST ${target.toLocaleString()} characters in your output. The remaining budget is reserved for the user's existing PR body, summary markers, and separators.
+                    - Azure DevOps rejects pull request descriptions longer than ${azureLimit.toLocaleString('en-US')} characters with HTTP 400.
+                    - Aim for AT MOST ${target.toLocaleString('en-US')} characters in your output. The remaining budget is reserved for the user's existing PR body, summary markers, and separators.
                     - Be concise. Prioritise the most impactful changes; collapse trivial ones.`;
                     }
                 }

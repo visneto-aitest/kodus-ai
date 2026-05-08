@@ -1,6 +1,13 @@
 # syntax=docker/dockerfile:1.7
 # Multi-stage production build for kodus-web (Next.js)
-# Used for both cloud production and QA builds
+# Used for both cloud production and QA builds.
+#
+# Build context: the monorepo root (NOT apps/web).
+# This is required because apps/web imports from `@libs/feature-gate/*`,
+# which resolves to `../../libs/*` via tsconfig paths. With the historical
+# `apps/web` context, the build couldn't see those files. The web's
+# `outputFileTracingRoot` is also pinned to the monorepo root, so the
+# standalone output uses repo-relative paths.
 
 # 1) Builder stage: install all deps and build
 FROM docker.io/library/node:22.22.2-slim AS builder
@@ -14,13 +21,26 @@ ENV RELEASE_VERSION=${RELEASE_VERSION}
 # from `.yarnrc` (the YARN_HTTP_TIMEOUT env var does NOT exist on yarn1).
 RUN echo 'network-timeout 600000' > /root/.yarnrc
 
-COPY package.json yarn.lock ./
+# Install web deps first so the cache layer stays warm even if other
+# parts of the monorepo change. apps/web has its own package.json — the
+# repo isn't using yarn workspaces.
+COPY apps/web/package.json apps/web/yarn.lock ./apps/web/
 
 RUN --mount=type=cache,target=/yarn-cache,sharing=locked \
     YARN_CACHE_FOLDER=/yarn-cache \
-    yarn install --frozen-lockfile --production=false
+    cd apps/web && yarn install --frozen-lockfile --production=false
 
-COPY . .
+# Copy only what the Next build actually needs:
+#   - apps/web — the app itself
+#   - libs/feature-gate — imported via `@libs/*` tsconfig path
+#   - release/features-snapshot.json — read at runtime by the lib loader
+# Anything else in the repo (apps/api, libs/code-review, etc.) would just
+# bloat the build context without being touched by Next.
+COPY apps/web ./apps/web
+COPY libs/feature-gate ./libs/feature-gate
+COPY release/features-snapshot.json ./release/features-snapshot.json
+
+WORKDIR /usr/src/app/apps/web
 RUN yarn build
 
 # 2) Production stage: only the final artifacts
@@ -39,12 +59,17 @@ ENV WEB_NODE_ENV=production
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
 
-COPY --from=builder --chown=1000:1000 /usr/src/app/.next/standalone ./
-COPY --from=builder --chown=1000:1000 /usr/src/app/.next/static ./.next/static
-COPY --from=builder --chown=1000:1000 /usr/src/app/public ./public
+# `next build` with `outputFileTracingRoot=<monorepo-root>` emits the
+# standalone bundle under apps/web/.next/standalone/, with file paths
+# relative to that tracing root. The bundle's entry is at
+# `apps/web/server.js`, with required `node_modules/` and traced libs/
+# laid out alongside.
+COPY --from=builder --chown=1000:1000 /usr/src/app/apps/web/.next/standalone ./
+COPY --from=builder --chown=1000:1000 /usr/src/app/apps/web/.next/static ./apps/web/.next/static
+COPY --from=builder --chown=1000:1000 /usr/src/app/apps/web/public ./apps/web/public
 
 USER 1000
 
 EXPOSE 3000
 
-CMD ["node", "server.js"]
+CMD ["node", "apps/web/server.js"]

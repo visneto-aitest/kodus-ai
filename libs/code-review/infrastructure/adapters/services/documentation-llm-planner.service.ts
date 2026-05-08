@@ -1,3 +1,7 @@
+export const DOCUMENTATION_LLM_PLANNER_SERVICE_TOKEN = Symbol.for(
+    'DocumentationLLMPlannerService',
+);
+
 import { createLogger } from '@kodus/flow';
 import {
     BYOKConfig,

@@ -36,7 +36,6 @@ import {
 import { usePermission } from "@services/permissions/hooks";
 import { Action, ResourceType } from "@services/permissions/types";
 import type { CustomMessageConfig } from "@services/pull-request-messages/types";
-import { FEATURE_FLAGS } from "src/core/config/feature-flags";
 import { useSelectedTeamId } from "src/core/providers/selected-team-context";
 import { safeArray } from "src/core/utils/safe-array";
 
@@ -53,7 +52,6 @@ import {
     DefaultCodeReviewConfigProvider,
     PlatformConfigProvider,
     ScopedCodeReviewConfigProvider,
-    useFeatureFlags,
 } from "./context";
 import { PerRepository } from "./per-repository/repository";
 import {
@@ -72,7 +70,6 @@ const routes = [
 ] satisfies Array<{
     label: string;
     href: string;
-    featureFlag?: keyof typeof FEATURE_FLAGS;
 }>;
 
 type InitialPlatformConfig = {
@@ -175,7 +172,6 @@ function SettingsLayoutShell({
 }>) {
     const pathname = usePathname();
     const { repositoryId, pageName, directoryId } = useCodeReviewRouteParams();
-    const featureFlags = useFeatureFlags();
     const globalConfigOverrideCount = configValue
         ? countConfigOverridesForRoutes(
               configValue.configs,
@@ -239,15 +235,7 @@ function SettingsLayoutShell({
         return nextRoutes;
     }, [canReadGitSettings, canReadBilling, canReadPlugins, isMCPAvailable]);
 
-    const settingsRoutes = useMemo(
-        () =>
-            routes.filter(
-                (route) =>
-                    !route.featureFlag ||
-                    featureFlags?.[route.featureFlag] === true,
-            ),
-        [featureFlags],
-    );
+    const settingsRoutes = routes;
 
     const isShellLoading = !configValue;
 

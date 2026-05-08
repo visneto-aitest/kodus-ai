@@ -3,8 +3,48 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PostHog } from 'posthog-node';
 
+import { OrganizationAndTeamData } from '@libs/core/infrastructure/config/types/general/organizationAndTeamData';
+
+/**
+ * NestJS DI token for the PostHog provider. Consumers inject the
+ * interface via `@Inject(POSTHOG_PROVIDER_TOKEN) posthog: IPostHogProvider`
+ * so the concrete class can be swapped in tests without rewriting every
+ * call site (see kody rule "Inject services and repositories via DI
+ * tokens, not by class").
+ */
+export const POSTHOG_PROVIDER_TOKEN = Symbol.for('PostHogProvider');
+
+export interface IPostHogProvider {
+    readonly isEnabled: boolean;
+
+    capture(
+        distinctId: string,
+        event: string,
+        properties?: Record<string, unknown>,
+        groups?: Record<string, string | undefined>,
+    ): void;
+
+    identify(
+        distinctId: string,
+        properties?: Record<string, unknown>,
+    ): void;
+
+    groupIdentify(
+        groupType: 'organization' | 'team' | 'repository',
+        groupKey: string,
+        properties?: Record<string, unknown>,
+    ): void;
+
+    isFeatureEnabled(
+        featureName: string,
+        identifier: string,
+        organizationAndTeamData: OrganizationAndTeamData,
+        repositoryId?: string,
+    ): Promise<boolean>;
+}
+
 @Injectable()
-export class PostHogProvider {
+export class PostHogProvider implements IPostHogProvider {
     private readonly logger = createLogger(PostHogProvider.name);
     private readonly client: PostHog | null = null;
 
@@ -63,6 +103,38 @@ export class PostHogProvider {
             this.client.groupIdentify({ groupType, groupKey, properties });
         } catch (error) {
             this.swallow('groupIdentify', `${groupType}:${groupKey}`, error);
+        }
+    }
+
+    /**
+     * Evaluates a feature flag against PostHog with the org / repo group
+     * context. When no API key is configured (e.g. local dev or self-hosted
+     * without telemetry) returns `true` to preserve legacy permissive
+     * behavior — cloud-only callers should still gate via the catalog stage.
+     */
+    async isFeatureEnabled(
+        featureName: string,
+        identifier: string,
+        organizationAndTeamData: OrganizationAndTeamData,
+        repositoryId?: string,
+    ): Promise<boolean> {
+        if (!this.client) return true;
+
+        const groups: Record<string, string> = {
+            organization: organizationAndTeamData.organizationId,
+        };
+        if (repositoryId) groups.repository = repositoryId;
+
+        try {
+            const result = await this.client.isFeatureEnabled(
+                featureName,
+                identifier,
+                { groups },
+            );
+            return result === true;
+        } catch (error) {
+            this.swallow('isFeatureEnabled', featureName, error);
+            return false;
         }
     }
 
