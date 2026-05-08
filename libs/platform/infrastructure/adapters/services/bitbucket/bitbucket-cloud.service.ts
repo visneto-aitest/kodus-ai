@@ -1,5 +1,6 @@
 import { createLogger } from '@kodus/flow';
 
+import { fitPRDescription } from '@libs/code-review/utils/fit-pr-description';
 import { INTEGRATION_REQUEST_TIMEOUT_MS } from '@libs/core/infrastructure/http/integration-timeouts';
 import { hasKodyMarker } from '@libs/common/utils/codeManagement/codeCommentMarkers';
 import { decrypt, encrypt } from '@libs/common/utils/crypto';
@@ -2871,6 +2872,13 @@ export class BitbucketCloudService implements Omit<
             const bitbucketAPI =
                 this.instanceBitbucketApi(bitbucketAuthDetails);
 
+            // Truncate at the adapter boundary so the per-platform limit
+            // is enforced consistently — see fit-pr-description.ts.
+            const fittedSummary = fitPRDescription(
+                summary,
+                PlatformType.BITBUCKET,
+            );
+
             // added ts-ignore because _body expects a type property but Bitbucket rejects it
             await bitbucketAPI.pullrequests.update({
                 pull_request_id: prNumber,
@@ -2879,7 +2887,7 @@ export class BitbucketCloudService implements Omit<
                 // @ts-expect-error: _body is required but not typed in the library
                 _body: {
                     summary: {
-                        raw: summary,
+                        raw: fittedSummary,
                     },
                 },
             });

@@ -64,9 +64,9 @@ export class PullRequestsModel extends CoreDocument {
         status: string;
         createdAt: string;
         updatedAt: string;
-        added: number;
-        deleted: number;
-        changes: number;
+        added?: number;
+        deleted?: number;
+        changes?: number;
         reviewMode: ReviewModeResponse;
         codeReviewModelUsed: {
             generateSuggestions: string;

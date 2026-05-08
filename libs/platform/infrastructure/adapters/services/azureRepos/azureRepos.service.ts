@@ -1650,7 +1650,14 @@ export class AzureReposService implements Omit<
                 },
             );
 
-            return pr;
+            if (!pr) {
+                return null;
+            }
+
+            return {
+                ...pr,
+                body: pr.description ?? '',
+            };
         } catch (error) {
             this.logger.error({
                 message: 'Error to get pull request by number',
@@ -3980,7 +3987,9 @@ export class AzureReposService implements Omit<
         const minIndent = Math.min(...indents);
         if (minIndent === 0) return code;
         return lines
-            .map((line) => (line.length >= minIndent ? line.slice(minIndent) : line))
+            .map((line) =>
+                line.length >= minIndent ? line.slice(minIndent) : line,
+            )
             .join('\n');
     }
 

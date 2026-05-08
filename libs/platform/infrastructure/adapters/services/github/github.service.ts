@@ -19,6 +19,7 @@ import {
     GitHubReaction,
     Reaction,
 } from '@libs/code-review/domain/codeReviewFeedback/enums/codeReviewCommentReaction.enum';
+import { fitPRDescription } from '@libs/code-review/utils/fit-pr-description';
 import { getCodeReviewBadge } from '@libs/common/utils/codeManagement/codeReviewBadge';
 import { getLabelShield } from '@libs/common/utils/codeManagement/labels';
 import { getSeverityLevelShield } from '@libs/common/utils/codeManagement/severityLevel';
@@ -4021,7 +4022,7 @@ This is an experimental feature that generates committable changes. Review the d
             owner: githubAuthDetail.org,
             repo: repository.name,
             pull_number: prNumber,
-            body: summary,
+            body: fitPRDescription(summary, PlatformType.GITHUB),
         });
 
         return response;

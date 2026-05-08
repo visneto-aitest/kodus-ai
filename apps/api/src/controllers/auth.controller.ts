@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 
+import { deriveSsoCookieDomain } from '../utils/derive-sso-cookie-domain';
 import { ConfirmEmailUseCase } from '@libs/identity/application/use-cases/auth/confirm-email.use-case';
 import { ForgotPasswordUseCase } from '@libs/identity/application/use-cases/auth/forgotPasswordUseCase';
 import { LoginUseCase } from '@libs/identity/application/use-cases/auth/login.use-case';
@@ -259,16 +260,19 @@ export class AuthController {
 
             const payload = JSON.stringify({ accessToken, refreshToken });
 
+            const cookieDomain = deriveSsoCookieDomain({
+                apiHost: req.get('host')?.split(':')[0] ?? '',
+                frontendUrl,
+                nodeEnv: process.env.API_NODE_ENV,
+            });
+
             res.cookie('sso_handoff', payload, {
                 httpOnly: false,
                 secure: process.env.API_NODE_ENV !== 'development',
                 sameSite: 'lax',
                 path: '/',
                 maxAge: 15 * 1000,
-                domain:
-                    process.env.API_NODE_ENV !== 'development'
-                        ? '.kodus.io'
-                        : undefined,
+                domain: cookieDomain,
             });
 
             return res.redirect(`${frontendUrl}/sso-callback`);

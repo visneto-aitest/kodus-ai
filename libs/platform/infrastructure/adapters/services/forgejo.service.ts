@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { v4 as uuidv4 } from 'uuid';
 
 import { createLogger } from '@kodus/flow';
+import { fitPRDescription } from '@libs/code-review/utils/fit-pr-description';
 import { hasKodyMarker } from '@libs/common/utils/codeManagement/codeCommentMarkers';
 import { getCodeReviewBadge } from '@libs/common/utils/codeManagement/codeReviewBadge';
 import { getLabelShield } from '@libs/common/utils/codeManagement/labels';
@@ -2561,7 +2562,12 @@ export class ForgejoService implements Omit<
 
             const client = this.createForgejoClient(authDetail);
 
-            const description = params.summary ?? params.body;
+            // Truncate at the adapter boundary so the per-platform limit
+            // is enforced consistently — see fit-pr-description.ts.
+            const description = fitPRDescription(
+                params.summary ?? params.body ?? '',
+                PlatformType.FORGEJO,
+            );
 
             const result = await repoEditPullRequest({
                 client,

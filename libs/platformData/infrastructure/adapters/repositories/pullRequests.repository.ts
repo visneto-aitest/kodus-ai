@@ -54,12 +54,18 @@ export class PullRequestsRepository implements IPullRequestsRepository {
     async findOne(
         filter?: Partial<IPullRequests>,
     ): Promise<PullRequestsEntity | null> {
-        const doc = await this.pullRequestsModel.findOne(filter).lean().exec();
+        const doc = await this.pullRequestsModel
+            .findOne(filter as any)
+            .lean()
+            .exec();
         return doc ? mapSimpleModelToEntity(doc, PullRequestsEntity) : null;
     }
 
     async find(filter?: Partial<IPullRequests>): Promise<PullRequestsEntity[]> {
-        const docs = await this.pullRequestsModel.find(filter).lean().exec();
+        const docs = await this.pullRequestsModel
+            .find(filter as any)
+            .lean()
+            .exec();
         return mapSimpleModelsToEntities(docs, PullRequestsEntity);
     }
 

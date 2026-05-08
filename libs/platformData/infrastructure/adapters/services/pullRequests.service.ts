@@ -840,7 +840,7 @@ export class PullRequestsService implements IPullRequestsService {
                 structure.prLevelSuggestions = prLevelSuggestions;
             }
 
-            return this.create(structure as Omit<IPullRequests, 'uuid'>);
+            return await this.create(structure as Omit<IPullRequests, 'uuid'>);
         } catch (error) {
             // Detect MongoDB duplicate key error (code 11000)
             const isDuplicateKeyError =
@@ -857,13 +857,10 @@ export class PullRequestsService implements IPullRequestsService {
                     },
                 });
 
-                // Race condition: webhook arrived almost simultaneously (< 1 second)
-                // The first webhook is already processing/processed everything
-                // Just find and return the existing PR (don't reprocess)
                 const existingPR =
-                    await this.pullRequestsRepository.findByNumberAndRepositoryName(
+                    await this.pullRequestsRepository.findByNumberAndRepositoryId(
                         pullRequest?.number,
-                        repository.name,
+                        repository.id,
                         organizationAndTeamData,
                     );
 
