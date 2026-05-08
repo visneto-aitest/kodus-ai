@@ -136,7 +136,7 @@ Kimi K2.6 Coding 默认开启推理 — 精选卡片预填 **Thinking: Medium**,
 | --- | --- |
 | **Provider** | `OpenAI Compatible` |
 | **Base URL** | `https://api.moonshot.ai/v1`(开发者 API)<br />`https://api.kimi.com/coding/v1`(Kimi Code Plan)<br />`https://api.moonshot.cn/v1`(仅限中国大陆) |
-| **Model** | `kimi-k2.6-coding`、`kimi-k2.6`、`kimi-k2.5`、`kimi-k2-0905`、`kimi-k2` |
+| **Model** | `kimi-k2.6`、`kimi-k2.6`、`kimi-k2.5`、`kimi-k2-0905`、`kimi-k2` |
 | **API Key** | 您的 Moonshot 或 Kimi Code 密钥(与上述基础 URL 匹配) |
 | **Max Concurrent Requests** | Kimi Code Plan 上为 `30`;开发者 API 保持为空(随充值档位伸缩) |
 
@@ -146,7 +146,7 @@ Kimi K2.6 Coding 默认开启推理 — 精选卡片预填 **Thinking: Medium**,
 
 ```env
 # Moonshot(Kimi)配置(固定模式)
-API_LLM_PROVIDER_MODEL="kimi-k2.6-coding"
+API_LLM_PROVIDER_MODEL="kimi-k2.6"
 API_OPENAI_FORCE_BASE_URL="https://api.moonshot.ai/v1"    # Kimi Code Plan 使用 https://api.kimi.com/coding/v1
 API_OPEN_AI_API_KEY="your-moonshot-or-kimi-code-api-key"
 ```
@@ -186,7 +186,7 @@ docker-compose logs api worker | grep -iE "moonshot|kimi"
   </Accordion>
 
   <Accordion title="模型未找到">
-    - 确认模型名称与目录匹配(`kimi-k2.6-coding`、`kimi-k2.6`、`kimi-k2.5`、`kimi-k2-0905`、`kimi-k2`)。
+    - 确认模型名称与目录匹配(`kimi-k2.6`、`kimi-k2.6`、`kimi-k2.5`、`kimi-k2-0905`、`kimi-k2`)。
     - 请查看 [platform.kimi.ai/docs](https://platform.kimi.ai/docs) 了解当前列表 — 新版本发布频繁。
   </Accordion>
 

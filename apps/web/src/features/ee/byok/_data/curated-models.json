@@ -79,7 +79,7 @@
             }
         },
         {
-            "id": "kimi-k2.6-coding",
+            "id": "kimi-k2.6",
             "displayName": "Kimi K2.6 Coding",
             "provider": "openai_compatible",
             "providerDisplayName": "Moonshot AI",
